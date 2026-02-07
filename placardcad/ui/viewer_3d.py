@@ -137,10 +137,7 @@ class PlacardViewer(QWidget):
 
     def _dessiner_cotations(self, painter: QPainter, scale: float,
                             ox: float, oy: float):
-        """Dessine les cotations (hauteur, largeur, compartiments)."""
-        pen = QPen(QColor("#333333"), 1, Qt.DashLine)
-        painter.setPen(pen)
-
+        """Dessine les cotations (dimensions globales, compartiments, separations)."""
         font = QFont()
         font.setPointSize(8)
         painter.setFont(font)
@@ -149,42 +146,38 @@ class PlacardViewer(QWidget):
         H = self._placard_h
         L = self._placard_w
 
-        # Cotation largeur totale (en bas)
+        # === Cotation largeur totale (en bas) ===
         y_cot = -30
         p_left = self._to_screen(0, y_cot, scale, ox, oy)
         p_right = self._to_screen(L, y_cot, scale, ox, oy)
 
         painter.setPen(QPen(QColor("#333"), 1))
         painter.drawLine(p_left, p_right)
-        # Traits de rappel
         p_top_l = self._to_screen(0, 0, scale, ox, oy)
         p_top_r = self._to_screen(L, 0, scale, ox, oy)
         painter.setPen(QPen(QColor("#999"), 1, Qt.DotLine))
         painter.drawLine(p_top_l, p_left)
         painter.drawLine(p_top_r, p_right)
 
-        # Texte largeur
         painter.setPen(QPen(QColor("#333"), 1))
         text_l = f"{L:.0f}"
         text_w = fm.horizontalAdvance(text_l)
         mid_x = (p_left.x() + p_right.x()) / 2 - text_w / 2
         painter.drawText(QPointF(mid_x, p_left.y() + fm.height()), text_l)
 
-        # Cotation hauteur (a gauche)
+        # === Cotation hauteur totale (a gauche) ===
         x_cot = -30
         p_bottom = self._to_screen(x_cot, 0, scale, ox, oy)
         p_top = self._to_screen(x_cot, H, scale, ox, oy)
 
         painter.setPen(QPen(QColor("#333"), 1))
         painter.drawLine(p_bottom, p_top)
-        # Traits de rappel
         p_orig_b = self._to_screen(0, 0, scale, ox, oy)
         p_orig_t = self._to_screen(0, H, scale, ox, oy)
         painter.setPen(QPen(QColor("#999"), 1, Qt.DotLine))
         painter.drawLine(p_orig_b, p_bottom)
         painter.drawLine(p_orig_t, p_top)
 
-        # Texte hauteur
         painter.setPen(QPen(QColor("#333"), 1))
         text_h = f"{H:.0f}"
         mid_y = (p_bottom.y() + p_top.y()) / 2 + fm.height() / 2
@@ -193,3 +186,83 @@ class PlacardViewer(QWidget):
         painter.rotate(-90)
         painter.drawText(0, 0, text_h)
         painter.restore()
+
+        # === Cotations compartiments et separations ===
+        seps = sorted(
+            [r for r in self._rects if r.type_elem == "separation"],
+            key=lambda r: r.x
+        )
+        if not seps:
+            return
+
+        font_s = QFont()
+        font_s.setPointSize(7)
+        painter.setFont(font_s)
+        fm_s = QFontMetrics(font_s)
+
+        # --- Largeurs compartiments (en haut) ---
+        edges = [0.0]
+        for s in seps:
+            edges.append(s.x)
+            edges.append(s.x + s.w)
+        edges.append(L)
+
+        z_cot_top = H + 18
+        for i in range(0, len(edges), 2):
+            x_l = edges[i]
+            x_r = edges[i + 1]
+            w = x_r - x_l
+            if w <= 1:
+                continue
+
+            p_l = self._to_screen(x_l, z_cot_top, scale, ox, oy)
+            p_r = self._to_screen(x_r, z_cot_top, scale, ox, oy)
+
+            # Traits de rappel
+            p_hl = self._to_screen(x_l, H, scale, ox, oy)
+            p_hr = self._to_screen(x_r, H, scale, ox, oy)
+            painter.setPen(QPen(QColor("#AAD4FF"), 1, Qt.DotLine))
+            painter.drawLine(p_hl, p_l)
+            painter.drawLine(p_hr, p_r)
+
+            # Ligne de cote
+            painter.setPen(QPen(QColor("#0066CC"), 1))
+            painter.drawLine(p_l, p_r)
+
+            # Texte
+            text = f"{w:.0f}"
+            tw = fm_s.horizontalAdvance(text)
+            mid_x = (p_l.x() + p_r.x()) / 2 - tw / 2
+            painter.drawText(QPointF(mid_x, p_l.y() - 3), text)
+
+        # --- Hauteurs separations (a droite) ---
+        hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)
+
+        x_base = L + 18
+        for idx, h_val in enumerate(hauteurs):
+            x_cot_r = x_base + idx * 22
+
+            p_b = self._to_screen(x_cot_r, 0, scale, ox, oy)
+            p_t = self._to_screen(x_cot_r, h_val, scale, ox, oy)
+
+            # Traits de rappel
+            p_ref_b = self._to_screen(L, 0, scale, ox, oy)
+            p_ref_t = self._to_screen(L, h_val, scale, ox, oy)
+            painter.setPen(QPen(QColor("#FFD4AA"), 1, Qt.DotLine))
+            painter.drawLine(QPointF(p_ref_b.x(), p_b.y()), p_b)
+            painter.drawLine(QPointF(p_ref_t.x(), p_t.y()), p_t)
+
+            # Ligne de cote
+            painter.setPen(QPen(QColor("#CC6600"), 1))
+            painter.drawLine(p_b, p_t)
+
+            # Texte
+            text = f"Sep. {h_val:.0f}"
+            mid_y = (p_b.y() + p_t.y()) / 2 + fm_s.height() / 2
+            painter.save()
+            painter.translate(p_t.x() + 5, mid_y)
+            painter.rotate(-90)
+            painter.drawText(0, 0, text)
+            painter.restore()
+
+        painter.setFont(font)

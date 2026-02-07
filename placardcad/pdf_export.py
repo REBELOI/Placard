@@ -92,13 +92,13 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             c.setLineWidth(0.5)
             c.rect(sx, sy, sw, sh, fill=1)
 
-    # --- Cotations ---
+    # --- Cotations globales ---
     c.setStrokeColor(colors.black)
     c.setLineWidth(0.5)
     c.setFont("Helvetica", 7)
     c.setFillColor(colors.black)
 
-    # Largeur (en bas)
+    # Largeur totale (en bas)
     y_cot = oy - 15
     x_left = ox
     x_right = ox + largeur_placard * scale
@@ -110,7 +110,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     c.setFillColor(colors.black)
     c.drawCentredString((x_left + x_right) / 2, y_cot - 10, f"{largeur_placard:.0f} mm")
 
-    # Hauteur (a gauche)
+    # Hauteur totale (a gauche)
     x_cot = ox - 15
     y_bottom = oy
     y_top = oy + hauteur_placard * scale
@@ -128,6 +128,77 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     c.setFillColor(colors.black)
     c.drawCentredString(0, 0, f"{hauteur_placard:.0f} mm")
     c.restoreState()
+
+    # --- Cotations compartiments et separations ---
+    seps = sorted(
+        [r for r in rects if r.type_elem == "separation"],
+        key=lambda r: r.x
+    )
+    if seps:
+        c.setFont("Helvetica", 5.5)
+
+        # Largeurs compartiments (en haut)
+        edges = [0.0]
+        for s in seps:
+            edges.append(s.x)
+            edges.append(s.x + s.w)
+        edges.append(largeur_placard)
+
+        y_cot_top = oy + hauteur_placard * scale + 10
+
+        for i in range(0, len(edges), 2):
+            x_l = edges[i]
+            x_r = edges[i + 1]
+            w = x_r - x_l
+            if w <= 1:
+                continue
+
+            xl_pdf = ox + x_l * scale
+            xr_pdf = ox + x_r * scale
+
+            # Traits de rappel
+            c.setStrokeColor(colors.Color(0.67, 0.83, 1.0))
+            c.setLineWidth(0.3)
+            c.line(xl_pdf, oy + hauteur_placard * scale, xl_pdf, y_cot_top + 2)
+            c.line(xr_pdf, oy + hauteur_placard * scale, xr_pdf, y_cot_top + 2)
+
+            # Ligne de cote
+            c.setStrokeColor(colors.Color(0.0, 0.4, 0.8))
+            c.setLineWidth(0.5)
+            c.line(xl_pdf, y_cot_top, xr_pdf, y_cot_top)
+
+            # Texte
+            c.setFillColor(colors.Color(0.0, 0.4, 0.8))
+            c.drawCentredString((xl_pdf + xr_pdf) / 2, y_cot_top + 2, f"{w:.0f}")
+
+        # Hauteurs separations (a droite)
+        hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)
+
+        x_base_pdf = ox + largeur_placard * scale + 10
+        for idx, h_val in enumerate(hauteurs):
+            x_cot_pdf = x_base_pdf + idx * 14
+
+            yb = oy
+            yt = oy + h_val * scale
+
+            # Traits de rappel
+            c.setStrokeColor(colors.Color(1.0, 0.83, 0.67))
+            c.setLineWidth(0.3)
+            c.line(ox + largeur_placard * scale, yb, x_cot_pdf + 2, yb)
+            c.line(ox + largeur_placard * scale, yt, x_cot_pdf + 2, yt)
+
+            # Ligne de cote
+            c.setStrokeColor(colors.Color(0.8, 0.4, 0.0))
+            c.setLineWidth(0.5)
+            c.line(x_cot_pdf, yb, x_cot_pdf, yt)
+
+            # Texte
+            c.saveState()
+            c.translate(x_cot_pdf + 6, (yb + yt) / 2)
+            c.rotate(90)
+            c.setFillColor(colors.Color(0.8, 0.4, 0.0))
+            c.drawCentredString(0, 0, f"Sep. {h_val:.0f}")
+            c.restoreState()
 
 
 # =========================================================================
