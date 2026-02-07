@@ -31,6 +31,8 @@ PARAMS_DEFAUT = {
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
+        "retrait_avant": 0,
+        "retrait_arriere": 0,
     },
     "panneau_rayon_haut": {
         "epaisseur": 22,
@@ -39,6 +41,8 @@ PARAMS_DEFAUT = {
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
+        "retrait_avant": 0,
+        "retrait_arriere": 0,
     },
     "panneau_mur": {
         "epaisseur": 19,
@@ -111,7 +115,27 @@ CREATE TABLE IF NOT EXISTS amenagements (
     date_modif      TEXT NOT NULL,
     notes           TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS configurations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom             TEXT NOT NULL,
+    categorie       TEXT NOT NULL,
+    params_json     TEXT NOT NULL DEFAULT '{}',
+    date_creation   TEXT NOT NULL,
+    date_modif      TEXT NOT NULL
+);
 """
+
+# Categories de configurations type
+CATEGORIES_CONFIG = [
+    "panneau_separation",
+    "panneau_rayon",
+    "panneau_rayon_haut",
+    "panneau_mur",
+    "crem_encastree",
+    "crem_applique",
+    "tasseau",
+]
 
 
 class Database:
@@ -265,3 +289,66 @@ class Database:
         if row and row["params_json"]:
             return json.loads(row["params_json"])
         return dict(PARAMS_DEFAUT)
+
+    # --- Configurations type (presets) ---
+
+    def sauver_configuration(self, nom: str, categorie: str, params: dict) -> int:
+        """Sauvegarde une configuration type. Retourne son id."""
+        now = datetime.now().isoformat()
+        params_json = json.dumps(params, ensure_ascii=False)
+        cur = self.conn.execute(
+            "INSERT INTO configurations (nom, categorie, params_json, date_creation, date_modif) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (nom, categorie, params_json, now, now)
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def modifier_configuration(self, config_id: int, nom: str = None, params: dict = None):
+        """Met a jour une configuration type."""
+        now = datetime.now().isoformat()
+        if nom is not None:
+            self.conn.execute(
+                "UPDATE configurations SET nom = ?, date_modif = ? WHERE id = ?",
+                (nom, now, config_id)
+            )
+        if params is not None:
+            self.conn.execute(
+                "UPDATE configurations SET params_json = ?, date_modif = ? WHERE id = ?",
+                (json.dumps(params, ensure_ascii=False), now, config_id)
+            )
+        self.conn.commit()
+
+    def supprimer_configuration(self, config_id: int):
+        """Supprime une configuration type."""
+        self.conn.execute("DELETE FROM configurations WHERE id = ?", (config_id,))
+        self.conn.commit()
+
+    def lister_configurations(self, categorie: str = None) -> list[dict]:
+        """Liste les configurations type, optionnellement filtrees par categorie."""
+        if categorie:
+            rows = self.conn.execute(
+                "SELECT * FROM configurations WHERE categorie = ? ORDER BY nom",
+                (categorie,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM configurations ORDER BY categorie, nom"
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["params"] = json.loads(d["params_json"])
+            result.append(d)
+        return result
+
+    def get_configuration(self, config_id: int) -> Optional[dict]:
+        """Retourne une configuration type par son id."""
+        row = self.conn.execute(
+            "SELECT * FROM configurations WHERE id = ?", (config_id,)
+        ).fetchone()
+        if row:
+            d = dict(row)
+            d["params"] = json.loads(d["params_json"])
+            return d
+        return None

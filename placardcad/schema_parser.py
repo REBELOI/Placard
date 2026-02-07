@@ -264,6 +264,8 @@ def schema_vers_config(schema_text: str, params_generaux: dict | None = None) ->
             "chant_epaisseur": 1,
             "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
+            "retrait_avant": 0,
+            "retrait_arriere": 0,
         },
         "panneau_rayon_haut": {
             "epaisseur": 22,
@@ -272,6 +274,8 @@ def schema_vers_config(schema_text: str, params_generaux: dict | None = None) ->
             "chant_epaisseur": 1,
             "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
+            "retrait_avant": 0,
+            "retrait_arriere": 0,
         },
         "crem_encastree": {
             "largeur": 16,

@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         self.schema_editor.schema_modifie.connect(self._on_schema_modifie)
 
         # Parametres en bas (dans un onglet)
-        self.params_editor = ParamsEditor()
+        self.params_editor = ParamsEditor(db=self.db)
         self.params_editor.params_modifies.connect(self._on_params_modifies)
 
         # Tabs pour schema et params
@@ -258,7 +258,9 @@ class MainWindow(QMainWindow):
             projet_info = self.db.get_projet(self._current_projet_id)
 
         try:
-            exporter_pdf(filepath, self._rects, config, self._fiche, projet_info)
+            exporter_pdf(filepath, self._rects, config, self._fiche, projet_info,
+                         projet_id=self._current_projet_id or 0,
+                         amenagement_id=self._current_amenagement_id or 0)
             self.statusbar.showMessage(f"PDF exporte: {filepath}")
             QMessageBox.information(self, "Export PDF",
                                     f"PDF exporte avec succes:\n{filepath}")

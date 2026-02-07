@@ -16,7 +16,8 @@ class PieceInfo:
 
     def __init__(self, nom: str, longueur: float, largeur: float, epaisseur: float,
                  materiau: str = "Agglomere melamine", couleur_fab: str = "",
-                 chant_desc: str = "", quantite: int = 1, notes: str = ""):
+                 chant_desc: str = "", quantite: int = 1, notes: str = "",
+                 reference: str = ""):
         self.nom = nom
         self.longueur = longueur
         self.largeur = largeur
@@ -26,6 +27,7 @@ class PieceInfo:
         self.chant_desc = chant_desc
         self.quantite = quantite
         self.notes = notes
+        self.reference = reference
 
     def __repr__(self):
         return (f"{self.nom}: {self.longueur:.0f}x{self.largeur:.0f}x{self.epaisseur:.0f}mm "
@@ -171,8 +173,10 @@ def calculer_dimensions_rayon(config: dict, compartiment_idx: int,
     comp = config["compartiments"][compartiment_idx]
     profondeur = config["profondeur"]
     chant_ep = config["panneau_rayon"]["chant_epaisseur"]
+    retrait_av = config["panneau_rayon"].get("retrait_avant", 0)
+    retrait_ar = config["panneau_rayon"].get("retrait_arriere", 0)
 
-    prof_rayon = profondeur - chant_ep
+    prof_rayon = profondeur - chant_ep - retrait_av - retrait_ar
     larg_rayon = largeur_compartiment
 
     saillie = config["crem_encastree"].get("saillie", 0)
@@ -273,7 +277,9 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
             rgb_to_hex(config["panneau_rayon_haut"]["couleur_rgb"]),
             "Rayon haut", "rayon_haut"
         ))
-        prof_rh = P - config["panneau_rayon_haut"]["chant_epaisseur"]
+        rh_retrait_av = config["panneau_rayon_haut"].get("retrait_avant", 0)
+        rh_retrait_ar = config["panneau_rayon_haut"].get("retrait_arriere", 0)
+        prof_rh = P - config["panneau_rayon_haut"]["chant_epaisseur"] - rh_retrait_av - rh_retrait_ar
         fiche.ajouter_piece(PieceInfo(
             "Rayon haut (toute largeur)", L, prof_rh, ep_rayon_haut,
             couleur_fab=config["panneau_rayon_haut"]["couleur_fab"],
