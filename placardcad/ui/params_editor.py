@@ -206,19 +206,54 @@ class ParamsEditor(QWidget):
         if not config_type:
             return
 
-        nom, ok = QInputDialog.getText(
-            self, "Sauver configuration type",
-            "Nom de la configuration\n(panneaux + cremailleres + tasseaux) :"
-        )
-        if not ok or not nom:
+        configs = self.db.lister_configurations("globale")
+
+        menu = QMenu(self)
+        action_new = menu.addAction("Nouvelle configuration...")
+        action_new.setData(("nouveau", 0))
+
+        if configs:
+            menu.addSeparator()
+            label_action = menu.addAction("-- Ecraser une config existante --")
+            label_action.setEnabled(False)
+            for cfg in configs:
+                action = menu.addAction(f"  {cfg['nom']}")
+                action.setData(("ecraser", cfg["id"]))
+
+        action = menu.exec_(self.cursor().pos())
+        if not action or not action.data():
             return
 
-        self.db.sauver_configuration(nom, "globale", config_type)
-        QMessageBox.information(
-            self, "Configuration sauvegardee",
-            f"Configuration '{nom}' sauvegardee.\n"
-            f"Reutilisable sur tous vos projets."
-        )
+        op, config_id = action.data()
+
+        if op == "nouveau":
+            nom, ok = QInputDialog.getText(
+                self, "Sauver configuration type",
+                "Nom de la configuration\n(panneaux + cremailleres + tasseaux) :"
+            )
+            if not ok or not nom:
+                return
+            self.db.sauver_configuration(nom, "globale", config_type)
+            QMessageBox.information(
+                self, "Configuration sauvegardee",
+                f"Configuration '{nom}' sauvegardee.\n"
+                f"Reutilisable sur tous vos projets."
+            )
+        elif op == "ecraser":
+            cfg = self.db.get_configuration(config_id)
+            if not cfg:
+                return
+            rep = QMessageBox.question(
+                self, "Ecraser configuration",
+                f"Ecraser la configuration '{cfg['nom']}' avec les parametres actuels ?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if rep == QMessageBox.Yes:
+                self.db.modifier_configuration(config_id, params=config_type)
+                QMessageBox.information(
+                    self, "Configuration ecrasee",
+                    f"Configuration '{cfg['nom']}' mise a jour."
+                )
 
     def _charger_preset(self):
         """Charge un preset global sauvegarde."""
