@@ -147,7 +147,7 @@ class PlacardViewer(QWidget):
         L = self._placard_w
 
         # === Cotation largeur totale (en bas) ===
-        y_cot = -30
+        y_cot = -42
         p_left = self._to_screen(0, y_cot, scale, ox, oy)
         p_right = self._to_screen(L, y_cot, scale, ox, oy)
 
@@ -200,14 +200,14 @@ class PlacardViewer(QWidget):
         painter.setFont(font_s)
         fm_s = QFontMetrics(font_s)
 
-        # --- Largeurs compartiments (en haut) ---
+        # --- Largeurs compartiments (en bas, au-dessus de la largeur totale) ---
         edges = [0.0]
         for s in seps:
             edges.append(s.x)
             edges.append(s.x + s.w)
         edges.append(L)
 
-        z_cot_top = H + 18
+        z_cot_bas = -15
         for i in range(0, len(edges), 2):
             x_l = edges[i]
             x_r = edges[i + 1]
@@ -215,12 +215,12 @@ class PlacardViewer(QWidget):
             if w <= 1:
                 continue
 
-            p_l = self._to_screen(x_l, z_cot_top, scale, ox, oy)
-            p_r = self._to_screen(x_r, z_cot_top, scale, ox, oy)
+            p_l = self._to_screen(x_l, z_cot_bas, scale, ox, oy)
+            p_r = self._to_screen(x_r, z_cot_bas, scale, ox, oy)
 
             # Traits de rappel
-            p_hl = self._to_screen(x_l, H, scale, ox, oy)
-            p_hr = self._to_screen(x_r, H, scale, ox, oy)
+            p_hl = self._to_screen(x_l, 0, scale, ox, oy)
+            p_hr = self._to_screen(x_r, 0, scale, ox, oy)
             painter.setPen(QPen(QColor("#AAD4FF"), 1, Qt.DotLine))
             painter.drawLine(p_hl, p_l)
             painter.drawLine(p_hr, p_r)
@@ -233,7 +233,7 @@ class PlacardViewer(QWidget):
             text = f"{w:.0f}"
             tw = fm_s.horizontalAdvance(text)
             mid_x = (p_l.x() + p_r.x()) / 2 - tw / 2
-            painter.drawText(QPointF(mid_x, p_l.y() - 3), text)
+            painter.drawText(QPointF(mid_x, p_l.y() + fm_s.height()), text)
 
         # --- Hauteurs separations (a droite) ---
         hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)

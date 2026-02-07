@@ -99,7 +99,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     c.setFillColor(colors.black)
 
     # Largeur totale (en bas)
-    y_cot = oy - 15
+    y_cot = oy - 25
     x_left = ox
     x_right = ox + largeur_placard * scale
     c.line(x_left, y_cot, x_right, y_cot)
@@ -137,14 +137,14 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     if seps:
         c.setFont("Helvetica", 5.5)
 
-        # Largeurs compartiments (en haut)
+        # Largeurs compartiments (en bas, au-dessus de la largeur totale)
         edges = [0.0]
         for s in seps:
             edges.append(s.x)
             edges.append(s.x + s.w)
         edges.append(largeur_placard)
 
-        y_cot_top = oy + hauteur_placard * scale + 10
+        y_cot_comp = oy - 8
 
         for i in range(0, len(edges), 2):
             x_l = edges[i]
@@ -159,17 +159,17 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             # Traits de rappel
             c.setStrokeColor(colors.Color(0.67, 0.83, 1.0))
             c.setLineWidth(0.3)
-            c.line(xl_pdf, oy + hauteur_placard * scale, xl_pdf, y_cot_top + 2)
-            c.line(xr_pdf, oy + hauteur_placard * scale, xr_pdf, y_cot_top + 2)
+            c.line(xl_pdf, oy, xl_pdf, y_cot_comp - 2)
+            c.line(xr_pdf, oy, xr_pdf, y_cot_comp - 2)
 
             # Ligne de cote
             c.setStrokeColor(colors.Color(0.0, 0.4, 0.8))
             c.setLineWidth(0.5)
-            c.line(xl_pdf, y_cot_top, xr_pdf, y_cot_top)
+            c.line(xl_pdf, y_cot_comp, xr_pdf, y_cot_comp)
 
             # Texte
             c.setFillColor(colors.Color(0.0, 0.4, 0.8))
-            c.drawCentredString((xl_pdf + xr_pdf) / 2, y_cot_top + 2, f"{w:.0f}")
+            c.drawCentredString((xl_pdf + xr_pdf) / 2, y_cot_comp + 2, f"{w:.0f}")
 
         # Hauteurs separations (a droite)
         hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)
