@@ -12,8 +12,6 @@ from datetime import datetime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.graphics.shapes import Drawing, Rect, Line, String, Group
 from reportlab.pdfgen import canvas
 
 from .placard_builder import Rect as PlacardRect, FicheFabrication
@@ -136,6 +134,97 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
 #  GENERATION PDF - TOUT SUR UNE PAGE
 # =========================================================================
 
+def _calculer_tailles(nb_pieces: int, nb_quinc: int, nb_materiaux: int,
+                      hauteur_dispo: float) -> tuple[float, float]:
+    """Calcule row_h et font_size pour faire tenir tout le contenu.
+
+    Retourne (row_h, font_size).
+    """
+    # Espace fixe : titres, espacements, surface, resume, note
+    espace_fixe = (
+        12      # titre fiche
+        + 4     # gap apres pieces
+        + 10    # ligne surface
+        + 14    # gap avant quincaillerie
+    )
+    if nb_quinc > 0:
+        espace_fixe += 12  # titre quincaillerie
+    if nb_materiaux > 0:
+        espace_fixe += 20  # titre resume + gap
+        espace_fixe += nb_materiaux * 9  # lignes resume
+    espace_fixe += 16  # note etiquettes
+
+    # Nombre total de lignes de tableau (headers + data)
+    nb_lignes = (1 + nb_pieces)  # header pieces + donnees
+    if nb_quinc > 0:
+        nb_lignes += (1 + nb_quinc)  # header quinc + donnees
+
+    espace_tableau = hauteur_dispo - espace_fixe
+    if nb_lignes <= 0:
+        return 10, 6.5
+
+    row_h = espace_tableau / nb_lignes
+    # Borner entre 6 et 11
+    row_h = max(6, min(11, row_h))
+
+    # Font proportionnelle a la hauteur de ligne
+    font_size = max(4.5, min(6.5, row_h * 0.65))
+
+    return row_h, font_size
+
+
+def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
+                      y_start: float, row_h: float, font_size: float,
+                      cols: list[tuple[str, int]],
+                      rows_data: list[list[str]]) -> float:
+    """Dessine un tableau avec en-tete et lignes. Retourne y apres le tableau."""
+    y = y_start
+
+    # En-tete
+    c.setFillColor(colors.Color(0.2, 0.2, 0.2))
+    c.rect(tab_x, y - row_h, tab_w, row_h, fill=1, stroke=0)
+    c.setFont("Helvetica-Bold", font_size)
+    c.setFillColor(colors.white)
+    cx = tab_x + 2
+    for col_name, col_w in cols:
+        c.drawString(cx, y - row_h + 2, col_name)
+        cx += col_w
+    y -= row_h
+
+    # Lignes de donnees
+    c.setFont("Helvetica", font_size)
+    nb_drawn = 0
+    for i, row in enumerate(rows_data):
+        if i % 2 == 1:
+            c.setFillColor(colors.Color(0.95, 0.95, 0.95))
+            c.rect(tab_x, y - row_h, tab_w, row_h, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+        cx = tab_x + 2
+        for j, (_, col_w) in enumerate(cols):
+            c.drawString(cx, y - row_h + 2, row[j])
+            cx += col_w
+        y -= row_h
+        nb_drawn += 1
+
+    # Grille
+    table_top = y_start
+    table_bottom = y
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(0.3)
+    # Lignes horizontales
+    for r_idx in range(nb_drawn + 2):  # +2 = header top + header bottom + data bottoms
+        y_line = table_top - r_idx * row_h
+        c.line(tab_x, y_line, tab_x + tab_w, y_line)
+    # Lignes verticales
+    cx = tab_x
+    for _, col_w in cols:
+        c.line(cx, table_top, cx, table_bottom)
+        cx += col_w
+    c.line(tab_x + tab_w, table_top, tab_x + tab_w, table_bottom)
+
+    return y
+
+
 def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
                  fiche: FicheFabrication, projet_info: dict | None = None,
                  projet_id: int = 0, amenagement_id: int = 0):
@@ -190,7 +279,6 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     vue_x = marge
     vue_y = marge
 
-    # Titre
     c.setFont("Helvetica-Bold", 9)
     c.setFillColor(colors.black)
     c.drawString(vue_x, y_sep - 12, "Vue de face")
@@ -203,16 +291,33 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     # =====================================================================
     tab_x = marge + vue_w + marge
     tab_w = page_w - tab_x - marge
+
+    # Calculer le resume materiaux pour connaitre le nb de lignes
+    materiaux = {}
+    for p in fiche.pieces:
+        key = (p.epaisseur, p.couleur_fab, p.materiau)
+        if key not in materiaux:
+            materiaux[key] = {"surface": 0, "nb": 0}
+        materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
+        materiaux[key]["nb"] += p.quantite
+
+    # Calculer tailles adaptees au contenu
+    hauteur_dispo = y_sep - 12 - marge
+    row_h, font_size = _calculer_tailles(
+        len(fiche.pieces), len(fiche.quincaillerie),
+        len(materiaux), hauteur_dispo
+    )
+
     y_cursor = y_sep - 12
 
     # --- Titre fiche ---
     c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(colors.black)
     c.drawString(tab_x, y_cursor, "Fiche de debit")
     y_cursor -= 12
 
     # --- Tableau pieces ---
-    # En-tete
-    cols = [
+    p_cols = [
         ("Ref.", 52),
         ("Designation", 115),
         ("Long.", 36),
@@ -221,35 +326,9 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
         ("Qte", 22),
         ("Chant", 65),
     ]
-    row_h = 10
-    font_size = 6.5
-
-    # Fond en-tete
-    c.setFillColor(colors.Color(0.2, 0.2, 0.2))
-    c.rect(tab_x, y_cursor - row_h, tab_w, row_h, fill=1, stroke=0)
-
-    c.setFont("Helvetica-Bold", font_size)
-    c.setFillColor(colors.white)
-    cx = tab_x + 2
-    for col_name, col_w in cols:
-        c.drawString(cx, y_cursor - row_h + 3, col_name)
-        cx += col_w
-    y_cursor -= row_h
-
-    # Lignes de donnees
-    c.setFont("Helvetica", font_size)
-    for i, p in enumerate(fiche.pieces):
-        if y_cursor - row_h < marge + 5:
-            break  # securite si trop de pieces
-
-        # Fond alterne
-        if i % 2 == 1:
-            c.setFillColor(colors.Color(0.95, 0.95, 0.95))
-            c.rect(tab_x, y_cursor - row_h, tab_w, row_h, fill=1, stroke=0)
-
-        c.setFillColor(colors.black)
-        cx = tab_x + 2
-        row_data = [
+    p_rows = []
+    for p in fiche.pieces:
+        p_rows.append([
             p.reference,
             p.nom[:28],
             f"{p.longueur:.0f}",
@@ -257,28 +336,10 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
             f"{p.epaisseur:.0f}",
             str(p.quantite),
             p.chant_desc[:16],
-        ]
-        for j, (_, col_w) in enumerate(cols):
-            c.drawString(cx, y_cursor - row_h + 3, row_data[j])
-            cx += col_w
-        y_cursor -= row_h
+        ])
 
-    # Grille
-    c.setStrokeColor(colors.grey)
-    c.setLineWidth(0.3)
-    nb_rows = len(fiche.pieces) + 1
-    table_top = y_sep - 12 - row_h
-    table_bottom = table_top - len(fiche.pieces) * row_h
-    # Lignes horizontales
-    for r_idx in range(nb_rows + 1):
-        y_line = table_top - r_idx * row_h + row_h
-        c.line(tab_x, y_line, tab_x + tab_w, y_line)
-    # Lignes verticales
-    cx = tab_x
-    for _, col_w in cols:
-        c.line(cx, table_top + row_h, cx, table_bottom + row_h)
-        cx += col_w
-    c.line(tab_x + tab_w, table_top + row_h, tab_x + tab_w, table_bottom + row_h)
+    y_cursor = _dessiner_tableau(c, tab_x, tab_w, y_cursor, row_h, font_size,
+                                 p_cols, p_rows)
 
     # --- Surface totale ---
     y_cursor -= 4
@@ -291,54 +352,25 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     # --- Quincaillerie ---
     if fiche.quincaillerie:
         c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.black)
         c.drawString(tab_x, y_cursor, "Quincaillerie")
         y_cursor -= 12
 
-        # En-tete
         q_cols = [("Designation", 170), ("Qte", 30), ("Description", 152)]
-        c.setFillColor(colors.Color(0.2, 0.2, 0.2))
-        c.rect(tab_x, y_cursor - row_h, tab_w, row_h, fill=1, stroke=0)
+        q_rows = []
+        for q in fiche.quincaillerie:
+            q_rows.append([q["nom"][:42], str(q["quantite"]), q["description"][:38]])
 
-        c.setFont("Helvetica-Bold", font_size)
-        c.setFillColor(colors.white)
-        cx = tab_x + 2
-        for col_name, col_w in q_cols:
-            c.drawString(cx, y_cursor - row_h + 3, col_name)
-            cx += col_w
-        y_cursor -= row_h
-
-        # Lignes
-        c.setFont("Helvetica", font_size)
-        for i, q in enumerate(fiche.quincaillerie):
-            if y_cursor - row_h < marge:
-                break
-
-            if i % 2 == 1:
-                c.setFillColor(colors.Color(0.95, 0.95, 0.95))
-                c.rect(tab_x, y_cursor - row_h, tab_w, row_h, fill=1, stroke=0)
-
-            c.setFillColor(colors.black)
-            cx = tab_x + 2
-            q_data = [q["nom"][:42], str(q["quantite"]), q["description"][:38]]
-            for j, (_, col_w) in enumerate(q_cols):
-                c.drawString(cx, y_cursor - row_h + 3, q_data[j])
-                cx += col_w
-            y_cursor -= row_h
+        y_cursor = _dessiner_tableau(c, tab_x, tab_w, y_cursor, row_h, font_size,
+                                     q_cols, q_rows)
 
     # --- Resume materiaux ---
     y_cursor -= 10
-    if y_cursor > marge + 40:
+    if materiaux and y_cursor > marge + 20:
         c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(colors.black)
         c.drawString(tab_x, y_cursor, "Resume materiaux")
         y_cursor -= 10
-
-        materiaux = {}
-        for p in fiche.pieces:
-            key = (p.epaisseur, p.couleur_fab, p.materiau)
-            if key not in materiaux:
-                materiaux[key] = {"surface": 0, "nb": 0}
-            materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
-            materiaux[key]["nb"] += p.quantite
 
         c.setFont("Helvetica", font_size)
         for (ep, coul, mat), info in materiaux.items():
@@ -350,7 +382,7 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
 
     # --- Note etiquettes ---
     y_cursor -= 6
-    if y_cursor > marge + 10:
+    if y_cursor > marge + 5:
         c.setFont("Helvetica-Oblique", 6)
         c.setFillColor(colors.grey)
         c.drawString(tab_x, y_cursor,
