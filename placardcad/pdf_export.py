@@ -19,6 +19,10 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
 from .placard_builder import Rect as PlacardRect, FicheFabrication
+from .optimisation_debit import (
+    ParametresDebit, PlanDecoupe, Placement,
+    optimiser_debit, pieces_depuis_fiche,
+)
 
 
 # =========================================================================
@@ -538,16 +542,321 @@ def _dessiner_page(c: canvas.Canvas, rects: list[PlacardRect], config: dict,
 
 
 # =========================================================================
+#  COULEURS PLAN DE DEBIT
+# =========================================================================
+
+COULEURS_PIECES_DEBIT = [
+    colors.Color(0.78, 0.88, 1.0),
+    colors.Color(0.88, 1.0, 0.78),
+    colors.Color(1.0, 0.88, 0.78),
+    colors.Color(1.0, 0.78, 0.88),
+    colors.Color(0.88, 0.78, 1.0),
+    colors.Color(0.78, 1.0, 0.88),
+    colors.Color(1.0, 1.0, 0.78),
+    colors.Color(0.90, 0.90, 0.90),
+]
+
+
+# =========================================================================
+#  DESSIN PAGE PLAN DE DEBIT
+# =========================================================================
+
+def _dessiner_page_debit(c: canvas.Canvas, plan: PlanDecoupe,
+                         params: ParametresDebit,
+                         numero: int, total: int,
+                         projet_info: dict | None,
+                         amenagement_nom: str | None):
+    """Dessine une page de plan de debit pour un panneau."""
+    page_w, page_h = landscape(A4)
+    marge = 10 * mm
+
+    # --- Cartouche ---
+    y_top = page_h - marge
+    nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
+    titre = f"Plan de debit - Panneau {numero}/{total}"
+    if amenagement_nom:
+        titre += f" - {amenagement_nom}"
+
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(colors.black)
+    c.drawString(marge, y_top, titre)
+
+    c.setFont("Helvetica", 8)
+    info = f"{nom_projet}  |  {plan.couleur} ep.{plan.epaisseur:.0f}mm"
+    info += f"  |  Panneau brut: {params.panneau_longueur:.0f}x{params.panneau_largeur:.0f}mm"
+    info += f"  |  Trait scie: {params.trait_scie:.0f}mm  Surcote: {params.surcote:.0f}mm  Delig.: {params.delignage:.0f}mm"
+    c.drawString(marge, y_top - 13, info)
+
+    y_sep = y_top - 20
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(0.5)
+    c.line(marge, y_sep, page_w - marge, y_sep)
+
+    # --- Zone de dessin du panneau ---
+    draw_x = marge
+    draw_y = marge + 60  # place pour legende en bas
+    draw_w = page_w - 2 * marge
+    draw_h = y_sep - draw_y - 15
+
+    pl = plan.panneau_l
+    pw = plan.panneau_w
+
+    scale = min(draw_w / pl, draw_h / pw) * 0.92
+    ox = draw_x + (draw_w - pl * scale) / 2
+    oy = draw_y + (draw_h - pw * scale) / 2
+
+    # --- Dessiner le panneau ---
+    c.setFillColor(colors.Color(0.96, 0.94, 0.90))
+    c.setStrokeColor(colors.Color(0.4, 0.35, 0.3))
+    c.setLineWidth(1)
+    c.rect(ox, oy, pl * scale, pw * scale, fill=1)
+
+    # Dimensions du panneau
+    c.setFont("Helvetica", 6)
+    c.setFillColor(colors.Color(0.4, 0.35, 0.3))
+    c.drawCentredString(ox + pl * scale / 2, oy - 8, f"{pl:.0f} mm")
+    c.saveState()
+    c.translate(ox - 6, oy + pw * scale / 2)
+    c.rotate(90)
+    c.drawCentredString(0, 0, f"{pw:.0f} mm")
+    c.restoreState()
+
+    # --- Dessiner les pieces ---
+    nb_couleurs = len(COULEURS_PIECES_DEBIT)
+    legende = []
+
+    for idx, plc in enumerate(plan.placements):
+        couleur_fill = COULEURS_PIECES_DEBIT[idx % nb_couleurs]
+
+        if plc.rotation:
+            pw_piece = plc.largeur_debit * scale
+            ph_piece = plc.longueur_debit * scale
+        else:
+            pw_piece = plc.longueur_debit * scale
+            ph_piece = plc.largeur_debit * scale
+
+        px = ox + plc.x * scale
+        py = oy + plc.y * scale
+
+        # Rectangle piece
+        c.setFillColor(couleur_fill)
+        c.setStrokeColor(colors.Color(0.3, 0.3, 0.3))
+        c.setLineWidth(0.5)
+        c.rect(px, py, pw_piece, ph_piece, fill=1)
+
+        # Texte dans la piece
+        cx_piece = px + pw_piece / 2
+        cy_piece = py + ph_piece / 2
+
+        ref = plc.piece.reference
+        dim_txt = f"{plc.piece.longueur:.0f}x{plc.piece.largeur:.0f}"
+
+        # Adapter la taille du texte a la piece
+        font_sz = min(7, pw_piece / 8, ph_piece / 4)
+        font_sz = max(3.5, font_sz)
+
+        c.setFont("Helvetica-Bold", font_sz)
+        c.setFillColor(colors.Color(0.15, 0.15, 0.15))
+        c.drawCentredString(cx_piece, cy_piece + font_sz * 0.3, ref)
+        c.setFont("Helvetica", font_sz * 0.85)
+        c.drawCentredString(cx_piece, cy_piece - font_sz * 0.7, dim_txt)
+
+        if plc.rotation:
+            c.setFont("Helvetica-Oblique", font_sz * 0.7)
+            c.setFillColor(colors.red)
+            c.drawCentredString(cx_piece, cy_piece - font_sz * 1.5, "R")
+
+        legende.append((ref, plc.piece.nom))
+
+    # --- Resume en bas ---
+    y_res = marge + 48
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    nb = len(plan.placements)
+    c.drawString(marge, y_res,
+                 f"Pieces: {nb}  |  Chute: {plan.pct_chute:.1f}%"
+                 f"  |  Surface utile: {plan.surface_pieces:.3f} m2"
+                 f"  /  {plan.surface_panneau:.3f} m2")
+
+    # Legende
+    y_leg = y_res - 12
+    c.setFont("Helvetica", 5.5)
+    c.setFillColor(colors.Color(0.3, 0.3, 0.3))
+    x_leg = marge
+    for ref, nom in legende:
+        txt = f"{ref}={nom[:25]}"
+        tw = c.stringWidth(txt, "Helvetica", 5.5)
+        if x_leg + tw + 12 > page_w - marge:
+            y_leg -= 8
+            x_leg = marge
+        if y_leg < marge:
+            break
+        c.drawString(x_leg, y_leg, txt)
+        x_leg += tw + 12
+
+
+def _generer_et_dessiner_debit(c: canvas.Canvas, fiche: FicheFabrication,
+                                projet_info: dict | None,
+                                amenagement_nom: str | None,
+                                projet_id: int, amenagement_id: int,
+                                params_debit: ParametresDebit | None = None):
+    """Genere les plans de debit et dessine les pages correspondantes."""
+    if params_debit is None:
+        params_debit = ParametresDebit()
+
+    pieces = pieces_depuis_fiche(fiche, projet_id, amenagement_id)
+    if not pieces:
+        return
+
+    plans, hors_gabarit = optimiser_debit(pieces, params_debit)
+
+    total = len(plans)
+    for i, plan in enumerate(plans):
+        c.showPage()
+        _dessiner_page_debit(c, plan, params_debit, i + 1, total,
+                             projet_info, amenagement_nom)
+
+    # Page d'alerte si pieces hors gabarit
+    if hors_gabarit:
+        c.showPage()
+        page_w, page_h = landscape(A4)
+        m = 10 * mm
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.red)
+        c.drawString(m, page_h - m, "Pieces hors gabarit (ne rentrent pas dans un panneau)")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        y = page_h - m - 25
+        for p in hors_gabarit:
+            c.drawString(m, y,
+                         f"{p.reference} - {p.nom}: {p.longueur:.0f}x{p.largeur:.0f}mm "
+                         f"(x{p.quantite})")
+            y -= 14
+            if y < m:
+                break
+
+
+# =========================================================================
+#  EXPORT PDF STANDALONE - PLANS DE DEBIT SEULEMENT
+# =========================================================================
+
+def exporter_pdf_debit(filepath: str, all_pieces: list,
+                       params_debit: ParametresDebit,
+                       projet_info: dict | None = None,
+                       titre: str = "Optimisation de debit") -> str:
+    """Exporte un PDF avec uniquement les plans de debit."""
+    plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
+
+    c = canvas.Canvas(filepath, pagesize=landscape(A4))
+
+    total = len(plans)
+    for i, plan in enumerate(plans):
+        if i > 0:
+            c.showPage()
+        _dessiner_page_debit(c, plan, params_debit, i + 1, total,
+                             projet_info, titre)
+
+    if hors_gabarit:
+        c.showPage()
+        page_w, page_h = landscape(A4)
+        m = 10 * mm
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.red)
+        c.drawString(m, page_h - m, "Pieces hors gabarit")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        y = page_h - m - 25
+        for p in hors_gabarit:
+            c.drawString(m, y,
+                         f"{p.reference} - {p.nom}: {p.longueur:.0f}x{p.largeur:.0f}mm "
+                         f"(x{p.quantite})")
+            y -= 14
+            if y < m:
+                break
+
+    # Page resume
+    c.showPage()
+    _dessiner_resume_debit(c, plans, hors_gabarit, params_debit, projet_info, titre)
+
+    c.save()
+    return filepath
+
+
+def _dessiner_resume_debit(c: canvas.Canvas, plans: list[PlanDecoupe],
+                           hors_gabarit: list, params: ParametresDebit,
+                           projet_info: dict | None, titre: str):
+    """Page resume de l'optimisation de debit."""
+    page_w, page_h = landscape(A4)
+    m = 10 * mm
+
+    c.setFont("Helvetica-Bold", 14)
+    c.setFillColor(colors.black)
+    c.drawString(m, page_h - m, f"Resume - {titre}")
+
+    nom = projet_info.get("nom", "") if projet_info else ""
+    if nom:
+        c.setFont("Helvetica", 10)
+        c.drawString(m, page_h - m - 18, f"Projet: {nom}")
+
+    y = page_h - m - 45
+    c.setFont("Helvetica", 9)
+
+    # Regrouper par (epaisseur, couleur)
+    groupes: dict[tuple, list[PlanDecoupe]] = {}
+    for plan in plans:
+        key = (plan.epaisseur, plan.couleur)
+        groupes.setdefault(key, []).append(plan)
+
+    for (ep, coul), plans_g in groupes.items():
+        nb_panneaux = len(plans_g)
+        surf_totale = sum(p.surface_panneau for p in plans_g)
+        surf_pieces = sum(p.surface_pieces for p in plans_g)
+        chute_moy = (1 - surf_pieces / surf_totale) * 100 if surf_totale > 0 else 0
+
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(m, y, f"{coul} ep.{ep:.0f}mm")
+        y -= 14
+
+        c.setFont("Helvetica", 9)
+        c.drawString(m + 10, y,
+                     f"Panneaux: {nb_panneaux} x "
+                     f"({params.panneau_longueur:.0f}x{params.panneau_largeur:.0f}mm)")
+        y -= 13
+        c.drawString(m + 10, y,
+                     f"Surface pieces: {surf_pieces:.3f} m2  |  "
+                     f"Surface panneaux: {surf_totale:.3f} m2  |  "
+                     f"Chute moyenne: {chute_moy:.1f}%")
+        y -= 20
+
+    if hors_gabarit:
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.red)
+        c.drawString(m, y, f"Pieces hors gabarit: {len(hors_gabarit)}")
+        y -= 13
+        c.setFont("Helvetica", 8)
+        c.setFillColor(colors.black)
+        for p in hors_gabarit:
+            c.drawString(m + 10, y,
+                         f"{p.nom}: {p.longueur:.0f}x{p.largeur:.0f}mm (x{p.quantite})")
+            y -= 11
+            if y < m:
+                break
+
+
+# =========================================================================
 #  EXPORT PDF - UN AMENAGEMENT (une page)
 # =========================================================================
 
 def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
                  fiche: FicheFabrication, projet_info: dict | None = None,
-                 projet_id: int = 0, amenagement_id: int = 0):
-    """Exporte un PDF sur une seule page paysage A4."""
+                 projet_id: int = 0, amenagement_id: int = 0,
+                 params_debit: ParametresDebit | None = None):
+    """Exporte un PDF: page amenagement + pages plan de debit."""
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
     _dessiner_page(c, rects, config, fiche, projet_info, None,
                    projet_id, amenagement_id)
+    _generer_et_dessiner_debit(c, fiche, projet_info, None,
+                                projet_id, amenagement_id, params_debit)
     c.save()
     return filepath
 
@@ -558,9 +867,10 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
 
 def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
                         projet_info: dict | None = None,
-                        projet_id: int = 0) -> str:
+                        projet_id: int = 0,
+                        params_debit: ParametresDebit | None = None) -> str:
     """
-    Exporte un PDF multi-pages avec une page par amenagement.
+    Exporte un PDF multi-pages avec une page par amenagement + plans de debit.
 
     amenagements_data: liste de dicts avec cles:
         - rects: list[Rect]
@@ -578,6 +888,10 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
             c, am["rects"], am["config"], am["fiche"],
             projet_info, am.get("nom"),
             projet_id, am.get("amenagement_id", 0),
+        )
+        _generer_et_dessiner_debit(
+            c, am["fiche"], projet_info, am.get("nom"),
+            projet_id, am.get("amenagement_id", 0), params_debit,
         )
 
     c.save()

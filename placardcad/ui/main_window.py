@@ -17,6 +17,7 @@ from .project_panel import ProjectPanel
 from .schema_editor import SchemaEditor
 from .params_editor import ParamsEditor
 from .viewer_3d import PlacardViewer
+from .debit_dialog import DebitDialog
 
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
@@ -137,6 +138,13 @@ class MainWindow(QMainWindow):
         self.action_export_texte = QAction("Exporter fiche texte", self)
         self.action_export_texte.triggered.connect(self._exporter_fiche_texte)
         toolbar.addAction(self.action_export_texte)
+
+        toolbar.addSeparator()
+
+        # Optimisation debit
+        self.action_optim_debit = QAction("Optimisation debit", self)
+        self.action_optim_debit.triggered.connect(self._ouvrir_debit_dialog)
+        toolbar.addAction(self.action_optim_debit)
 
     def _init_statusbar(self):
         self.statusbar = QStatusBar()
@@ -361,6 +369,11 @@ class MainWindow(QMainWindow):
                                     f"Fiche exportee:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "Erreur export", str(e))
+
+    def _ouvrir_debit_dialog(self):
+        """Ouvre le dialogue d'optimisation de debit multi-projets."""
+        dialog = DebitDialog(self.db, parent=self)
+        dialog.exec_()
 
     def closeEvent(self, event):
         """Sauvegarde avant fermeture."""
