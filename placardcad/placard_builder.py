@@ -345,7 +345,7 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 rects.append(Rect(
                     x_cg, 0, ce["epaisseur"], h_crem,
                     rgb_to_hex(ce["couleur_rgb"]),
-                    f"Crem enc. G C{comp_idx+1}", "cremaillere"
+                    f"Crem enc. G C{comp_idx+1}", "cremaillere_encastree"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere encastree (C{comp_idx+1} gauche)", 2,
@@ -355,7 +355,7 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 rects.append(Rect(
                     x_debut, 0, ca["epaisseur_saillie"], h_crem,
                     rgb_to_hex(ca["couleur_rgb"]),
-                    f"Crem app. G C{comp_idx+1}", "cremaillere"
+                    f"Crem app. G C{comp_idx+1}", "cremaillere_applique"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere applique (C{comp_idx+1} gauche)", 2,
@@ -373,7 +373,7 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 rects.append(Rect(
                     x_cd, 0, ce["epaisseur"], h_crem,
                     rgb_to_hex(ce["couleur_rgb"]),
-                    f"Crem enc. D C{comp_idx+1}", "cremaillere"
+                    f"Crem enc. D C{comp_idx+1}", "cremaillere_encastree"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere encastree (C{comp_idx+1} droite)", 2,
@@ -383,7 +383,7 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 rects.append(Rect(
                     x_fin - ca["epaisseur_saillie"], 0, ca["epaisseur_saillie"], h_crem,
                     rgb_to_hex(ca["couleur_rgb"]),
-                    f"Crem app. D C{comp_idx+1}", "cremaillere"
+                    f"Crem app. D C{comp_idx+1}", "cremaillere_applique"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere applique (C{comp_idx+1} droite)", 2,

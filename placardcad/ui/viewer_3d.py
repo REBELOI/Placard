@@ -99,13 +99,14 @@ class PlacardViewer(QWidget):
             "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
             "rayon_haut": (QColor("#8B7355"), QColor("#DEB887"), 1),
             "rayon": (QColor("#8B7355"), QColor("#D2B48C"), 1),
-            "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 1),
+            "cremaillere_encastree": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
+            "cremaillere_applique": (QColor("#CC0000"), QColor("#FF4444"), 0.5),
             "panneau_mur": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "tasseau": (QColor("#8B6914"), QColor("#DAA520"), 1),
         }
 
         # Dessiner les rectangles par ordre de couche
-        ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere", "tasseau"]
+        ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
         rects_par_type = {}
         for r in self._rects:
             rects_par_type.setdefault(r.type_elem, []).append(r)

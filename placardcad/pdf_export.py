@@ -30,7 +30,8 @@ COULEURS_TYPE = {
     "separation": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "rayon_haut": (colors.Color(0.87, 0.74, 0.53), colors.Color(0.55, 0.45, 0.33)),
     "rayon": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "cremaillere": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
+    "cremaillere_encastree": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
+    "cremaillere_applique": (colors.Color(0.8, 0.0, 0.0), colors.Color(0.6, 0.0, 0.0)),
     "panneau_mur": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "tasseau": (colors.Color(0.85, 0.65, 0.13), colors.Color(0.55, 0.41, 0.08)),
 }
@@ -97,7 +98,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     oy = y_orig + marge + (view_h - total_h * scale) / 2 + padding * scale
 
     # Dessiner les rectangles
-    ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere", "tasseau"]
+    ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
     rects_par_type = {}
     for r in rects:
         rects_par_type.setdefault(r.type_elem, []).append(r)
@@ -117,7 +118,8 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
 
             c.setFillColor(fill_color)
             c.setStrokeColor(stroke_color)
-            c.setLineWidth(0.5)
+            lw = 0.2 if type_elem.startswith("cremaillere") else 0.5
+            c.setLineWidth(lw)
             c.rect(sx, sy, sw, sh, fill=1)
 
     # --- Helper fleche PDF ---
