@@ -21,7 +21,7 @@ from .viewer_3d import PlacardViewer
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
-from ..pdf_export import exporter_pdf
+from ..pdf_export import exporter_pdf, exporter_pdf_projet
 
 
 class MainWindow(QMainWindow):
@@ -127,6 +127,11 @@ class MainWindow(QMainWindow):
         self.action_export_pdf = QAction("Exporter PDF", self)
         self.action_export_pdf.triggered.connect(self._exporter_pdf)
         toolbar.addAction(self.action_export_pdf)
+
+        # Export PDF projet complet
+        self.action_export_pdf_projet = QAction("Exporter PDF projet", self)
+        self.action_export_pdf_projet.triggered.connect(self._exporter_pdf_projet)
+        toolbar.addAction(self.action_export_pdf_projet)
 
         # Export fiche texte
         self.action_export_texte = QAction("Exporter fiche texte", self)
@@ -266,6 +271,68 @@ class MainWindow(QMainWindow):
                                     f"PDF exporte avec succes:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "Erreur export PDF", str(e))
+
+    def _exporter_pdf_projet(self):
+        """Exporte tout le projet en PDF (une page par amenagement)."""
+        if not self._current_projet_id:
+            QMessageBox.warning(self, "Export PDF projet",
+                                "Aucun projet selectionne.")
+            return
+
+        amenagements = self.db.lister_amenagements(self._current_projet_id)
+        if not amenagements:
+            QMessageBox.warning(self, "Export PDF projet",
+                                "Le projet ne contient aucun amenagement.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter PDF projet", "projet.pdf", "PDF (*.pdf)"
+        )
+        if not filepath:
+            return
+
+        projet_info = self.db.get_projet(self._current_projet_id)
+
+        amenagements_data = []
+        erreurs = []
+        for am in amenagements:
+            schema_txt = am["schema_txt"]
+            if not schema_txt or not schema_txt.strip():
+                continue
+            try:
+                params_json = am["params_json"]
+                params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
+            except json.JSONDecodeError:
+                params = dict(PARAMS_DEFAUT)
+
+            try:
+                config = schema_vers_config(schema_txt, params)
+                rects, fiche = generer_geometrie_2d(config)
+                amenagements_data.append({
+                    "rects": rects,
+                    "config": config,
+                    "fiche": fiche,
+                    "nom": am["nom"],
+                    "amenagement_id": am["id"],
+                })
+            except Exception as e:
+                erreurs.append(f"{am['nom']}: {e}")
+
+        if not amenagements_data:
+            QMessageBox.warning(self, "Export PDF projet",
+                                "Aucun amenagement valide a exporter.")
+            return
+
+        try:
+            exporter_pdf_projet(filepath, amenagements_data, projet_info,
+                                self._current_projet_id)
+            msg = f"PDF projet exporte: {filepath}\n{len(amenagements_data)} page(s)."
+            if erreurs:
+                msg += f"\n\nAmenagements ignores ({len(erreurs)}):\n" + "\n".join(erreurs)
+            self.statusbar.showMessage(f"PDF projet exporte: {filepath}")
+            QMessageBox.information(self, "Export PDF projet", msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export PDF projet", str(e))
 
     def _exporter_fiche_texte(self):
         """Exporte la fiche de fabrication en texte."""

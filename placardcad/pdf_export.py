@@ -1,13 +1,17 @@
 """
 Export PDF pour PlacardCAD.
 
-Genere un document PDF sur UNE SEULE PAGE (paysage A4) contenant:
+- exporter_pdf : une seule page paysage A4 pour un amenagement
+- exporter_pdf_projet : une page par amenagement pour tout le projet
+
+Chaque page contient:
 - A gauche : Vue de face filaire avec cotations
-- A droite : Fiche de debit + quincaillerie
+- A droite : Fiche de debit + quincaillerie + chants + resume materiaux
 - Cartouche en haut
 - References panneaux pour etiquettes (format P{projet}/A{amenagement}/N{piece})
 """
 
+import re
 from datetime import datetime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -32,6 +36,10 @@ COULEURS_TYPE = {
 }
 
 
+# =========================================================================
+#  HELPERS
+# =========================================================================
+
 def _attribuer_references(fiche: FicheFabrication, projet_id: int = 0,
                           amenagement_id: int = 0):
     """Attribue une reference unique a chaque piece : P{projet}/A{amenag}/N{numero}."""
@@ -39,6 +47,26 @@ def _attribuer_references(fiche: FicheFabrication, projet_id: int = 0,
     a_id = amenagement_id or 0
     for i, piece in enumerate(fiche.pieces, 1):
         piece.reference = f"P{p_id}/A{a_id}/N{i:02d}"
+
+
+def _calculer_chants(fiche: FicheFabrication) -> dict:
+    """Calcule le metrage lineaire de chant par (couleur, epaisseur).
+
+    Retourne {(couleur, ep_chant_mm): longueur_totale_mm}.
+    """
+    chants: dict[tuple, float] = {}
+    for p in fiche.pieces:
+        if not p.chant_desc:
+            continue
+        m = re.search(r'(\d+)', p.chant_desc)
+        if not m:
+            continue
+        ep_chant = int(m.group(1))
+        couleur = p.couleur_fab or "Standard"
+        key = (couleur, ep_chant)
+        chants.setdefault(key, 0.0)
+        chants[key] += p.longueur * p.quantite
+    return chants
 
 
 # =========================================================================
@@ -233,47 +261,8 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
 
 
 # =========================================================================
-#  GENERATION PDF - TOUT SUR UNE PAGE
+#  TABLEAU GENERIQUE
 # =========================================================================
-
-def _calculer_tailles(nb_pieces: int, nb_quinc: int, nb_materiaux: int,
-                      hauteur_dispo: float) -> tuple[float, float]:
-    """Calcule row_h et font_size pour faire tenir tout le contenu.
-
-    Retourne (row_h, font_size).
-    """
-    # Espace fixe : titres, espacements, surface, resume, note
-    espace_fixe = (
-        12      # titre fiche
-        + 4     # gap apres pieces
-        + 10    # ligne surface
-        + 14    # gap avant quincaillerie
-    )
-    if nb_quinc > 0:
-        espace_fixe += 12  # titre quincaillerie
-    if nb_materiaux > 0:
-        espace_fixe += 20  # titre resume + gap
-        espace_fixe += nb_materiaux * 9  # lignes resume
-    espace_fixe += 16  # note etiquettes
-
-    # Nombre total de lignes de tableau (headers + data)
-    nb_lignes = (1 + nb_pieces)  # header pieces + donnees
-    if nb_quinc > 0:
-        nb_lignes += (1 + nb_quinc)  # header quinc + donnees
-
-    espace_tableau = hauteur_dispo - espace_fixe
-    if nb_lignes <= 0:
-        return 10, 6.5
-
-    row_h = espace_tableau / nb_lignes
-    # Borner entre 6 et 11
-    row_h = max(6, min(11, row_h))
-
-    # Font proportionnelle a la hauteur de ligne
-    font_size = max(4.5, min(6.5, row_h * 0.65))
-
-    return row_h, font_size
-
 
 def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
                       y_start: float, row_h: float, font_size: float,
@@ -313,11 +302,9 @@ def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
     table_bottom = y
     c.setStrokeColor(colors.grey)
     c.setLineWidth(0.3)
-    # Lignes horizontales
-    for r_idx in range(nb_drawn + 2):  # +2 = header top + header bottom + data bottoms
+    for r_idx in range(nb_drawn + 2):
         y_line = table_top - r_idx * row_h
         c.line(tab_x, y_line, tab_x + tab_w, y_line)
-    # Lignes verticales
     cx = tab_x
     for _, col_w in cols:
         c.line(cx, table_top, cx, table_bottom)
@@ -327,35 +314,73 @@ def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
     return y
 
 
-def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
-                 fiche: FicheFabrication, projet_info: dict | None = None,
-                 projet_id: int = 0, amenagement_id: int = 0):
-    """
-    Exporte un PDF sur une seule page paysage A4.
+# =========================================================================
+#  CALCUL TAILLES ADAPTATIVES
+# =========================================================================
 
-    Layout:
-      - Cartouche en haut (toute largeur)
-      - Gauche: vue de face
-      - Droite: fiche de debit + quincaillerie
-    """
+def _calculer_tailles(nb_pieces: int, nb_quinc: int, nb_materiaux: int,
+                      nb_chants: int, hauteur_dispo: float) -> tuple[float, float]:
+    """Calcule row_h et font_size pour faire tenir tout le contenu."""
+    espace_fixe = (
+        12      # titre fiche
+        + 4     # gap apres pieces
+        + 10    # ligne surface
+        + 14    # gap avant quincaillerie
+    )
+    if nb_quinc > 0:
+        espace_fixe += 12  # titre quincaillerie
+    if nb_materiaux > 0:
+        espace_fixe += 20  # titre resume + gap
+        espace_fixe += nb_materiaux * 9
+    if nb_chants > 0:
+        espace_fixe += 20  # titre chants + gap
+        espace_fixe += nb_chants * 9
+    espace_fixe += 16  # note etiquettes
+
+    nb_lignes = (1 + nb_pieces)
+    if nb_quinc > 0:
+        nb_lignes += (1 + nb_quinc)
+
+    espace_tableau = hauteur_dispo - espace_fixe
+    if nb_lignes <= 0:
+        return 10, 6.5
+
+    row_h = espace_tableau / nb_lignes
+    row_h = max(6, min(11, row_h))
+    font_size = max(4.5, min(6.5, row_h * 0.65))
+
+    return row_h, font_size
+
+
+# =========================================================================
+#  DESSIN D'UNE PAGE COMPLETE
+# =========================================================================
+
+def _dessiner_page(c: canvas.Canvas, rects: list[PlacardRect], config: dict,
+                   fiche: FicheFabrication, projet_info: dict | None,
+                   amenagement_nom: str | None,
+                   projet_id: int, amenagement_id: int):
+    """Dessine une page complete (cartouche + vue de face + fiche de debit)."""
     page_w, page_h = landscape(A4)
     marge = 10 * mm
 
     # Attribuer les references
     _attribuer_references(fiche, projet_id, amenagement_id)
 
-    c = canvas.Canvas(filepath, pagesize=landscape(A4))
-
-    # =====================================================================
+    # =================================================================
     #  CARTOUCHE (en haut)
-    # =====================================================================
+    # =================================================================
     y_cartouche = page_h - marge
     nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
     client = projet_info.get("client", "") if projet_info else ""
     adresse = projet_info.get("adresse", "") if projet_info else ""
 
+    titre = f"PlacardCAD - {nom_projet}"
+    if amenagement_nom:
+        titre += f" - {amenagement_nom}"
+
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(marge, y_cartouche, f"PlacardCAD - {nom_projet}")
+    c.drawString(marge, y_cartouche, titre)
 
     c.setFont("Helvetica", 8)
     info_parts = []
@@ -373,9 +398,9 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     c.setLineWidth(0.5)
     c.line(marge, y_sep, page_w - marge, y_sep)
 
-    # =====================================================================
+    # =================================================================
     #  VUE DE FACE (moitie gauche)
-    # =====================================================================
+    # =================================================================
     vue_w = (page_w - 3 * marge) * 0.48
     vue_h = y_sep - marge - 5
     vue_x = marge
@@ -388,13 +413,13 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     _dessiner_vue_face(c, rects, config["largeur"], config["hauteur"],
                        vue_x, vue_y, vue_w, vue_h - 15)
 
-    # =====================================================================
+    # =================================================================
     #  FICHE DE DEBIT + QUINCAILLERIE (moitie droite)
-    # =====================================================================
+    # =================================================================
     tab_x = marge + vue_w + marge
     tab_w = page_w - tab_x - marge
 
-    # Calculer le resume materiaux pour connaitre le nb de lignes
+    # Pre-calculer resume materiaux et chants
     materiaux = {}
     for p in fiche.pieces:
         key = (p.epaisseur, p.couleur_fab, p.materiau)
@@ -403,11 +428,13 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
         materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
         materiaux[key]["nb"] += p.quantite
 
-    # Calculer tailles adaptees au contenu
+    chants = _calculer_chants(fiche)
+
+    # Tailles adaptees
     hauteur_dispo = y_sep - 12 - marge
     row_h, font_size = _calculer_tailles(
         len(fiche.pieces), len(fiche.quincaillerie),
-        len(materiaux), hauteur_dispo
+        len(materiaux), len(chants), hauteur_dispo
     )
 
     y_cursor = y_sep - 12
@@ -466,9 +493,26 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
         y_cursor = _dessiner_tableau(c, tab_x, tab_w, y_cursor, row_h, font_size,
                                      q_cols, q_rows)
 
+    # --- Chants ---
+    if chants and y_cursor > marge + 30:
+        y_cursor -= 10
+        c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(colors.black)
+        c.drawString(tab_x, y_cursor, "Chants (metrage total)")
+        y_cursor -= 10
+
+        c.setFont("Helvetica", font_size)
+        for (couleur, ep_chant), longueur_mm in chants.items():
+            if y_cursor < marge:
+                break
+            ml = longueur_mm / 1000
+            c.drawString(tab_x, y_cursor,
+                         f"{couleur} ep.{ep_chant}mm : {ml:.1f} ml")
+            y_cursor -= 9
+
     # --- Resume materiaux ---
-    y_cursor -= 10
     if materiaux and y_cursor > marge + 20:
+        y_cursor -= 10
         c.setFont("Helvetica-Bold", 8)
         c.setFillColor(colors.black)
         c.drawString(tab_x, y_cursor, "Resume materiaux")
@@ -489,6 +533,50 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
         c.setFillColor(colors.grey)
         c.drawString(tab_x, y_cursor,
                      "Ref. format: P{projet}/A{amenagement}/N{piece} - a reporter sur etiquettes panneaux")
+
+
+# =========================================================================
+#  EXPORT PDF - UN AMENAGEMENT (une page)
+# =========================================================================
+
+def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
+                 fiche: FicheFabrication, projet_info: dict | None = None,
+                 projet_id: int = 0, amenagement_id: int = 0):
+    """Exporte un PDF sur une seule page paysage A4."""
+    c = canvas.Canvas(filepath, pagesize=landscape(A4))
+    _dessiner_page(c, rects, config, fiche, projet_info, None,
+                   projet_id, amenagement_id)
+    c.save()
+    return filepath
+
+
+# =========================================================================
+#  EXPORT PDF - PROJET COMPLET (une page par amenagement)
+# =========================================================================
+
+def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
+                        projet_info: dict | None = None,
+                        projet_id: int = 0) -> str:
+    """
+    Exporte un PDF multi-pages avec une page par amenagement.
+
+    amenagements_data: liste de dicts avec cles:
+        - rects: list[Rect]
+        - config: dict
+        - fiche: FicheFabrication
+        - nom: str (nom de l'amenagement)
+        - amenagement_id: int
+    """
+    c = canvas.Canvas(filepath, pagesize=landscape(A4))
+
+    for i, am in enumerate(amenagements_data):
+        if i > 0:
+            c.showPage()
+        _dessiner_page(
+            c, am["rects"], am["config"], am["fiche"],
+            projet_info, am.get("nom"),
+            projet_id, am.get("amenagement_id", 0),
+        )
 
     c.save()
     return filepath
