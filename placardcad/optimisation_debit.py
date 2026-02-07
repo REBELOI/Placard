@@ -107,9 +107,15 @@ class PlanDecoupe:
 def pieces_depuis_fiche(fiche: FicheFabrication,
                         projet_id: int = 0,
                         amenagement_id: int = 0) -> list[PieceDebit]:
-    """Convertit une FicheFabrication en liste de PieceDebit."""
+    """Convertit une FicheFabrication en liste de PieceDebit.
+
+    Exclut les tasseaux (bois massif, pas de debit panneau).
+    """
     pieces = []
     for i, p in enumerate(fiche.pieces, 1):
+        # Les tasseaux sont du bois massif, pas du panneau a debiter
+        if p.materiau and "tasseau" in p.materiau.lower():
+            continue
         ref = p.reference or f"P{projet_id}/A{amenagement_id}/N{i:02d}"
         pieces.append(PieceDebit(
             nom=p.nom,
