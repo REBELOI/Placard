@@ -1,0 +1,300 @@
+"""
+Fenetre principale de PlacardCAD.
+"""
+
+import json
+import os
+
+from PyQt5.QtWidgets import (
+    QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
+    QAction, QToolBar, QStatusBar, QFileDialog, QMessageBox,
+    QLabel, QTabWidget
+)
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFont
+
+from .project_panel import ProjectPanel
+from .schema_editor import SchemaEditor
+from .params_editor import ParamsEditor
+from .viewer_3d import PlacardViewer
+
+from ..database import Database, PARAMS_DEFAUT
+from ..schema_parser import schema_vers_config
+from ..placard_builder import generer_geometrie_2d
+from ..pdf_export import exporter_pdf
+
+
+class MainWindow(QMainWindow):
+    """Fenetre principale de l'application PlacardCAD."""
+
+    def __init__(self, db: Database, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self._current_projet_id = None
+        self._current_amenagement_id = None
+        self._auto_save_timer = QTimer()
+        self._auto_save_timer.setInterval(2000)
+        self._auto_save_timer.setSingleShot(True)
+        self._auto_save_timer.timeout.connect(self._sauvegarder_amenagement)
+
+        self._rects = []
+        self._fiche = None
+
+        self.setWindowTitle("PlacardCAD - Conception de placards")
+        self.resize(1400, 900)
+        self._init_ui()
+        self._init_toolbar()
+        self._init_statusbar()
+
+    def _init_ui(self):
+        # Splitter principal : gauche (arbre) | centre (editeurs) | droite (viewer)
+        self.splitter_main = QSplitter(Qt.Horizontal)
+        self.setCentralWidget(self.splitter_main)
+
+        # --- Panneau gauche : arbre projets ---
+        self.project_panel = ProjectPanel(self.db)
+        self.project_panel.setMinimumWidth(220)
+        self.project_panel.setMaximumWidth(400)
+        self.project_panel.amenagement_selectionne.connect(self._on_amenagement_selectionne)
+        self.project_panel.projet_selectionne.connect(self._on_projet_selectionne)
+        self.splitter_main.addWidget(self.project_panel)
+
+        # --- Panneau centre : editeurs empiles ---
+        centre_widget = QWidget()
+        centre_layout = QVBoxLayout(centre_widget)
+        centre_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Schema en haut
+        self.schema_editor = SchemaEditor()
+        self.schema_editor.schema_modifie.connect(self._on_schema_modifie)
+
+        # Parametres en bas (dans un onglet)
+        self.params_editor = ParamsEditor()
+        self.params_editor.params_modifies.connect(self._on_params_modifies)
+
+        # Tabs pour schema et params
+        self.tabs_editeurs = QTabWidget()
+        self.tabs_editeurs.addTab(self.schema_editor, "Schema")
+        self.tabs_editeurs.addTab(self.params_editor, "Parametres")
+
+        centre_layout.addWidget(self.tabs_editeurs)
+        self.splitter_main.addWidget(centre_widget)
+
+        # --- Panneau droite : viewer ---
+        viewer_widget = QWidget()
+        viewer_layout = QVBoxLayout(viewer_widget)
+        viewer_layout.setContentsMargins(0, 0, 0, 0)
+
+        viewer_label = QLabel("Vue de face")
+        viewer_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        viewer_layout.addWidget(viewer_label)
+
+        self.viewer = PlacardViewer()
+        viewer_layout.addWidget(self.viewer)
+
+        self.splitter_main.addWidget(viewer_widget)
+
+        # Proportions du splitter
+        self.splitter_main.setStretchFactor(0, 1)  # arbre
+        self.splitter_main.setStretchFactor(1, 2)  # editeurs
+        self.splitter_main.setStretchFactor(2, 3)  # viewer
+
+    def _init_toolbar(self):
+        toolbar = QToolBar("Actions")
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+
+        # Nouveau projet
+        self.action_new_projet = QAction("Nouveau projet", self)
+        self.action_new_projet.triggered.connect(self.project_panel._nouveau_projet)
+        toolbar.addAction(self.action_new_projet)
+
+        # Nouvel amenagement
+        self.action_new_amenagement = QAction("Nouvel amenagement", self)
+        self.action_new_amenagement.triggered.connect(self.project_panel._nouvel_amenagement)
+        toolbar.addAction(self.action_new_amenagement)
+
+        toolbar.addSeparator()
+
+        # Regenerer
+        self.action_regenerer = QAction("Actualiser vue", self)
+        self.action_regenerer.triggered.connect(self._regenerer_vue)
+        toolbar.addAction(self.action_regenerer)
+
+        toolbar.addSeparator()
+
+        # Export PDF
+        self.action_export_pdf = QAction("Exporter PDF", self)
+        self.action_export_pdf.triggered.connect(self._exporter_pdf)
+        toolbar.addAction(self.action_export_pdf)
+
+        # Export fiche texte
+        self.action_export_texte = QAction("Exporter fiche texte", self)
+        self.action_export_texte.triggered.connect(self._exporter_fiche_texte)
+        toolbar.addAction(self.action_export_texte)
+
+    def _init_statusbar(self):
+        self.statusbar = QStatusBar()
+        self.setStatusBar(self.statusbar)
+        self.statusbar.showMessage("Pret. Creez ou selectionnez un projet pour commencer.")
+
+    # =====================================================================
+    #  SLOTS
+    # =====================================================================
+
+    def _on_projet_selectionne(self, projet_id: int):
+        self._current_projet_id = projet_id
+        self._current_amenagement_id = None
+        projet = self.db.get_projet(projet_id)
+        if projet:
+            self.statusbar.showMessage(f"Projet: {projet['nom']}")
+
+    def _on_amenagement_selectionne(self, projet_id: int, amenagement_id: int):
+        self._current_projet_id = projet_id
+        self._current_amenagement_id = amenagement_id
+        self._charger_amenagement(amenagement_id)
+
+    def _charger_amenagement(self, amenagement_id: int):
+        """Charge un amenagement dans les editeurs."""
+        am = self.db.get_amenagement(amenagement_id)
+        if not am:
+            return
+
+        # Charger le schema
+        self.schema_editor.set_schema(am["schema_txt"])
+
+        # Charger les parametres
+        try:
+            params = json.loads(am["params_json"]) if am["params_json"] else dict(PARAMS_DEFAUT)
+        except json.JSONDecodeError:
+            params = dict(PARAMS_DEFAUT)
+        self.params_editor.set_params(params)
+
+        self.statusbar.showMessage(f"Amenagement: {am['nom']}")
+
+        # Regenerer la vue
+        self._regenerer_vue()
+
+    def _on_schema_modifie(self, schema_text: str):
+        """Appele quand le schema est modifie."""
+        self._auto_save_timer.start()
+        self._regenerer_vue()
+
+    def _on_params_modifies(self, params: dict):
+        """Appele quand les parametres sont modifies."""
+        self._auto_save_timer.start()
+        self._regenerer_vue()
+
+    def _sauvegarder_amenagement(self):
+        """Sauvegarde l'amenagement courant en base."""
+        if self._current_amenagement_id is None:
+            return
+
+        schema_txt = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        params_json = json.dumps(params, ensure_ascii=False)
+
+        self.db.modifier_amenagement(
+            self._current_amenagement_id,
+            schema_txt=schema_txt,
+            params_json=params_json,
+        )
+        self.statusbar.showMessage("Sauvegarde automatique effectuee.", 3000)
+
+    # =====================================================================
+    #  GENERATION VUE
+    # =====================================================================
+
+    def _regenerer_vue(self):
+        """Regenere la vue de face depuis le schema et les parametres courants."""
+        schema_text = self.schema_editor.get_schema()
+        if not schema_text.strip():
+            self.viewer.clear()
+            return
+
+        params = self.params_editor.get_params()
+
+        try:
+            config = schema_vers_config(schema_text, params)
+            self._rects, self._fiche = generer_geometrie_2d(config)
+            self.viewer.set_geometrie(
+                self._rects,
+                config["largeur"],
+                config["hauteur"]
+            )
+            self.statusbar.showMessage(
+                f"{config['nombre_compartiments']} compartiments | "
+                f"{len(self._fiche.pieces)} pieces | "
+                f"{len(self._fiche.quincaillerie)} quincailleries"
+            )
+        except Exception as e:
+            self.viewer.clear()
+            self.statusbar.showMessage(f"Erreur schema: {e}")
+
+    # =====================================================================
+    #  EXPORT
+    # =====================================================================
+
+    def _exporter_pdf(self):
+        """Exporte le placard en PDF."""
+        if not self._rects:
+            QMessageBox.warning(self, "Export PDF",
+                                "Aucun amenagement a exporter. Editez un schema d'abord.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter PDF", "placard.pdf", "PDF (*.pdf)"
+        )
+        if not filepath:
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        config = schema_vers_config(schema_text, params)
+
+        # Infos projet
+        projet_info = None
+        if self._current_projet_id:
+            projet_info = self.db.get_projet(self._current_projet_id)
+
+        try:
+            exporter_pdf(filepath, self._rects, config, self._fiche, projet_info)
+            self.statusbar.showMessage(f"PDF exporte: {filepath}")
+            QMessageBox.information(self, "Export PDF",
+                                    f"PDF exporte avec succes:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export PDF", str(e))
+
+    def _exporter_fiche_texte(self):
+        """Exporte la fiche de fabrication en texte."""
+        if not self._fiche:
+            QMessageBox.warning(self, "Export fiche",
+                                "Aucun amenagement a exporter.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter fiche de fabrication",
+            "fiche_fabrication.txt", "Texte (*.txt)"
+        )
+        if not filepath:
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        config = schema_vers_config(schema_text, params)
+
+        try:
+            texte = self._fiche.generer_texte(config)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(texte)
+            self.statusbar.showMessage(f"Fiche exportee: {filepath}")
+            QMessageBox.information(self, "Export fiche",
+                                    f"Fiche exportee:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export", str(e))
+
+    def closeEvent(self, event):
+        """Sauvegarde avant fermeture."""
+        self._sauvegarder_amenagement()
+        self.db.close()
+        event.accept()
