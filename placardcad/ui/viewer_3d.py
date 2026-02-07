@@ -5,7 +5,9 @@ Dessine la geometrie calculee par placard_builder.generer_geometrie_2d().
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
 from PyQt5.QtCore import Qt, QRectF, QPointF
-from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QFont, QFontMetrics
+from PyQt5.QtGui import (
+    QPainter, QPen, QColor, QBrush, QFont, QFontMetrics, QPolygonF,
+)
 
 
 class PlacardViewer(QWidget):
@@ -48,18 +50,19 @@ class PlacardViewer(QWidget):
         if view_w <= 0 or view_h <= 0:
             return 1.0, self._marge, self._marge
 
-        # Prendre en compte les murs
+        # Espace pour murs + cotations (doublee)
         mur_ep = 50
-        total_w = self._placard_w + 2 * mur_ep
-        total_h = self._placard_h + 2 * mur_ep
+        padding = 100
+        total_w = self._placard_w + 2 * padding
+        total_h = self._placard_h + 2 * padding
 
         scale_x = view_w / total_w
         scale_y = view_h / total_h
         scale = min(scale_x, scale_y)
 
         # Centrer
-        offset_x = self._marge + (view_w - total_w * scale) / 2 + mur_ep * scale
-        offset_y = self._marge + (view_h - total_h * scale) / 2 + mur_ep * scale
+        offset_x = self._marge + (view_w - total_w * scale) / 2 + padding * scale
+        offset_y = self._marge + (view_h - total_h * scale) / 2 + padding * scale
 
         return scale, offset_x, offset_y
 
@@ -135,6 +138,36 @@ class PlacardViewer(QWidget):
 
         painter.end()
 
+    # --- Fleches de cotation ---
+
+    def _fleche_h(self, painter: QPainter, tip: QPointF, vers_droite: bool,
+                  taille: float = 8):
+        """Fleche horizontale pleine."""
+        s = taille
+        d = 1.0 if vers_droite else -1.0
+        poly = QPolygonF([
+            tip,
+            QPointF(tip.x() - d * s, tip.y() - s * 0.35),
+            QPointF(tip.x() - d * s, tip.y() + s * 0.35),
+        ])
+        painter.setBrush(QBrush(painter.pen().color()))
+        painter.drawPolygon(poly)
+
+    def _fleche_v(self, painter: QPainter, tip: QPointF, vers_bas: bool,
+                  taille: float = 8):
+        """Fleche verticale pleine."""
+        s = taille
+        d = 1.0 if vers_bas else -1.0
+        poly = QPolygonF([
+            tip,
+            QPointF(tip.x() - s * 0.35, tip.y() - d * s),
+            QPointF(tip.x() + s * 0.35, tip.y() - d * s),
+        ])
+        painter.setBrush(QBrush(painter.pen().color()))
+        painter.drawPolygon(poly)
+
+    # --- Cotations ---
+
     def _dessiner_cotations(self, painter: QPainter, scale: float,
                             ox: float, oy: float):
         """Dessine les cotations (dimensions globales, compartiments, separations)."""
@@ -145,14 +178,18 @@ class PlacardViewer(QWidget):
 
         H = self._placard_h
         L = self._placard_w
+        fl = 8  # taille fleche en pixels
 
         # === Cotation largeur totale (en bas) ===
-        y_cot = -42
+        y_cot = -80
         p_left = self._to_screen(0, y_cot, scale, ox, oy)
         p_right = self._to_screen(L, y_cot, scale, ox, oy)
 
         painter.setPen(QPen(QColor("#333"), 1))
         painter.drawLine(p_left, p_right)
+        self._fleche_h(painter, p_left, vers_droite=False, taille=fl)
+        self._fleche_h(painter, p_right, vers_droite=True, taille=fl)
+
         p_top_l = self._to_screen(0, 0, scale, ox, oy)
         p_top_r = self._to_screen(L, 0, scale, ox, oy)
         painter.setPen(QPen(QColor("#999"), 1, Qt.DotLine))
@@ -166,12 +203,15 @@ class PlacardViewer(QWidget):
         painter.drawText(QPointF(mid_x, p_left.y() + fm.height()), text_l)
 
         # === Cotation hauteur totale (a gauche) ===
-        x_cot = -30
+        x_cot = -60
         p_bottom = self._to_screen(x_cot, 0, scale, ox, oy)
         p_top = self._to_screen(x_cot, H, scale, ox, oy)
 
         painter.setPen(QPen(QColor("#333"), 1))
         painter.drawLine(p_bottom, p_top)
+        self._fleche_v(painter, p_bottom, vers_bas=True, taille=fl)
+        self._fleche_v(painter, p_top, vers_bas=False, taille=fl)
+
         p_orig_b = self._to_screen(0, 0, scale, ox, oy)
         p_orig_t = self._to_screen(0, H, scale, ox, oy)
         painter.setPen(QPen(QColor("#999"), 1, Qt.DotLine))
@@ -207,7 +247,7 @@ class PlacardViewer(QWidget):
             edges.append(s.x + s.w)
         edges.append(L)
 
-        z_cot_bas = -15
+        z_cot_bas = -30
         for i in range(0, len(edges), 2):
             x_l = edges[i]
             x_r = edges[i + 1]
@@ -225,9 +265,11 @@ class PlacardViewer(QWidget):
             painter.drawLine(p_hl, p_l)
             painter.drawLine(p_hr, p_r)
 
-            # Ligne de cote
+            # Ligne de cote + fleches
             painter.setPen(QPen(QColor("#0066CC"), 1))
             painter.drawLine(p_l, p_r)
+            self._fleche_h(painter, p_l, vers_droite=False, taille=fl)
+            self._fleche_h(painter, p_r, vers_droite=True, taille=fl)
 
             # Texte
             text = f"{w:.0f}"
@@ -238,9 +280,9 @@ class PlacardViewer(QWidget):
         # --- Hauteurs separations (a droite) ---
         hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)
 
-        x_base = L + 18
+        x_base = L + 36
         for idx, h_val in enumerate(hauteurs):
-            x_cot_r = x_base + idx * 22
+            x_cot_r = x_base + idx * 44
 
             p_b = self._to_screen(x_cot_r, 0, scale, ox, oy)
             p_t = self._to_screen(x_cot_r, h_val, scale, ox, oy)
@@ -252,9 +294,11 @@ class PlacardViewer(QWidget):
             painter.drawLine(QPointF(p_ref_b.x(), p_b.y()), p_b)
             painter.drawLine(QPointF(p_ref_t.x(), p_t.y()), p_t)
 
-            # Ligne de cote
+            # Ligne de cote + fleches
             painter.setPen(QPen(QColor("#CC6600"), 1))
             painter.drawLine(p_b, p_t)
+            self._fleche_v(painter, p_b, vers_bas=True, taille=fl)
+            self._fleche_v(painter, p_t, vers_bas=False, taille=fl)
 
             # Texte
             text = f"Sep. {h_val:.0f}"

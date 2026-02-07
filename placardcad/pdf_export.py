@@ -57,16 +57,16 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
         return
 
     marge = 30
-    mur_ep = 50
-    total_w = largeur_placard + 2 * mur_ep
-    total_h = hauteur_placard + 2 * mur_ep
+    padding = 100  # espace murs + cotations doublees
+    total_w = largeur_placard + 2 * padding
+    total_h = hauteur_placard + 2 * padding
 
     view_w = draw_w - 2 * marge
     view_h = draw_h - 2 * marge
 
     scale = min(view_w / total_w, view_h / total_h)
-    ox = x_orig + marge + (view_w - total_w * scale) / 2 + mur_ep * scale
-    oy = y_orig + marge + (view_h - total_h * scale) / 2 + mur_ep * scale
+    ox = x_orig + marge + (view_w - total_w * scale) / 2 + padding * scale
+    oy = y_orig + marge + (view_h - total_h * scale) / 2 + padding * scale
 
     # Dessiner les rectangles
     ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere", "tasseau"]
@@ -92,17 +92,41 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             c.setLineWidth(0.5)
             c.rect(sx, sy, sw, sh, fill=1)
 
+    # --- Helper fleche PDF ---
+    fl = 4  # taille fleche en points
+
+    def _fleche_h(tip_x, tip_y, vers_droite):
+        d = 1.0 if vers_droite else -1.0
+        p = c.beginPath()
+        p.moveTo(tip_x, tip_y)
+        p.lineTo(tip_x - d * fl, tip_y - fl * 0.35)
+        p.lineTo(tip_x - d * fl, tip_y + fl * 0.35)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+
+    def _fleche_v(tip_x, tip_y, vers_haut):
+        d = 1.0 if vers_haut else -1.0
+        p = c.beginPath()
+        p.moveTo(tip_x, tip_y)
+        p.lineTo(tip_x - fl * 0.35, tip_y - d * fl)
+        p.lineTo(tip_x + fl * 0.35, tip_y - d * fl)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+
     # --- Cotations globales ---
     c.setStrokeColor(colors.black)
+    c.setFillColor(colors.black)
     c.setLineWidth(0.5)
     c.setFont("Helvetica", 7)
-    c.setFillColor(colors.black)
 
     # Largeur totale (en bas)
-    y_cot = oy - 25
+    y_cot = oy - 50
     x_left = ox
     x_right = ox + largeur_placard * scale
     c.line(x_left, y_cot, x_right, y_cot)
+    c.setFillColor(colors.black)
+    _fleche_h(x_left, y_cot, False)
+    _fleche_h(x_right, y_cot, True)
     c.setStrokeColor(colors.grey)
     c.setLineWidth(0.3)
     c.line(x_left, oy, x_left, y_cot - 3)
@@ -111,12 +135,15 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     c.drawCentredString((x_left + x_right) / 2, y_cot - 10, f"{largeur_placard:.0f} mm")
 
     # Hauteur totale (a gauche)
-    x_cot = ox - 15
+    x_cot = ox - 30
     y_bottom = oy
     y_top = oy + hauteur_placard * scale
     c.setStrokeColor(colors.black)
     c.setLineWidth(0.5)
     c.line(x_cot, y_bottom, x_cot, y_top)
+    c.setFillColor(colors.black)
+    _fleche_v(x_cot, y_bottom, False)
+    _fleche_v(x_cot, y_top, True)
     c.setStrokeColor(colors.grey)
     c.setLineWidth(0.3)
     c.line(ox, y_bottom, x_cot - 3, y_bottom)
@@ -144,7 +171,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             edges.append(s.x + s.w)
         edges.append(largeur_placard)
 
-        y_cot_comp = oy - 8
+        y_cot_comp = oy - 16
 
         for i in range(0, len(edges), 2):
             x_l = edges[i]
@@ -162,21 +189,23 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             c.line(xl_pdf, oy, xl_pdf, y_cot_comp - 2)
             c.line(xr_pdf, oy, xr_pdf, y_cot_comp - 2)
 
-            # Ligne de cote
+            # Ligne de cote + fleches
             c.setStrokeColor(colors.Color(0.0, 0.4, 0.8))
+            c.setFillColor(colors.Color(0.0, 0.4, 0.8))
             c.setLineWidth(0.5)
             c.line(xl_pdf, y_cot_comp, xr_pdf, y_cot_comp)
+            _fleche_h(xl_pdf, y_cot_comp, False)
+            _fleche_h(xr_pdf, y_cot_comp, True)
 
             # Texte
-            c.setFillColor(colors.Color(0.0, 0.4, 0.8))
             c.drawCentredString((xl_pdf + xr_pdf) / 2, y_cot_comp + 2, f"{w:.0f}")
 
         # Hauteurs separations (a droite)
         hauteurs = sorted(set(round(s.h) for s in seps), reverse=True)
 
-        x_base_pdf = ox + largeur_placard * scale + 10
+        x_base_pdf = ox + largeur_placard * scale + 20
         for idx, h_val in enumerate(hauteurs):
-            x_cot_pdf = x_base_pdf + idx * 14
+            x_cot_pdf = x_base_pdf + idx * 28
 
             yb = oy
             yt = oy + h_val * scale
@@ -187,16 +216,18 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             c.line(ox + largeur_placard * scale, yb, x_cot_pdf + 2, yb)
             c.line(ox + largeur_placard * scale, yt, x_cot_pdf + 2, yt)
 
-            # Ligne de cote
+            # Ligne de cote + fleches
             c.setStrokeColor(colors.Color(0.8, 0.4, 0.0))
+            c.setFillColor(colors.Color(0.8, 0.4, 0.0))
             c.setLineWidth(0.5)
             c.line(x_cot_pdf, yb, x_cot_pdf, yt)
+            _fleche_v(x_cot_pdf, yb, False)
+            _fleche_v(x_cot_pdf, yt, True)
 
             # Texte
             c.saveState()
             c.translate(x_cot_pdf + 6, (yb + yt) / 2)
             c.rotate(90)
-            c.setFillColor(colors.Color(0.8, 0.4, 0.0))
             c.drawCentredString(0, 0, f"Sep. {h_val:.0f}")
             c.restoreState()
 
