@@ -126,8 +126,8 @@ CREATE TABLE IF NOT EXISTS configurations (
 );
 """
 
-# Categories de configurations type
-CATEGORIES_CONFIG = [
+# Cles regroupees dans une configuration type (tout sauf dimensions)
+CLES_CONFIG_TYPE = [
     "panneau_separation",
     "panneau_rayon",
     "panneau_rayon_haut",

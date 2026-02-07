@@ -1,7 +1,7 @@
 """
 Editeur de parametres generaux d'un amenagement.
 Formulaire avec onglets pour les differentes categories de parametres.
-Support des configurations type (presets) sauvegardees en base.
+Support d'une configuration type globale (preset) sauvegardee en base.
 """
 
 import json
@@ -9,24 +9,24 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox,
     QLineEdit, QLabel, QGroupBox, QScrollArea,
-    QPushButton, QInputDialog, QMessageBox, QComboBox, QMenu
+    QPushButton, QInputDialog, QMessageBox, QMenu
 )
 from PyQt5.QtCore import pyqtSignal
 
-# Labels lisibles pour les categories
-LABELS_CATEGORIES = {
-    "panneau_separation": "Separation",
-    "panneau_rayon": "Rayon",
-    "panneau_rayon_haut": "Rayon haut",
-    "panneau_mur": "Panneau mur",
-    "crem_encastree": "Crem. encastree",
-    "crem_applique": "Crem. applique",
-    "tasseau": "Tasseau",
-}
+# Cles regroupees dans une config type (tout sauf dimensions)
+CLES_CONFIG_TYPE = [
+    "panneau_separation",
+    "panneau_rayon",
+    "panneau_rayon_haut",
+    "panneau_mur",
+    "crem_encastree",
+    "crem_applique",
+    "tasseau",
+]
 
 
 class ParamsEditor(QWidget):
-    """Editeur de parametres generaux avec formulaire a onglets et presets."""
+    """Editeur de parametres generaux avec formulaire a onglets et preset global."""
 
     params_modifies = pyqtSignal(dict)
 
@@ -46,9 +46,24 @@ class ParamsEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # Barre du haut : titre + boutons config type
+        top_bar = QHBoxLayout()
         label = QLabel("Parametres")
         label.setStyleSheet("font-weight: bold; padding: 4px;")
-        layout.addWidget(label)
+        top_bar.addWidget(label)
+        top_bar.addStretch()
+
+        btn_sauver = QPushButton("Sauver config type...")
+        btn_sauver.setToolTip("Sauvegarder panneaux + cremailleres + tasseaux comme config reutilisable")
+        btn_sauver.clicked.connect(self._sauver_preset)
+        top_bar.addWidget(btn_sauver)
+
+        btn_charger = QPushButton("Charger config type...")
+        btn_charger.setToolTip("Charger une config type sauvegardee (panneaux, cremailleres, tasseaux)")
+        btn_charger.clicked.connect(self._charger_preset)
+        top_bar.addWidget(btn_charger)
+
+        layout.addLayout(top_bar)
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
@@ -82,25 +97,6 @@ class ParamsEditor(QWidget):
         edit.textChanged.connect(self._on_value_changed)
         self._widgets[key] = edit
         return edit
-
-    def _creer_boutons_preset(self, categorie: str) -> QWidget:
-        """Cree les boutons Sauver / Charger config type pour une categorie."""
-        bar = QWidget()
-        h = QHBoxLayout(bar)
-        h.setContentsMargins(0, 4, 0, 4)
-
-        btn_sauver = QPushButton("Sauver config type...")
-        btn_sauver.setToolTip(f"Sauvegarder la config '{LABELS_CATEGORIES.get(categorie, categorie)}' comme preset reutilisable")
-        btn_sauver.clicked.connect(lambda: self._sauver_preset(categorie))
-        h.addWidget(btn_sauver)
-
-        btn_charger = QPushButton("Charger config type...")
-        btn_charger.setToolTip(f"Charger une config type sauvegardee")
-        btn_charger.clicked.connect(lambda: self._charger_preset(categorie))
-        h.addWidget(btn_charger)
-
-        h.addStretch()
-        return bar
 
     def _creer_onglet_dimensions(self) -> QWidget:
         widget = QWidget()
@@ -136,7 +132,6 @@ class ParamsEditor(QWidget):
                             self._creer_spin(f"{categorie}.retrait_avant", 0, 200))
                 form.addRow("Retrait arriere:",
                             self._creer_spin(f"{categorie}.retrait_arriere", 0, 200))
-            form.addRow(self._creer_boutons_preset(categorie))
             layout.addWidget(group)
 
         layout.addStretch()
@@ -149,7 +144,6 @@ class ParamsEditor(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
 
-        # Encastree
         group_enc = QGroupBox("Cremaillere encastree")
         form_enc = QFormLayout(group_enc)
         form_enc.addRow("Largeur:", self._creer_spin("crem_encastree.largeur", 5, 50))
@@ -158,10 +152,8 @@ class ParamsEditor(QWidget):
         form_enc.addRow("Jeu rayon:", self._creer_spin("crem_encastree.jeu_rayon", 0, 10))
         form_enc.addRow("Retrait avant:", self._creer_spin("crem_encastree.retrait_avant", 10, 200))
         form_enc.addRow("Retrait arriere:", self._creer_spin("crem_encastree.retrait_arriere", 10, 200))
-        form_enc.addRow(self._creer_boutons_preset("crem_encastree"))
         layout.addWidget(group_enc)
 
-        # Applique
         group_app = QGroupBox("Cremaillere en applique")
         form_app = QFormLayout(group_app)
         form_app.addRow("Largeur:", self._creer_spin("crem_applique.largeur", 10, 50))
@@ -169,7 +161,6 @@ class ParamsEditor(QWidget):
         form_app.addRow("Jeu rayon:", self._creer_spin("crem_applique.jeu_rayon", 0, 10))
         form_app.addRow("Retrait avant:", self._creer_spin("crem_applique.retrait_avant", 10, 200))
         form_app.addRow("Retrait arriere:", self._creer_spin("crem_applique.retrait_arriere", 10, 200))
-        form_app.addRow(self._creer_boutons_preset("crem_applique"))
         layout.addWidget(group_app)
 
         layout.addStretch()
@@ -183,68 +174,88 @@ class ParamsEditor(QWidget):
         form.addRow("Section largeur:", self._creer_spin("tasseau.section_l", 10, 100))
         form.addRow("Retrait avant:", self._creer_spin("tasseau.retrait_avant", 0, 100))
         form.addRow("Biseau longueur:", self._creer_spin("tasseau.biseau_longueur", 0, 50))
-        form.addRow(self._creer_boutons_preset("tasseau"))
         return widget
 
-    # --- Presets ---
+    # --- Preset global ---
 
-    def _sauver_preset(self, categorie: str):
-        """Sauvegarde les parametres courants de la categorie comme preset."""
-        if not self.db:
-            QMessageBox.warning(self, "Presets", "Base de donnees non disponible.")
-            return
-
+    def _extraire_config_type(self) -> dict:
+        """Extrait les parametres panneaux + cremailleres + tasseaux (sans dimensions)."""
         self._lire_widgets_vers_params()
-        params_cat = self._params.get(categorie, {})
-        if not params_cat:
+        return {cle: dict(self._params[cle]) for cle in CLES_CONFIG_TYPE
+                if cle in self._params}
+
+    def _appliquer_config_type(self, config_type: dict):
+        """Applique une config type sur les parametres courants (sans toucher aux dimensions)."""
+        for cle in CLES_CONFIG_TYPE:
+            if cle in config_type:
+                self._params[cle] = dict(config_type[cle])
+        self._blocked = True
+        try:
+            self._ecrire_params_vers_widgets()
+        finally:
+            self._blocked = False
+        self.params_modifies.emit(self._params)
+
+    def _sauver_preset(self):
+        """Sauvegarde la config panneaux/cremailleres/tasseaux comme preset global."""
+        if not self.db:
+            QMessageBox.warning(self, "Config type", "Base de donnees non disponible.")
             return
 
-        label = LABELS_CATEGORIES.get(categorie, categorie)
+        config_type = self._extraire_config_type()
+        if not config_type:
+            return
+
         nom, ok = QInputDialog.getText(
             self, "Sauver configuration type",
-            f"Nom pour cette config '{label}' :"
+            "Nom de la configuration\n(panneaux + cremailleres + tasseaux) :"
         )
         if not ok or not nom:
             return
 
-        self.db.sauver_configuration(nom, categorie, params_cat)
-        QMessageBox.information(self, "Preset sauvegarde",
-                                f"Configuration '{nom}' sauvegardee.\n"
-                                f"Elle sera disponible dans tous vos projets.")
+        self.db.sauver_configuration(nom, "globale", config_type)
+        QMessageBox.information(
+            self, "Configuration sauvegardee",
+            f"Configuration '{nom}' sauvegardee.\n"
+            f"Reutilisable sur tous vos projets."
+        )
 
-    def _charger_preset(self, categorie: str):
-        """Charge un preset sauvegarde pour cette categorie."""
+    def _charger_preset(self):
+        """Charge un preset global sauvegarde."""
         if not self.db:
-            QMessageBox.warning(self, "Presets", "Base de donnees non disponible.")
+            QMessageBox.warning(self, "Config type", "Base de donnees non disponible.")
             return
 
-        configs = self.db.lister_configurations(categorie)
+        configs = self.db.lister_configurations("globale")
         if not configs:
-            QMessageBox.information(self, "Presets",
-                                    f"Aucune configuration type sauvegardee "
-                                    f"pour '{LABELS_CATEGORIES.get(categorie, categorie)}'.")
+            QMessageBox.information(
+                self, "Config type",
+                "Aucune configuration type sauvegardee.\n"
+                "Utilisez 'Sauver config type...' pour en creer une."
+            )
             return
 
-        # Menu de selection avec option supprimer
         menu = QMenu(self)
         for cfg in configs:
-            action = menu.addAction(f"{cfg['nom']}")
+            action = menu.addAction(cfg["nom"])
             action.setData(("charger", cfg["id"]))
 
-        menu.addSeparator()
-        for cfg in configs:
-            action = menu.addAction(f"Supprimer: {cfg['nom']}")
-            action.setData(("supprimer", cfg["id"]))
+        if len(configs) > 0:
+            menu.addSeparator()
+            sub = menu.addMenu("Supprimer...")
+            for cfg in configs:
+                action = sub.addAction(cfg["nom"])
+                action.setData(("supprimer", cfg["id"]))
 
         action = menu.exec_(self.cursor().pos())
-        if not action:
+        if not action or not action.data():
             return
 
         op, config_id = action.data()
         if op == "supprimer":
             cfg = self.db.get_configuration(config_id)
             rep = QMessageBox.question(
-                self, "Supprimer preset",
+                self, "Supprimer",
                 f"Supprimer la configuration '{cfg['nom']}' ?",
                 QMessageBox.Yes | QMessageBox.No
             )
@@ -252,18 +263,11 @@ class ParamsEditor(QWidget):
                 self.db.supprimer_configuration(config_id)
             return
 
-        # Charger
         cfg = self.db.get_configuration(config_id)
         if not cfg:
             return
 
-        self._params[categorie] = dict(cfg["params"])
-        self._blocked = True
-        try:
-            self._ecrire_params_vers_widgets()
-        finally:
-            self._blocked = False
-        self.params_modifies.emit(self._params)
+        self._appliquer_config_type(cfg["params"])
 
     # --- Valeurs ---
 
