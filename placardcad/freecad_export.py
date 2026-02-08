@@ -17,7 +17,7 @@ Convention d'axes FreeCAD:
 import uuid
 import zipfile
 from datetime import datetime
-from xml.etree.ElementTree import Element, SubElement, tostring, indent
+from xml.sax.saxutils import escape as xml_escape
 
 from .placard_builder import generer_geometrie_2d
 
@@ -212,141 +212,115 @@ def _collecter_objets_3d(config: dict) -> list[dict]:
 # =====================================================================
 
 def _generer_document_xml(objets: list[dict]) -> bytes:
-    """Genere le contenu Document.xml du fichier FCStd."""
-    root = Element("Document")
-    root.set("SchemaVersion", "4")
-    root.set("ProgramVersion", "0.21.0")
-    root.set("FileVersion", "1")
+    """Genere le contenu Document.xml du fichier FCStd.
 
-    # --- Proprietes du document ---
-    doc_props = SubElement(root, "Properties")
-    doc_props.set("Count", "4")
+    Construit le XML par formatage de chaines pour correspondre exactement
+    au format attendu par le parser Xerces-C de FreeCAD.
+    """
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Document SchemaVersion="4" ProgramVersion="0.21.0" FileVersion="1">',
+        '<Properties Count="4">',
+        '<Property name="CreatedBy" type="App::PropertyString">',
+        '<String value="PlacardCAD"/></Property>',
+        '<Property name="Label" type="App::PropertyString">',
+        '<String value="Placard"/></Property>',
+        '<Property name="CreationDate" type="App::PropertyString">',
+        f'<String value="{datetime.now().isoformat()}"/></Property>',
+        '<Property name="Uid" type="App::PropertyUUID">',
+        f'<Uuid value="{uuid.uuid4()}"/></Property>',
+        '</Properties>',
+    ]
 
-    p = SubElement(doc_props, "Property")
-    p.set("name", "CreatedBy")
-    p.set("type", "App::PropertyString")
-    SubElement(p, "String").set("value", "PlacardCAD")
-
-    p = SubElement(doc_props, "Property")
-    p.set("name", "Label")
-    p.set("type", "App::PropertyString")
-    SubElement(p, "String").set("value", "Placard")
-
-    p = SubElement(doc_props, "Property")
-    p.set("name", "CreationDate")
-    p.set("type", "App::PropertyString")
-    SubElement(p, "String").set("value", datetime.now().isoformat())
-
-    p = SubElement(doc_props, "Property")
-    p.set("name", "Uid")
-    p.set("type", "App::PropertyUUID")
-    SubElement(p, "Uuid").set("value", str(uuid.uuid4()))
-
-    # --- Liste des objets ---
-    objects_elem = SubElement(root, "Objects")
-    objects_elem.set("Count", str(len(objets)))
-
+    # Liste des objets
+    lines.append(f'<Objects Count="{len(objets)}">')
     for i, obj in enumerate(objets):
-        o = SubElement(objects_elem, "Object")
-        o.set("type", "Part::Box")
-        o.set("name", obj["nom"])
-        o.set("id", str(i))
+        lines.append(
+            f'<Object type="Part::Box" name="{xml_escape(obj["nom"])}" id="{i}"/>'
+        )
+    lines.append('</Objects>')
 
-    # --- Donnees des objets ---
-    objdata = SubElement(root, "ObjectData")
-    objdata.set("Count", str(len(objets)))
-
+    # Donnees des objets
+    lines.append(f'<ObjectData Count="{len(objets)}">')
     for obj in objets:
-        o = SubElement(objdata, "Object")
-        o.set("name", obj["nom"])
+        label = xml_escape(obj["label"], {'"': '&quot;'})
+        lines.append(f'<Object name="{xml_escape(obj["nom"])}">')
+        lines.append('<Properties Count="5">')
 
-        props = SubElement(o, "Properties")
-        props.set("Count", "5")
+        # Label
+        lines.append('<Property name="Label" type="App::PropertyString">')
+        lines.append(f'<String value="{label}"/></Property>')
 
-        # Label (nom affiche)
-        p = SubElement(props, "Property")
-        p.set("name", "Label")
-        p.set("type", "App::PropertyString")
-        SubElement(p, "String").set("value", obj["label"])
+        # Length
+        lines.append('<Property name="Length" type="App::PropertyLength">')
+        lines.append(f'<Float value="{obj["length"]:.6f}"/></Property>')
 
-        # Length (X)
-        p = SubElement(props, "Property")
-        p.set("name", "Length")
-        p.set("type", "App::PropertyLength")
-        SubElement(p, "Float").set("value", f"{obj['length']:.2f}")
+        # Width
+        lines.append('<Property name="Width" type="App::PropertyLength">')
+        lines.append(f'<Float value="{obj["width"]:.6f}"/></Property>')
 
-        # Width (Y)
-        p = SubElement(props, "Property")
-        p.set("name", "Width")
-        p.set("type", "App::PropertyLength")
-        SubElement(p, "Float").set("value", f"{obj['width']:.2f}")
+        # Height
+        lines.append('<Property name="Height" type="App::PropertyLength">')
+        lines.append(f'<Float value="{obj["height"]:.6f}"/></Property>')
 
-        # Height (Z)
-        p = SubElement(props, "Property")
-        p.set("name", "Height")
-        p.set("type", "App::PropertyLength")
-        SubElement(p, "Float").set("value", f"{obj['height']:.2f}")
+        # Placement
+        lines.append('<Property name="Placement" type="App::PropertyPlacement">')
+        lines.append(
+            f'<PropertyPlacement '
+            f'Px="{obj["px"]:.15e}" Py="{obj["py"]:.15e}" Pz="{obj["pz"]:.15e}" '
+            f'Q0="0.000000000000000e+0" Q1="0.000000000000000e+0" '
+            f'Q2="0.000000000000000e+0" Q3="1.000000000000000e+0" '
+            f'A="0.000000000000000e+0" '
+            f'Ox="0.000000000000000e+0" Oy="0.000000000000000e+0" '
+            f'Oz="1.000000000000000e+0"/></Property>')
 
-        # Placement (position + rotation identite)
-        p = SubElement(props, "Property")
-        p.set("name", "Placement")
-        p.set("type", "App::PropertyPlacement")
-        pl = SubElement(p, "PropertyPlacement")
-        pl.set("Px", f"{obj['px']:.15e}")
-        pl.set("Py", f"{obj['py']:.15e}")
-        pl.set("Pz", f"{obj['pz']:.15e}")
-        pl.set("Q0", "0.000000000000000e+0")
-        pl.set("Q1", "0.000000000000000e+0")
-        pl.set("Q2", "0.000000000000000e+0")
-        pl.set("Q3", "1.000000000000000e+0")
-        pl.set("A", "0.000000000000000e+0")
-        pl.set("Ox", "0.000000000000000e+0")
-        pl.set("Oy", "0.000000000000000e+0")
-        pl.set("Oz", "1.000000000000000e+0")
+        lines.append('</Properties>')
+        lines.append('</Object>')
 
-    indent(root)
-    xml_str = tostring(root, encoding="unicode")
-    return ('<?xml version="1.0" encoding="utf-8"?>\n' + xml_str).encode("utf-8")
+    lines.append('</ObjectData>')
+    lines.append('</Document>')
+
+    return '\n'.join(lines).encode("utf-8")
 
 
 def _generer_guidocument_xml(objets: list[dict]) -> bytes:
-    """Genere le contenu GuiDocument.xml du fichier FCStd."""
-    root = Element("Document")
-    root.set("SchemaVersion", "1")
+    """Genere le contenu GuiDocument.xml du fichier FCStd.
 
-    vpdata = SubElement(root, "ViewProviderData")
-    vpdata.set("Count", str(len(objets)))
+    Construit le XML par formatage de chaines pour correspondre exactement
+    au format attendu par le parser Xerces-C de FreeCAD.
+    """
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Document SchemaVersion="1" ProgramVersion="0.21.0" FileVersion="1">',
+        f'<ViewProviderData Count="{len(objets)}">',
+    ]
 
     for obj in objets:
-        vp = SubElement(vpdata, "ViewProvider")
-        vp.set("name", obj["nom"])
+        nom = xml_escape(obj["nom"])
+        couleur = _couleur_packed(obj["couleur"])
 
-        props = SubElement(vp, "Properties")
-        props.set("Count", "3")
+        lines.append(f'<ViewProvider name="{nom}">')
+        lines.append('<Properties Count="3">')
 
-        # ShapeColor (uint32 RGBA)
-        p = SubElement(props, "Property")
-        p.set("name", "ShapeColor")
-        p.set("type", "App::PropertyColor")
-        SubElement(p, "PropertyColor").set(
-            "value", str(_couleur_packed(obj["couleur"]))
-        )
+        # ShapeColor
+        lines.append('<Property name="ShapeColor" type="App::PropertyColor">')
+        lines.append(f'<PropertyColor value="{couleur}"/></Property>')
 
-        # Transparency (0-100)
-        p = SubElement(props, "Property")
-        p.set("name", "Transparency")
-        p.set("type", "App::PropertyPercent")
-        SubElement(p, "Integer").set("value", str(obj["transparence"]))
+        # Transparency
+        lines.append('<Property name="Transparency" type="App::PropertyPercent">')
+        lines.append(f'<Integer value="{obj["transparence"]}"/></Property>')
 
         # Visibility
-        p = SubElement(props, "Property")
-        p.set("name", "Visibility")
-        p.set("type", "App::PropertyBool")
-        SubElement(p, "Bool").set("value", "true")
+        lines.append('<Property name="Visibility" type="App::PropertyBool">')
+        lines.append('<Bool value="true"/></Property>')
 
-    indent(root)
-    xml_str = tostring(root, encoding="unicode")
-    return ('<?xml version="1.0" encoding="utf-8"?>\n' + xml_str).encode("utf-8")
+        lines.append('</Properties>')
+        lines.append('</ViewProvider>')
+
+    lines.append('</ViewProviderData>')
+    lines.append('</Document>')
+
+    return '\n'.join(lines).encode("utf-8")
 
 
 # =====================================================================
