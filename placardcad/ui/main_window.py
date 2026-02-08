@@ -25,6 +25,7 @@ from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit
+from ..freecad_export import exporter_freecad
 
 
 class MainWindow(QMainWindow):
@@ -149,6 +150,11 @@ class MainWindow(QMainWindow):
         self.action_export_texte = QAction("Exporter fiche texte", self)
         self.action_export_texte.triggered.connect(self._exporter_fiche_texte)
         toolbar.addAction(self.action_export_texte)
+
+        # Export FreeCAD
+        self.action_export_freecad = QAction("Exporter FreeCAD", self)
+        self.action_export_freecad.triggered.connect(self._exporter_freecad)
+        toolbar.addAction(self.action_export_freecad)
 
         toolbar.addSeparator()
 
@@ -463,6 +469,36 @@ class MainWindow(QMainWindow):
                                     f"Fiche exportee:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "Erreur export", str(e))
+
+    def _exporter_freecad(self):
+        """Exporte le placard en script FreeCAD (.FCMacro)."""
+        if not self._rects:
+            QMessageBox.warning(self, "Export FreeCAD",
+                                "Aucun amenagement a exporter. Editez un schema d'abord.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter macro FreeCAD",
+            "placard.FCMacro",
+            "Macro FreeCAD (*.FCMacro);;Python (*.py);;Tous (*)"
+        )
+        if not filepath:
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        config = schema_vers_config(schema_text, params)
+
+        try:
+            exporter_freecad(filepath, config)
+            self.statusbar.showMessage(f"FreeCAD exporte: {filepath}")
+            QMessageBox.information(
+                self, "Export FreeCAD",
+                f"Macro FreeCAD exportee:\n{filepath}\n\n"
+                "Ouvrir dans FreeCAD: Macro > Executer la macro"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
 
     def _ouvrir_debit_dialog(self):
         """Ouvre le dialogue d'optimisation de debit multi-projets."""
