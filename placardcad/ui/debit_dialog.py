@@ -39,7 +39,7 @@ class DebitDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # --- Arbre de selection ---
-        grp_select = QGroupBox("Selection des amenagements")
+        grp_select = QGroupBox("Selection des amenagements et pieces")
         select_layout = QVBoxLayout(grp_select)
 
         btn_bar = QHBoxLayout()
@@ -140,6 +140,21 @@ class DebitDialog(QDialog):
                 item_am.setData(0, Qt.UserRole, ("amenagement", am["id"], projet["id"]))
                 item_projet.addChild(item_am)
 
+            # Noeud pieces manuelles
+            pieces_m = self.db.lister_pieces_manuelles(projet["id"])
+            nb = len(pieces_m)
+            if nb > 0:
+                label = f"Pieces manuelles ({nb})"
+                nb_pcs = sum(pm["quantite"] for pm in pieces_m)
+                item_pm = QTreeWidgetItem([label, f"{nb_pcs} pcs"])
+                item_pm.setFlags(item_pm.flags() | Qt.ItemIsUserCheckable)
+                item_pm.setCheckState(0, Qt.Unchecked)
+                item_pm.setData(0, Qt.UserRole, ("pieces_manuelles", projet["id"]))
+                font = item_pm.font(0)
+                font.setItalic(True)
+                item_pm.setFont(0, font)
+                item_projet.addChild(item_pm)
+
             self.tree.addTopLevelItem(item_projet)
 
         self.tree.expandAll()
@@ -186,11 +201,10 @@ class DebitDialog(QDialog):
         )
 
     def _collecter_pieces(self) -> tuple[list[PieceDebit], dict | None]:
-        """Collecte toutes les pieces des amenagements coches + pieces manuelles."""
+        """Collecte toutes les pieces des amenagements et pieces manuelles coches."""
         all_pieces: list[PieceDebit] = []
         projet_info = None
         erreurs = []
-        projets_inclus: set[int] = set()
 
         for i in range(self.tree.topLevelItemCount()):
             item_projet = self.tree.topLevelItem(i)
@@ -198,51 +212,53 @@ class DebitDialog(QDialog):
             projet_id = data_projet[1]
 
             for j in range(item_projet.childCount()):
-                item_am = item_projet.child(j)
-                if item_am.checkState(0) != Qt.Checked:
+                item_child = item_projet.child(j)
+                if item_child.checkState(0) != Qt.Checked:
                     continue
 
-                data_am = item_am.data(0, Qt.UserRole)
-                am_id = data_am[1]
+                data_child = item_child.data(0, Qt.UserRole)
 
-                am = self.db.get_amenagement(am_id)
-                if not am or not am["schema_txt"] or not am["schema_txt"].strip():
-                    continue
+                if data_child[0] == "amenagement":
+                    am_id = data_child[1]
+                    am = self.db.get_amenagement(am_id)
+                    if not am or not am["schema_txt"] or not am["schema_txt"].strip():
+                        continue
 
-                if projet_info is None:
-                    projet_info = self.db.get_projet(projet_id)
+                    if projet_info is None:
+                        projet_info = self.db.get_projet(projet_id)
 
-                projets_inclus.add(projet_id)
+                    try:
+                        params_json = am["params_json"]
+                        params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
+                    except json.JSONDecodeError:
+                        params = dict(PARAMS_DEFAUT)
 
-                try:
-                    params_json = am["params_json"]
-                    params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
-                except json.JSONDecodeError:
-                    params = dict(PARAMS_DEFAUT)
+                    try:
+                        config = schema_vers_config(am["schema_txt"], params)
+                        _, fiche = generer_geometrie_2d(config)
+                        pieces = pieces_depuis_fiche(fiche, projet_id, am_id)
+                        all_pieces.extend(pieces)
+                    except Exception as e:
+                        erreurs.append(f"{am['nom']}: {e}")
 
-                try:
-                    config = schema_vers_config(am["schema_txt"], params)
-                    _, fiche = generer_geometrie_2d(config)
-                    pieces = pieces_depuis_fiche(fiche, projet_id, am_id)
-                    all_pieces.extend(pieces)
-                except Exception as e:
-                    erreurs.append(f"{am['nom']}: {e}")
+                elif data_child[0] == "pieces_manuelles":
+                    pid = data_child[1]
+                    if projet_info is None:
+                        projet_info = self.db.get_projet(pid)
 
-        # Ajouter les pieces manuelles des projets inclus
-        for pid in projets_inclus:
-            pieces_m = self.db.lister_pieces_manuelles(pid)
-            for pm in pieces_m:
-                ref = pm["reference"] or f"P{pid}/M{pm['id']:02d}"
-                all_pieces.append(PieceDebit(
-                    nom=pm["nom"] or "Piece manuelle",
-                    reference=ref,
-                    longueur=pm["longueur"],
-                    largeur=pm["largeur"],
-                    epaisseur=pm["epaisseur"],
-                    couleur=pm["couleur"] or "Standard",
-                    quantite=pm["quantite"],
-                    sens_fil=bool(pm["sens_fil"]),
-                ))
+                    pieces_m = self.db.lister_pieces_manuelles(pid)
+                    for pm in pieces_m:
+                        ref = pm["reference"] or f"P{pid}/M{pm['id']:02d}"
+                        all_pieces.append(PieceDebit(
+                            nom=pm["nom"] or "Piece manuelle",
+                            reference=ref,
+                            longueur=pm["longueur"],
+                            largeur=pm["largeur"],
+                            epaisseur=pm["epaisseur"],
+                            couleur=pm["couleur"] or "Standard",
+                            quantite=pm["quantite"],
+                            sens_fil=bool(pm["sens_fil"]),
+                        ))
 
         if erreurs:
             QMessageBox.warning(
@@ -259,7 +275,7 @@ class DebitDialog(QDialog):
         if not all_pieces:
             QMessageBox.warning(self, "Optimisation",
                                 "Aucune piece a optimiser.\n"
-                                "Cochez au moins un amenagement valide.")
+                                "Cochez au moins un amenagement ou des pieces manuelles.")
             return
 
         filepath, _ = QFileDialog.getSaveFileName(
