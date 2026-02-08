@@ -198,17 +198,18 @@ def parser_schema(schema_text: str) -> dict:
     largeurs = []
 
     if width_line:
-        parts = []
-        for comp_idx in range(nb_compartiments):
-            pos_g = sep_positions[comp_idx]
-            pos_d = sep_positions[comp_idx + 1]
-            zone = width_line[pos_g:pos_d + 1] if pos_d < len(width_line) else width_line[pos_g:]
-            zone = zone.strip()
-            nums = re.findall(r'\d+', zone)
-            if nums:
-                parts.append(int(nums[0]))
-            else:
-                parts.append(None)
+        parts = [None] * nb_compartiments
+
+        # Trouver chaque nombre et l'assigner au compartiment
+        # dont la zone contient le centre du nombre
+        for match in re.finditer(r'\d+', width_line):
+            center = (match.start() + match.end()) / 2
+            for comp_idx in range(nb_compartiments):
+                pos_g = sep_positions[comp_idx]
+                pos_d = sep_positions[comp_idx + 1]
+                if pos_g < center < pos_d:
+                    parts[comp_idx] = int(match.group())
+                    break
 
         if any(p is not None for p in parts):
             if all(p is not None for p in parts):
