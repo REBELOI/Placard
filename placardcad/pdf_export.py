@@ -902,19 +902,149 @@ def _dessiner_debit_mixte(c: canvas.Canvas, all_pieces: list,
 #  EXPORT PDF STANDALONE - PLANS DE DEBIT SEULEMENT
 # =========================================================================
 
+def _dessiner_pages_liste_pieces(c: canvas.Canvas, all_pieces: list,
+                                  projet_info: dict | None,
+                                  titre: str = "Optimisation de debit"):
+    """Dessine une ou plusieurs pages avec la liste des pieces a decouper.
+
+    Gere la pagination si le nombre de pieces depasse la capacite d'une page.
+    Les pieces sont triees par (couleur, epaisseur, nom).
+    """
+    page_w, page_h = landscape(A4)
+    marge = 10 * mm
+
+    # Trier par couleur, epaisseur, nom
+    pieces_triees = sorted(all_pieces, key=lambda p: (p.couleur, p.epaisseur, p.nom))
+
+    # Colonnes du tableau
+    tab_w = page_w - 2 * marge
+    cols = [
+        ("Ref.", 80),
+        ("Designation", 200),
+        ("Long.", 55),
+        ("Larg.", 55),
+        ("Ep.", 40),
+        ("Couleur / Decor", 210),
+        ("Fil", 40),
+        ("Qte", 40),
+    ]
+
+    row_h = 11
+    font_size = 7
+
+    # Preparer toutes les lignes
+    all_rows = []
+    for p in pieces_triees:
+        all_rows.append([
+            p.reference,
+            p.nom[:42],
+            f"{p.longueur:.0f}",
+            f"{p.largeur:.0f}",
+            f"{p.epaisseur:.0f}",
+            p.couleur[:40],
+            "Oui" if p.sens_fil else "Non",
+            str(p.quantite),
+        ])
+
+    # Calculer les capacites
+    y_top_content = page_h - marge - 20 - 15  # apres cartouche + titre
+    y_bottom = marge + 10
+    rows_per_page = int((y_top_content - y_bottom) / row_h) - 1  # -1 pour en-tete
+    if rows_per_page < 5:
+        rows_per_page = 5
+
+    nb_pages = max(1, (len(all_rows) + rows_per_page - 1) // rows_per_page)
+
+    nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
+
+    for page_idx in range(nb_pages):
+        if page_idx > 0:
+            c.showPage()
+
+        start = page_idx * rows_per_page
+        end = min(start + rows_per_page, len(all_rows))
+        page_rows = all_rows[start:end]
+
+        # --- Cartouche ---
+        y_top = page_h - marge
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.black)
+        titre_page = f"Liste des pieces a decouper \u2014 {nom_projet}"
+        if nb_pages > 1:
+            titre_page += f" ({page_idx + 1}/{nb_pages})"
+        c.drawString(marge, y_top, titre_page)
+
+        c.setFont("Helvetica", 8)
+        info_parts = []
+        if projet_info:
+            if projet_info.get("client"):
+                info_parts.append(f"Client: {projet_info['client']}")
+        info_parts.append(f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        info_parts.append(f"{len(all_pieces)} references | "
+                          f"{sum(p.quantite for p in all_pieces)} pieces au total")
+        c.drawString(marge, y_top - 14, "  |  ".join(info_parts))
+
+        y_sep = y_top - 20
+        c.setStrokeColor(colors.grey)
+        c.setLineWidth(0.5)
+        c.line(marge, y_sep, page_w - marge, y_sep)
+
+        # --- Tableau ---
+        y_cursor = y_sep - 4
+        y_cursor = _dessiner_tableau(c, marge, tab_w, y_cursor, row_h, font_size,
+                                     cols, page_rows)
+
+    # --- Resume materiaux + surface (sur la derniere page) ---
+    y_cursor -= 10
+    surface = sum(p.longueur * p.largeur * p.quantite / 1e6 for p in all_pieces)
+    nb_total = sum(p.quantite for p in all_pieces)
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    c.drawString(marge, y_cursor,
+                 f"Surface totale : {surface:.2f} m\u00b2  |  "
+                 f"{len(all_pieces)} reference(s)  |  {nb_total} piece(s)")
+    y_cursor -= 16
+
+    materiaux: dict[tuple, dict] = {}
+    for p in all_pieces:
+        key = (p.epaisseur, p.couleur)
+        if key not in materiaux:
+            materiaux[key] = {"surface": 0, "nb": 0}
+        materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
+        materiaux[key]["nb"] += p.quantite
+
+    if materiaux and y_cursor > marge + 15:
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.black)
+        c.drawString(marge, y_cursor, "Resume materiaux")
+        y_cursor -= 12
+
+        c.setFont("Helvetica", 7)
+        for (ep, coul), info in materiaux.items():
+            if y_cursor < marge:
+                break
+            c.drawString(marge + 10, y_cursor,
+                         f"{coul} ep.{ep:.0f}mm : {info['surface']:.2f} m\u00b2"
+                         f" ({info['nb']} pieces)")
+            y_cursor -= 10
+
+
 def exporter_pdf_debit(filepath: str, all_pieces: list,
                        params_debit: ParametresDebit,
                        projet_info: dict | None = None,
                        titre: str = "Optimisation de debit") -> str:
-    """Exporte un PDF avec uniquement les plans de debit."""
+    """Exporte un PDF avec liste des pieces + plans de debit + resume."""
     plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
 
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
 
+    # Pages de la liste des pieces a decouper
+    _dessiner_pages_liste_pieces(c, all_pieces, projet_info, titre)
+
+    # Pages plans de debit
     total = len(plans)
     for i, plan in enumerate(plans):
-        if i > 0:
-            c.showPage()
+        c.showPage()
         _dessiner_page_debit(c, plan, params_debit, i + 1, total,
                              projet_info, titre)
 
