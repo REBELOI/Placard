@@ -755,6 +755,114 @@ def _generer_et_dessiner_debit(c: canvas.Canvas, fiche: FicheFabrication,
 #  DESSIN DEBIT MIXTE (toutes pieces confondues)
 # =========================================================================
 
+def _dessiner_page_pieces_manuelles(c: canvas.Canvas, pieces_manuelles: list,
+                                     projet_info: dict | None):
+    """Dessine une page fiche de debit dediee aux pieces manuelles (complementaires)."""
+    page_w, page_h = landscape(A4)
+    marge = 10 * mm
+
+    # --- Cartouche ---
+    y_top = page_h - marge
+    nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(colors.black)
+    c.drawString(marge, y_top, f"PlacardCAD - {nom_projet}")
+
+    c.setFont("Helvetica", 8)
+    info_parts = []
+    if projet_info:
+        if projet_info.get("client"):
+            info_parts.append(f"Client: {projet_info['client']}")
+        if projet_info.get("adresse"):
+            info_parts.append(f"Adresse: {projet_info['adresse']}")
+    info_parts.append(f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    c.drawString(marge, y_top - 14, "  |  ".join(info_parts))
+
+    y_sep = y_top - 20
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(0.5)
+    c.line(marge, y_sep, page_w - marge, y_sep)
+
+    # --- Titre ---
+    y_cursor = y_sep - 15
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(colors.black)
+    c.drawString(marge, y_cursor, "Fiche de debit \u2014 Pieces complementaires")
+    y_cursor -= 16
+
+    # --- Tailles adaptees ---
+    nb_pieces = len(pieces_manuelles)
+    hauteur_dispo = y_cursor - marge - 60
+    row_h = hauteur_dispo / max(nb_pieces + 1, 2)
+    row_h = max(8, min(14, row_h))
+    font_size = max(5, min(8, row_h * 0.65))
+
+    # --- Tableau ---
+    tab_w = page_w - 2 * marge
+    cols = [
+        ("Ref.", 80),
+        ("Designation", 220),
+        ("Long.", 55),
+        ("Larg.", 55),
+        ("Ep.", 40),
+        ("Couleur / Decor", 205),
+        ("Fil", 40),
+        ("Qte", 40),
+    ]
+
+    rows = []
+    for p in pieces_manuelles:
+        rows.append([
+            p.reference,
+            p.nom[:45],
+            f"{p.longueur:.0f}",
+            f"{p.largeur:.0f}",
+            f"{p.epaisseur:.0f}",
+            p.couleur[:40],
+            "Oui" if p.sens_fil else "Non",
+            str(p.quantite),
+        ])
+
+    y_cursor = _dessiner_tableau(c, marge, tab_w, y_cursor, row_h, font_size,
+                                 cols, rows)
+
+    # --- Surface totale + comptage ---
+    y_cursor -= 8
+    surface = sum(p.longueur * p.largeur * p.quantite / 1e6
+                  for p in pieces_manuelles)
+    nb_total = sum(p.quantite for p in pieces_manuelles)
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    c.drawString(marge, y_cursor,
+                 f"Surface totale : {surface:.2f} m\u00b2  |  "
+                 f"{nb_pieces} reference(s)  |  {nb_total} piece(s)")
+    y_cursor -= 18
+
+    # --- Resume materiaux ---
+    materiaux: dict[tuple, dict] = {}
+    for p in pieces_manuelles:
+        key = (p.epaisseur, p.couleur)
+        if key not in materiaux:
+            materiaux[key] = {"surface": 0, "nb": 0}
+        materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
+        materiaux[key]["nb"] += p.quantite
+
+    if materiaux and y_cursor > marge + 20:
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(colors.black)
+        c.drawString(marge, y_cursor, "Resume materiaux")
+        y_cursor -= 12
+
+        c.setFont("Helvetica", 7)
+        for (ep, coul), info in materiaux.items():
+            if y_cursor < marge:
+                break
+            c.drawString(marge + 10, y_cursor,
+                         f"{coul} ep.{ep:.0f}mm : {info['surface']:.2f} m\u00b2"
+                         f" ({info['nb']} pieces)")
+            y_cursor -= 10
+
+
 def _dessiner_debit_mixte(c: canvas.Canvas, all_pieces: list,
                           params_debit: ParametresDebit,
                           projet_info: dict | None):
@@ -905,11 +1013,13 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
                  fiche: FicheFabrication, projet_info: dict | None = None,
                  projet_id: int = 0, amenagement_id: int = 0,
                  params_debit: ParametresDebit | None = None,
-                 all_pieces_projet: list | None = None):
-    """Exporte un PDF: page amenagement + pages plan de debit.
+                 all_pieces_projet: list | None = None,
+                 pieces_manuelles: list | None = None):
+    """Exporte un PDF: page amenagement + fiche pieces manuelles + plans de debit.
 
     Si all_pieces_projet est fourni, le debit est mixte (toutes les pieces
     du projet ensemble). Sinon, seul cet amenagement est optimise.
+    pieces_manuelles: liste optionnelle de PieceDebit complementaires.
     """
     if params_debit is None:
         params_debit = ParametresDebit()
@@ -917,6 +1027,11 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
     _dessiner_page(c, rects, config, fiche, projet_info, None,
                    projet_id, amenagement_id)
+
+    # Page fiche de debit pour les pieces manuelles
+    if pieces_manuelles:
+        c.showPage()
+        _dessiner_page_pieces_manuelles(c, pieces_manuelles, projet_info)
 
     if all_pieces_projet:
         # Debit mixte avec toutes les pieces du projet
@@ -976,6 +1091,11 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
     # Ajouter les pieces manuelles
     if pieces_manuelles:
         all_pieces.extend(pieces_manuelles)
+
+    # --- Page fiche de debit pour les pieces manuelles ---
+    if pieces_manuelles:
+        c.showPage()
+        _dessiner_page_pieces_manuelles(c, pieces_manuelles, projet_info)
 
     # --- Plans de debit mixtes (toutes pieces confondues) ---
     _dessiner_debit_mixte(c, all_pieces, params_debit, projet_info)

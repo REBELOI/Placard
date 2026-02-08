@@ -355,12 +355,15 @@ class MainWindow(QMainWindow):
 
         # Collecter toutes les pieces du projet pour debit mixte
         all_pieces = self._collecter_pieces_projet()
+        pieces_m = (self._collecter_pieces_manuelles(self._current_projet_id)
+                    if self._current_projet_id else [])
 
         try:
             exporter_pdf(filepath, self._rects, config, self._fiche, projet_info,
                          projet_id=self._current_projet_id or 0,
                          amenagement_id=self._current_amenagement_id or 0,
-                         all_pieces_projet=all_pieces if all_pieces else None)
+                         all_pieces_projet=all_pieces if all_pieces else None,
+                         pieces_manuelles=pieces_m if pieces_m else None)
             self.statusbar.showMessage(f"PDF exporte: {filepath}")
             QMessageBox.information(self, "Export PDF",
                                     f"PDF exporte avec succes:\n{filepath}")
