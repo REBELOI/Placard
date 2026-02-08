@@ -92,6 +92,12 @@ class ParamsEditor(QWidget):
         self._widgets[key] = spin
         return spin
 
+    def _creer_check(self, key: str, label: str = "") -> QCheckBox:
+        chk = QCheckBox(label)
+        chk.stateChanged.connect(self._on_value_changed)
+        self._widgets[key] = chk
+        return chk
+
     def _creer_text(self, key: str) -> QLineEdit:
         edit = QLineEdit()
         edit.textChanged.connect(self._on_value_changed)
@@ -127,6 +133,9 @@ class ParamsEditor(QWidget):
                         self._creer_text(f"{categorie}.couleur_fab"))
             form.addRow("Epaisseur chant:",
                         self._creer_dspin(f"{categorie}.chant_epaisseur", 0, 5))
+            form.addRow("Sens du fil:",
+                        self._creer_check(f"{categorie}.sens_fil",
+                                          "Respecter le sens du fil (debit)"))
             if avec_retrait:
                 form.addRow("Retrait avant:",
                             self._creer_spin(f"{categorie}.retrait_avant", 0, 200))

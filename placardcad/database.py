@@ -23,6 +23,7 @@ PARAMS_DEFAUT = {
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
+        "sens_fil": True,
     },
     "panneau_rayon": {
         "epaisseur": 19,
@@ -33,6 +34,7 @@ PARAMS_DEFAUT = {
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
         "retrait_avant": 0,
         "retrait_arriere": 0,
+        "sens_fil": True,
     },
     "panneau_rayon_haut": {
         "epaisseur": 22,
@@ -43,6 +45,7 @@ PARAMS_DEFAUT = {
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
         "retrait_avant": 0,
         "retrait_arriere": 0,
+        "sens_fil": True,
     },
     "panneau_mur": {
         "epaisseur": 19,
@@ -51,6 +54,7 @@ PARAMS_DEFAUT = {
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
+        "sens_fil": True,
     },
     "crem_encastree": {
         "largeur": 16,

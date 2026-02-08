@@ -17,7 +17,7 @@ class PieceInfo:
     def __init__(self, nom: str, longueur: float, largeur: float, epaisseur: float,
                  materiau: str = "Agglomere melamine", couleur_fab: str = "",
                  chant_desc: str = "", quantite: int = 1, notes: str = "",
-                 reference: str = ""):
+                 reference: str = "", sens_fil: bool = True):
         self.nom = nom
         self.longueur = longueur
         self.largeur = largeur
@@ -28,6 +28,7 @@ class PieceInfo:
         self.quantite = quantite
         self.notes = notes
         self.reference = reference
+        self.sens_fil = sens_fil
 
     def __repr__(self):
         return (f"{self.nom}: {self.longueur:.0f}x{self.largeur:.0f}x{self.epaisseur:.0f}mm "
@@ -284,7 +285,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
             "Rayon haut (toute largeur)", L, prof_rh, ep_rayon_haut,
             couleur_fab=config["panneau_rayon_haut"]["couleur_fab"],
             chant_desc=f"Avant {config['panneau_rayon_haut']['chant_epaisseur']}mm",
-            notes="Pose sur tasseaux"
+            notes="Pose sur tasseaux",
+            sens_fil=config["panneau_rayon_haut"].get("sens_fil", True),
         ))
 
     # --- Boucle compartiments ---
@@ -307,7 +309,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 "Panneau mur gauche", h_pm, P - pm["chant_epaisseur"], pm["epaisseur"],
                 couleur_fab=pm["couleur_fab"],
                 chant_desc=f"Avant {pm['chant_epaisseur']}mm",
-                notes="Fixe au mur, cremailleres encastrees"
+                notes="Fixe au mur, cremailleres encastrees",
+                sens_fil=pm.get("sens_fil", True),
             ))
 
         # --- Panneau mur droit ---
@@ -323,7 +326,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 "Panneau mur droit", h_pm, P - pm["chant_epaisseur"], pm["epaisseur"],
                 couleur_fab=pm["couleur_fab"],
                 chant_desc=f"Avant {pm['chant_epaisseur']}mm",
-                notes="Fixe au mur, cremailleres encastrees"
+                notes="Fixe au mur, cremailleres encastrees",
+                sens_fil=pm.get("sens_fil", True),
             ))
 
         # --- Cremailleres ---
@@ -426,7 +430,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 couleur_fab=config["panneau_rayon"]["couleur_fab"],
                 chant_desc=f"Avant {config['panneau_rayon']['chant_epaisseur']}mm",
                 quantite=nb_rayons,
-                notes="Sur cremailleres"
+                notes="Sur cremailleres",
+                sens_fil=config["panneau_rayon"].get("sens_fil", True),
             ))
 
         # --- Tasseaux ---
@@ -536,7 +541,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 h_sep, prof_sep, ep_sep,
                 couleur_fab=config["panneau_separation"]["couleur_fab"],
                 chant_desc=f"Avant {config['panneau_separation']['chant_epaisseur']}mm",
-                notes=f"Mode: {sep['mode']}"
+                notes=f"Mode: {sep['mode']}",
+                sens_fil=config["panneau_separation"].get("sens_fil", True),
             ))
 
         x_courant = x_fin

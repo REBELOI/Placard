@@ -46,6 +46,7 @@ class PieceDebit:
     epaisseur: float
     couleur: str
     quantite: int = 1
+    sens_fil: bool = True
 
 
 @dataclass
@@ -125,6 +126,7 @@ def pieces_depuis_fiche(fiche: FicheFabrication,
             epaisseur=p.epaisseur,
             couleur=p.couleur_fab or "Standard",
             quantite=p.quantite,
+            sens_fil=getattr(p, "sens_fil", True),
         ))
     return pieces
 
@@ -156,9 +158,12 @@ def optimiser_debit(pieces: list[PieceDebit],
         ld = p.longueur + 2 * params.surcote
         wd = p.largeur + 2 * params.surcote
 
+        # sens_fil effectif : global ET par piece
+        piece_sens_fil = params.sens_fil and p.sens_fil
+
         # Verifier si la piece rentre dans le panneau
         ok_normal = ld <= panneau_utile_l and wd <= panneau_utile_w
-        ok_rotate = (not params.sens_fil
+        ok_rotate = (not piece_sens_fil
                      and wd <= panneau_utile_l and ld <= panneau_utile_w)
         if not ok_normal and not ok_rotate:
             hors_gabarit.append(p)
@@ -168,7 +173,7 @@ def optimiser_debit(pieces: list[PieceDebit],
         for _ in range(p.quantite):
             piece_unit = PieceDebit(
                 p.nom, p.reference, p.longueur, p.largeur,
-                p.epaisseur, p.couleur, 1
+                p.epaisseur, p.couleur, 1, sens_fil=piece_sens_fil,
             )
             groupes.setdefault(key, []).append((piece_unit, ld, wd))
 
@@ -180,7 +185,7 @@ def optimiser_debit(pieces: list[PieceDebit],
 
         plans_groupe = _bin_packing_guillotine(
             group, panneau_utile_l, panneau_utile_w,
-            ep, couleur, params.trait_scie, params.sens_fil
+            ep, couleur, params.trait_scie,
         )
         plans.extend(plans_groupe)
 
@@ -191,13 +196,14 @@ def _bin_packing_guillotine(
     pieces_debit: list[tuple[PieceDebit, float, float]],
     panneau_l: float, panneau_w: float,
     epaisseur: float, couleur: str,
-    trait_scie: float, sens_fil: bool
+    trait_scie: float,
 ) -> list[PlanDecoupe]:
     """Algorithme guillotine bin packing Best Fit Decreasing."""
     plans: list[PlanDecoupe] = []
 
     for piece, ld, wd in pieces_debit:
         placed = False
+        piece_sens_fil = piece.sens_fil
 
         # Essayer de placer dans un panneau existant (best fit)
         best_plan = None
@@ -207,7 +213,7 @@ def _bin_packing_guillotine(
 
         for plan in plans:
             zone_idx, rotation, score = _trouver_meilleure_zone(
-                plan.zones_libres, ld, wd, sens_fil
+                plan.zones_libres, ld, wd, piece_sens_fil
             )
             if zone_idx >= 0 and score < best_score:
                 best_score = score
@@ -228,7 +234,7 @@ def _bin_packing_guillotine(
             plan.zones_libres = [ZoneLibre(0, 0, panneau_l, panneau_w)]
 
             zone_idx, rotation, _ = _trouver_meilleure_zone(
-                plan.zones_libres, ld, wd, sens_fil
+                plan.zones_libres, ld, wd, piece_sens_fil
             )
             if zone_idx >= 0:
                 _effectuer_placement(
