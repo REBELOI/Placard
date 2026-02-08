@@ -471,16 +471,16 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export", str(e))
 
     def _exporter_freecad(self):
-        """Exporte le placard en script FreeCAD (.FCMacro)."""
+        """Exporte le placard en fichier FreeCAD natif (.FCStd)."""
         if not self._rects:
             QMessageBox.warning(self, "Export FreeCAD",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
             return
 
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Exporter macro FreeCAD",
-            "placard.FCMacro",
-            "Macro FreeCAD (*.FCMacro);;Python (*.py);;Tous (*)"
+            self, "Exporter fichier FreeCAD",
+            "placard.FCStd",
+            "FreeCAD (*.FCStd);;Tous (*)"
         )
         if not filepath:
             return
@@ -494,8 +494,8 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage(f"FreeCAD exporte: {filepath}")
             QMessageBox.information(
                 self, "Export FreeCAD",
-                f"Macro FreeCAD exportee:\n{filepath}\n\n"
-                "Ouvrir dans FreeCAD: Macro > Executer la macro"
+                f"Fichier FreeCAD exporte:\n{filepath}\n\n"
+                "Ouvrir dans FreeCAD puis Ctrl+Shift+R pour recalculer les formes."
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
