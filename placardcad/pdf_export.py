@@ -621,6 +621,22 @@ def _dessiner_page_debit(c: canvas.Canvas, plan: PlanDecoupe,
     c.drawCentredString(0, 0, f"{pw:.0f} mm")
     c.restoreState()
 
+    # --- Filigrane couleur/epaisseur sur le panneau ---
+    filigrane = f"{plan.couleur} - ep.{plan.epaisseur:.0f}mm"
+    c.saveState()
+    c.setFillColor(colors.Color(0.82, 0.80, 0.76))
+    fil_size = min(18, pl * scale / max(len(filigrane), 1) * 1.2)
+    fil_size = max(10, fil_size)
+    c.setFont("Helvetica-Bold", fil_size)
+    # 4 positions en grille 2x2
+    for fx, fy in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)]:
+        c.drawCentredString(
+            ox + pl * scale * fx,
+            oy + pw * scale * fy,
+            filigrane
+        )
+    c.restoreState()
+
     # --- Dessiner les pieces ---
     nb_couleurs = len(COULEURS_PIECES_DEBIT)
     legende = []
