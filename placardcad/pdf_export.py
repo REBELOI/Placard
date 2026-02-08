@@ -870,7 +870,10 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
                         projet_id: int = 0,
                         params_debit: ParametresDebit | None = None) -> str:
     """
-    Exporte un PDF multi-pages avec une page par amenagement + plans de debit.
+    Exporte un PDF multi-pages avec une page par amenagement + plans de debit mixtes.
+
+    Les pieces de tous les amenagements sont regroupees pour une optimisation
+    globale du debit, ce qui reduit les chutes en remplissant mieux les panneaux.
 
     amenagements_data: liste de dicts avec cles:
         - rects: list[Rect]
@@ -879,8 +882,13 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
         - nom: str (nom de l'amenagement)
         - amenagement_id: int
     """
+    if params_debit is None:
+        params_debit = ParametresDebit()
+
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
 
+    # --- Pages fiche par amenagement ---
+    all_pieces = []
     for i, am in enumerate(amenagements_data):
         if i > 0:
             c.showPage()
@@ -889,10 +897,40 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
             projet_info, am.get("nom"),
             projet_id, am.get("amenagement_id", 0),
         )
-        _generer_et_dessiner_debit(
-            c, am["fiche"], projet_info, am.get("nom"),
-            projet_id, am.get("amenagement_id", 0), params_debit,
+        # Collecter les pieces de cet amenagement pour le debit global
+        am_pieces = pieces_depuis_fiche(
+            am["fiche"], projet_id, am.get("amenagement_id", 0)
         )
+        all_pieces.extend(am_pieces)
+
+    # --- Plans de debit mixtes (toutes pieces confondues) ---
+    if all_pieces:
+        plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
+
+        total = len(plans)
+        for i, plan in enumerate(plans):
+            c.showPage()
+            _dessiner_page_debit(c, plan, params_debit, i + 1, total,
+                                 projet_info, "Tous amenagements")
+
+        if hors_gabarit:
+            c.showPage()
+            page_w, page_h = landscape(A4)
+            m = 10 * mm
+            c.setFont("Helvetica-Bold", 12)
+            c.setFillColor(colors.red)
+            c.drawString(m, page_h - m,
+                         "Pieces hors gabarit (ne rentrent pas dans un panneau)")
+            c.setFont("Helvetica", 9)
+            c.setFillColor(colors.black)
+            y = page_h - m - 25
+            for p in hors_gabarit:
+                c.drawString(m, y,
+                             f"{p.reference} - {p.nom}: "
+                             f"{p.longueur:.0f}x{p.largeur:.0f}mm (x{p.quantite})")
+                y -= 14
+                if y < m:
+                    break
 
     c.save()
     return filepath
