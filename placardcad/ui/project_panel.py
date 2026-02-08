@@ -16,6 +16,7 @@ class ProjectPanel(QWidget):
     # Signaux
     projet_selectionne = pyqtSignal(int)          # projet_id
     amenagement_selectionne = pyqtSignal(int, int) # projet_id, amenagement_id
+    pieces_manuelles_selectionnees = pyqtSignal(int)  # projet_id
     donnees_modifiees = pyqtSignal()
 
     def __init__(self, db, parent=None):
@@ -86,6 +87,16 @@ class ProjectPanel(QWidget):
                 item_am.setData(0, Qt.UserRole, ("amenagement", projet["id"], am["id"]))
                 item_projet.addChild(item_am)
 
+            # Noeud Pieces manuelles
+            nb_pieces = len(self.db.lister_pieces_manuelles(projet["id"]))
+            label = f"  Pieces manuelles ({nb_pieces})" if nb_pieces else "  Pieces manuelles"
+            item_pm = QTreeWidgetItem([label])
+            item_pm.setData(0, Qt.UserRole, ("pieces_manuelles", projet["id"]))
+            font_pm = item_pm.font(0)
+            font_pm.setItalic(True)
+            item_pm.setFont(0, font_pm)
+            item_projet.addChild(item_pm)
+
             self.tree.addTopLevelItem(item_projet)
             item_projet.setExpanded(True)
 
@@ -105,6 +116,10 @@ class ProjectPanel(QWidget):
             self.action_nouvel_amenagement.setEnabled(True)
             self.action_supprimer.setEnabled(True)
             self.amenagement_selectionne.emit(data[1], data[2])
+        elif data[0] == "pieces_manuelles":
+            self.action_nouvel_amenagement.setEnabled(True)
+            self.action_supprimer.setEnabled(False)
+            self.pieces_manuelles_selectionnees.emit(data[1])
 
     def _on_double_click(self, item, column):
         data = item.data(0, Qt.UserRole)
@@ -112,6 +127,7 @@ class ProjectPanel(QWidget):
             self._renommer_projet(data[1])
         elif data[0] == "amenagement":
             self._renommer_amenagement(data[2])
+        # pas d'action double-clic pour pieces_manuelles
 
     def _get_projet_id_selectionne(self) -> int | None:
         """Retourne l'id du projet selectionne (ou parent du amenagement selectionne)."""
@@ -122,6 +138,8 @@ class ProjectPanel(QWidget):
         if data[0] == "projet":
             return data[1]
         elif data[0] == "amenagement":
+            return data[1]
+        elif data[0] == "pieces_manuelles":
             return data[1]
         return None
 
@@ -234,5 +252,10 @@ class ProjectPanel(QWidget):
                 menu.addSeparator()
                 a2 = menu.addAction("Supprimer")
                 a2.triggered.connect(self._supprimer)
+            elif data[0] == "pieces_manuelles":
+                a1 = menu.addAction("Editer les pieces manuelles")
+                a1.triggered.connect(
+                    lambda: self.pieces_manuelles_selectionnees.emit(data[1])
+                )
 
         menu.exec_(self.tree.mapToGlobal(pos))

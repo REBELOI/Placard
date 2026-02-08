@@ -8,7 +8,7 @@ import os
 from PyQt5.QtWidgets import (
     QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
     QAction, QToolBar, QStatusBar, QFileDialog, QMessageBox,
-    QLabel, QTabWidget
+    QLabel, QTabWidget, QStackedWidget
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
@@ -18,7 +18,7 @@ from .schema_editor import SchemaEditor
 from .params_editor import ParamsEditor
 from .viewer_3d import PlacardViewer
 from .debit_dialog import DebitDialog
-from .pieces_manuelles_dialog import PiecesManualesDialog
+from .pieces_manuelles_editor import PiecesManualesEditor
 
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
@@ -60,27 +60,36 @@ class MainWindow(QMainWindow):
         self.project_panel.setMaximumWidth(400)
         self.project_panel.amenagement_selectionne.connect(self._on_amenagement_selectionne)
         self.project_panel.projet_selectionne.connect(self._on_projet_selectionne)
+        self.project_panel.pieces_manuelles_selectionnees.connect(
+            self._on_pieces_manuelles_selectionnees
+        )
         self.splitter_main.addWidget(self.project_panel)
 
-        # --- Panneau centre : editeurs empiles ---
+        # --- Panneau centre : stacked widget (editeurs / pieces manuelles) ---
         centre_widget = QWidget()
         centre_layout = QVBoxLayout(centre_widget)
         centre_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Schema en haut
+        self.stacked_centre = QStackedWidget()
+
+        # Page 0 : Editeurs schema + parametres (amenagement)
         self.schema_editor = SchemaEditor()
         self.schema_editor.schema_modifie.connect(self._on_schema_modifie)
 
-        # Parametres en bas (dans un onglet)
         self.params_editor = ParamsEditor(db=self.db)
         self.params_editor.params_modifies.connect(self._on_params_modifies)
 
-        # Tabs pour schema et params
         self.tabs_editeurs = QTabWidget()
         self.tabs_editeurs.addTab(self.schema_editor, "Schema")
         self.tabs_editeurs.addTab(self.params_editor, "Parametres")
+        self.stacked_centre.addWidget(self.tabs_editeurs)  # index 0
 
-        centre_layout.addWidget(self.tabs_editeurs)
+        # Page 1 : Editeur pieces manuelles (tableur)
+        self.pieces_editor = PiecesManualesEditor(self.db)
+        self.pieces_editor.donnees_modifiees.connect(self._on_pieces_manuelles_modifiees)
+        self.stacked_centre.addWidget(self.pieces_editor)  # index 1
+
+        centre_layout.addWidget(self.stacked_centre)
         self.splitter_main.addWidget(centre_widget)
 
         # --- Panneau droite : viewer ---
@@ -143,11 +152,6 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        # Pieces manuelles
-        self.action_pieces_manuelles = QAction("Pieces manuelles", self)
-        self.action_pieces_manuelles.triggered.connect(self._ouvrir_pieces_manuelles)
-        toolbar.addAction(self.action_pieces_manuelles)
-
         # Optimisation debit
         self.action_optim_debit = QAction("Optimisation debit", self)
         self.action_optim_debit.triggered.connect(self._ouvrir_debit_dialog)
@@ -172,7 +176,24 @@ class MainWindow(QMainWindow):
     def _on_amenagement_selectionne(self, projet_id: int, amenagement_id: int):
         self._current_projet_id = projet_id
         self._current_amenagement_id = amenagement_id
+        # Basculer sur les editeurs schema/params
+        self.stacked_centre.setCurrentIndex(0)
         self._charger_amenagement(amenagement_id)
+
+    def _on_pieces_manuelles_selectionnees(self, projet_id: int):
+        """Affiche l'editeur de pieces manuelles dans le panneau central."""
+        self._current_projet_id = projet_id
+        self._current_amenagement_id = None
+        # Basculer sur l'editeur de pieces manuelles
+        self.pieces_editor.set_projet(projet_id)
+        self.stacked_centre.setCurrentIndex(1)
+        projet = self.db.get_projet(projet_id)
+        nom = projet["nom"] if projet else "?"
+        self.statusbar.showMessage(f"Pieces manuelles — {nom}")
+
+    def _on_pieces_manuelles_modifiees(self):
+        """Rafraichit l'arbre quand les pieces manuelles changent."""
+        self.project_panel.rafraichir()
 
     def _charger_amenagement(self, amenagement_id: int):
         """Charge un amenagement dans les editeurs."""
@@ -440,17 +461,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Erreur export", str(e))
 
-    def _ouvrir_pieces_manuelles(self):
-        """Ouvre le dialogue de gestion des pieces manuelles."""
-        if not self._current_projet_id:
-            QMessageBox.warning(self, "Pieces manuelles",
-                                "Selectionnez d'abord un projet.")
-            return
-        dialog = PiecesManualesDialog(
-            self.db, self._current_projet_id, parent=self
-        )
-        dialog.exec_()
-
     def _ouvrir_debit_dialog(self):
         """Ouvre le dialogue d'optimisation de debit multi-projets."""
         dialog = DebitDialog(self.db, parent=self)
@@ -459,5 +469,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Sauvegarde avant fermeture."""
         self._sauvegarder_amenagement()
+        self.pieces_editor.sauvegarder_maintenant()
         self.db.close()
         event.accept()
