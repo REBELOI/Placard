@@ -2,7 +2,8 @@
 
 Application de conception d'amenagements interieurs de placards (dressings, rangements).
 Elle permet de dessiner un placard via un schema compact textuel, de visualiser le resultat
-en 2D, d'optimiser le debit des panneaux et d'exporter une fiche de fabrication en PDF.
+en 2D, d'optimiser le debit des panneaux et d'exporter une fiche de fabrication en PDF
+ou un modele 3D FreeCAD.
 
 ## Fonctionnalites
 
@@ -10,9 +11,13 @@ en 2D, d'optimiser le debit des panneaux et d'exporter une fiche de fabrication 
 - Editeur de schema compact avec coloration syntaxique
 - Editeur de parametres (dimensions, panneaux, cremailleres, tasseaux)
 - Visualisation 2D en vue de face avec cotes
-- Export PDF : fiche de fabrication, plan de debit, quincaillerie
+- Clic-droit sur la vue : copier dans le presse-papier ou sauvegarder en image
+- Pieces manuelles par projet (tableur integre avec presets)
+- Export PDF : fiche de fabrication, plan de debit, quincaillerie, pieces manuelles
+- Export FreeCAD (.FCStd) : modele 3D parametrique natif
 - Optimisation de debit (guillotine bin packing) avec mixage multi-amenagements
 - Filigrane couleur/epaisseur sur les plans de debit
+- Liste des pieces a decouper dans l'export debit
 - Sens du fil configurable par type de panneau
 - Configurations type reutilisables (presets)
 
@@ -129,9 +134,10 @@ L'interface se compose de trois zones principales :
 |  Arbre projets    |   (onglets)                   |    Vue 2D                 |
 |  et amenagements  |                               |    (vue de face)          |
 |                   |   - Editeur de schema         |                           |
-|                   |   - Parametres (Dimensions,   |                           |
-|                   |     Panneaux, Cremailleres,   |                           |
-|                   |     Tasseaux)                 |                           |
+|  - Projets        |   - Parametres (Dimensions,   |    Clic-droit :           |
+|  - Amenagements   |     Panneaux, Cremailleres,   |    - Copier l'image       |
+|  - Pieces         |     Tasseaux)                 |    - Sauvegarder l'image  |
+|    manuelles      |                               |                           |
 +-------------------+-------------------------------+---------------------------+
 ```
 
@@ -141,6 +147,7 @@ La barre d'outils en haut donne acces aux actions principales :
 - **Exporter PDF** (amenagement courant avec debit mixte du projet)
 - **Exporter PDF projet** (tous les amenagements + debit mixte)
 - **Exporter fiche texte** (fiche de fabrication en texte brut)
+- **Exporter FreeCAD** (modele 3D au format .FCStd)
 - **Optimisation debit** (dialogue multi-projets)
 
 ---
@@ -181,6 +188,7 @@ Il se saisit dans l'onglet **Schema** de la zone centrale.
 - **Lignes suivantes** : chaque ligne contenant `_` represente un rayon.
   Les `|` ou `/` delimitent les compartiments.
 - **Derniere ligne** (optionnelle, chiffres) : largeurs en mm par compartiment.
+  Chaque nombre est assigne au compartiment sous lequel il est positionne.
 
 #### Modes de largeur
 
@@ -234,7 +242,21 @@ Il se saisit dans l'onglet **Schema** de la zone centrale.
 - C1 = 300 mm impose
 - C2 et C3 se partagent le reste de la largeur disponible
 
-**Exemple 4 — Schema simple sans rayon haut**
+**Exemple 4 — 3 compartiments, dernier fixe a 300 mm, applique a droite**
+
+```
+-----------*-----------*----------*
+|__________|__________|__________/
+|__________|__________|__________/
+|__________|__________|
+                       300
+```
+
+- Pas de tasseau a gauche sur le rayon haut (commence par `-`)
+- Cremaillere en applique a droite (`/`)
+- C3 = 300 mm fixe, C1 et C2 se partagent le reste
+
+**Exemple 5 — Schema simple sans rayon haut**
 
 ```
 |__________|__________|
@@ -280,7 +302,30 @@ Pour chaque type (Separation, Rayon, Rayon haut, Panneau mur) :
 
 ---
 
-### Etape 5 : Visualiser
+### Etape 5 : Pieces manuelles
+
+Chaque projet possede un noeud **Pieces manuelles** dans l'arbre (en italique).
+Cliquer dessus ouvre un tableur integre dans le panneau central, permettant d'ajouter
+des pieces libres qui ne proviennent pas d'un schema (ex: tablettes supplementaires,
+facades de tiroir, fonds de placard...).
+
+Colonnes du tableur :
+- **Nom** : description de la piece
+- **Reference** : code libre
+- **Longueur / Largeur** : dimensions en mm
+- **Panneau** : selection via combo-box (presets issus des parametres + configurations sauvees)
+- **Fil** : respecter le sens du fil (case a cocher)
+- **Quantite** : nombre d'exemplaires
+
+Les pieces manuelles sont :
+- Sauvegardees automatiquement en base SQLite
+- Incluses dans l'export PDF (page dediee "Fiche de debit — Pieces manuelles")
+- Disponibles comme noeud selectionnable dans le dialogue d'optimisation de debit
+- Importables / exportables en CSV
+
+---
+
+### Etape 6 : Visualiser
 
 La vue 2D a droite se met a jour automatiquement quand vous modifiez le schema
 ou les parametres. Elle affiche :
@@ -294,11 +339,15 @@ ou les parametres. Elle affiche :
 
 Cliquer sur **Actualiser vue** pour forcer le rafraichissement si necessaire.
 
+**Clic-droit** sur la vue pour :
+- **Copier l'image** dans le presse-papier (resolution x2)
+- **Sauvegarder l'image** en PNG, JPEG ou BMP
+
 ---
 
-### Etape 6 : Exporter en PDF
+### Etape 7 : Exporter
 
-#### Export amenagement (PDF)
+#### Export PDF amenagement
 
 Bouton **Exporter PDF** — genere un PDF contenant :
 
@@ -308,31 +357,52 @@ Bouton **Exporter PDF** — genere un PDF contenant :
    - Fiche de fabrication (liste des panneaux, dimensions, chants)
    - Liste de quincaillerie (cremailleres, tasseaux)
    - Resume des materiaux
-2. **Pages plan de debit** :
+2. **Page pieces manuelles** (si le projet en contient) :
+   - Tableau des pieces manuelles avec surface et resume materiaux
+3. **Pages plan de debit** :
+   - Liste paginee des pieces a decouper (reference, dimensions, couleur, quantite)
    - Debit mixte : les pieces de **tous les amenagements du projet** sont
      regroupees pour optimiser la decoupe (moins de panneaux, moins de chutes)
    - Filigrane semi-transparent affichant la couleur et l'epaisseur du panneau
    - Chaque piece est identifiee par sa reference (P1/A1/N01, P1/A2/N03, etc.)
 
-#### Export projet (PDF)
+#### Export PDF projet
 
 Bouton **Exporter PDF projet** — genere un PDF multi-pages :
 
 1. Une page par amenagement (vue + fiche)
-2. Pages plan de debit mixte pour tout le projet
+2. Page pieces manuelles du projet
+3. Pages plan de debit mixte pour tout le projet
 
 #### Export fiche texte
 
 Bouton **Exporter fiche texte** — fichier `.txt` avec la nomenclature des panneaux
 et la quincaillerie.
 
+#### Export FreeCAD (.FCStd)
+
+Bouton **Exporter FreeCAD** — genere un fichier `.FCStd` (format natif FreeCAD)
+contenant le placard en 3D :
+
+- Chaque element (separations, rayons, cremailleres, tasseaux, murs) est un objet
+  `Part::Box` parametrique avec dimensions et placement
+- Couleurs et transparence par type d'element
+- Murs de contexte en transparence
+
+A l'ouverture dans FreeCAD :
+1. Les objets apparaissent dans l'arbre du modele
+2. Selectionner tout (Ctrl+A)
+3. Clic-droit > **Mark to recompute**
+4. **Ctrl+Shift+R** pour recalculer les formes 3D
+
 ---
 
-### Etape 7 : Optimisation de debit avancee
+### Etape 8 : Optimisation de debit avancee
 
 Bouton **Optimisation debit** — ouvre un dialogue permettant de :
 
-1. **Selectionner des amenagements** a travers plusieurs projets (cases a cocher)
+1. **Selectionner des amenagements et pieces manuelles** a travers plusieurs projets
+   (cases a cocher dans l'arbre)
 2. **Configurer les parametres de decoupe** :
    - Dimensions du panneau brut (standard : 2800 x 2070 mm)
    - Trait de scie (largeur de lame, standard : 4 mm)
@@ -342,6 +412,7 @@ Bouton **Optimisation debit** — ouvre un dialogue permettant de :
 3. **Exporter le plan de debit en PDF**
 
 Le PDF genere contient :
+- Liste paginee de toutes les pieces a decouper
 - Un plan de decoupe par panneau de stock
 - Les pieces placees avec leurs references et dimensions
 - Le pourcentage de chute par panneau
@@ -371,6 +442,7 @@ PlacardCAD/
 ├── requirements.txt                # Dependances Python
 ├── README.md                       # Ce fichier
 ├── CLAUDE.md                       # Specifications techniques
+├── guillotine_packing.py           # Algorithme standalone (tests/demo)
 │
 ├── placardcad/
 │   ├── __init__.py
@@ -380,6 +452,7 @@ PlacardCAD/
 │   ├── placard_builder.py          # Geometrie 2D + fiche de fabrication
 │   ├── optimisation_debit.py       # Algorithme guillotine bin packing
 │   ├── pdf_export.py               # Export PDF (fiches + debit + vues)
+│   ├── freecad_export.py           # Export FreeCAD (.FCStd natif)
 │   ├── resources/
 │   └── ui/
 │       ├── __init__.py
@@ -387,8 +460,10 @@ PlacardCAD/
 │       ├── project_panel.py        # Arbre projets/amenagements
 │       ├── schema_editor.py        # Editeur de schema compact
 │       ├── params_editor.py        # Formulaire parametres a onglets
-│       ├── viewer_3d.py            # Widget vue 2D de face
-│       └── debit_dialog.py         # Dialogue optimisation multi-projets
+│       ├── viewer_3d.py            # Widget vue 2D de face + copie image
+│       ├── debit_dialog.py         # Dialogue optimisation multi-projets
+│       ├── pieces_manuelles_editor.py  # Tableur integre pieces manuelles
+│       └── pieces_manuelles_dialog.py  # (ancien dialogue, deprecie)
 │
 └── tests/
 ```
@@ -430,7 +505,8 @@ PlacardCAD/
 ## Base de donnees
 
 La base SQLite est creee automatiquement dans `~/.placardcad/placardcad.db`.
-Elle contient les tables `projets`, `amenagements` et `configurations` (presets).
+Elle contient les tables `projets`, `amenagements`, `configurations` (presets)
+et `pieces_manuelles`.
 
 ## Licence
 
