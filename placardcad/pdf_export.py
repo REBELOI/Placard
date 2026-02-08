@@ -737,6 +737,45 @@ def _generer_et_dessiner_debit(c: canvas.Canvas, fiche: FicheFabrication,
 
 
 # =========================================================================
+#  DESSIN DEBIT MIXTE (toutes pieces confondues)
+# =========================================================================
+
+def _dessiner_debit_mixte(c: canvas.Canvas, all_pieces: list,
+                          params_debit: ParametresDebit,
+                          projet_info: dict | None):
+    """Dessine les pages de debit pour un ensemble de pieces mixtes."""
+    if not all_pieces:
+        return
+
+    plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
+
+    total = len(plans)
+    for i, plan in enumerate(plans):
+        c.showPage()
+        _dessiner_page_debit(c, plan, params_debit, i + 1, total,
+                             projet_info, "Tous amenagements")
+
+    if hors_gabarit:
+        c.showPage()
+        page_w, page_h = landscape(A4)
+        m = 10 * mm
+        c.setFont("Helvetica-Bold", 12)
+        c.setFillColor(colors.red)
+        c.drawString(m, page_h - m,
+                     "Pieces hors gabarit (ne rentrent pas dans un panneau)")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        y = page_h - m - 25
+        for p in hors_gabarit:
+            c.drawString(m, y,
+                         f"{p.reference} - {p.nom}: "
+                         f"{p.longueur:.0f}x{p.largeur:.0f}mm (x{p.quantite})")
+            y -= 14
+            if y < m:
+                break
+
+
+# =========================================================================
 #  EXPORT PDF STANDALONE - PLANS DE DEBIT SEULEMENT
 # =========================================================================
 
@@ -850,13 +889,27 @@ def _dessiner_resume_debit(c: canvas.Canvas, plans: list[PlanDecoupe],
 def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
                  fiche: FicheFabrication, projet_info: dict | None = None,
                  projet_id: int = 0, amenagement_id: int = 0,
-                 params_debit: ParametresDebit | None = None):
-    """Exporte un PDF: page amenagement + pages plan de debit."""
+                 params_debit: ParametresDebit | None = None,
+                 all_pieces_projet: list | None = None):
+    """Exporte un PDF: page amenagement + pages plan de debit.
+
+    Si all_pieces_projet est fourni, le debit est mixte (toutes les pieces
+    du projet ensemble). Sinon, seul cet amenagement est optimise.
+    """
+    if params_debit is None:
+        params_debit = ParametresDebit()
+
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
     _dessiner_page(c, rects, config, fiche, projet_info, None,
                    projet_id, amenagement_id)
-    _generer_et_dessiner_debit(c, fiche, projet_info, None,
-                                projet_id, amenagement_id, params_debit)
+
+    if all_pieces_projet:
+        # Debit mixte avec toutes les pieces du projet
+        _dessiner_debit_mixte(c, all_pieces_projet, params_debit, projet_info)
+    else:
+        # Debit pour cet amenagement seul
+        _generer_et_dessiner_debit(c, fiche, projet_info, None,
+                                    projet_id, amenagement_id, params_debit)
     c.save()
     return filepath
 
@@ -904,33 +957,7 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
         all_pieces.extend(am_pieces)
 
     # --- Plans de debit mixtes (toutes pieces confondues) ---
-    if all_pieces:
-        plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
-
-        total = len(plans)
-        for i, plan in enumerate(plans):
-            c.showPage()
-            _dessiner_page_debit(c, plan, params_debit, i + 1, total,
-                                 projet_info, "Tous amenagements")
-
-        if hors_gabarit:
-            c.showPage()
-            page_w, page_h = landscape(A4)
-            m = 10 * mm
-            c.setFont("Helvetica-Bold", 12)
-            c.setFillColor(colors.red)
-            c.drawString(m, page_h - m,
-                         "Pieces hors gabarit (ne rentrent pas dans un panneau)")
-            c.setFont("Helvetica", 9)
-            c.setFillColor(colors.black)
-            y = page_h - m - 25
-            for p in hors_gabarit:
-                c.drawString(m, y,
-                             f"{p.reference} - {p.nom}: "
-                             f"{p.longueur:.0f}x{p.largeur:.0f}mm (x{p.quantite})")
-                y -= 14
-                if y < m:
-                    break
+    _dessiner_debit_mixte(c, all_pieces, params_debit, projet_info)
 
     c.save()
     return filepath

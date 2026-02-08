@@ -23,6 +23,7 @@ from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
+from ..optimisation_debit import pieces_depuis_fiche
 
 
 class MainWindow(QMainWindow):
@@ -248,8 +249,38 @@ class MainWindow(QMainWindow):
     #  EXPORT
     # =====================================================================
 
+    def _collecter_pieces_projet(self) -> list:
+        """Collecte les pieces de tous les amenagements du projet courant."""
+        if not self._current_projet_id:
+            return []
+
+        amenagements = self.db.lister_amenagements(self._current_projet_id)
+        all_pieces = []
+        for am in amenagements:
+            schema_txt = am["schema_txt"]
+            if not schema_txt or not schema_txt.strip():
+                continue
+            try:
+                params_json = am["params_json"]
+                params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
+            except json.JSONDecodeError:
+                params = dict(PARAMS_DEFAUT)
+            try:
+                config = schema_vers_config(schema_txt, params)
+                _, fiche = generer_geometrie_2d(config)
+                # Attribuer les references
+                for i, p in enumerate(fiche.pieces, 1):
+                    p.reference = f"P{self._current_projet_id}/A{am['id']}/N{i:02d}"
+                am_pieces = pieces_depuis_fiche(
+                    fiche, self._current_projet_id, am["id"]
+                )
+                all_pieces.extend(am_pieces)
+            except Exception:
+                continue
+        return all_pieces
+
     def _exporter_pdf(self):
-        """Exporte le placard en PDF."""
+        """Exporte le placard en PDF avec debit mixte du projet."""
         if not self._rects:
             QMessageBox.warning(self, "Export PDF",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
@@ -270,10 +301,14 @@ class MainWindow(QMainWindow):
         if self._current_projet_id:
             projet_info = self.db.get_projet(self._current_projet_id)
 
+        # Collecter toutes les pieces du projet pour debit mixte
+        all_pieces = self._collecter_pieces_projet()
+
         try:
             exporter_pdf(filepath, self._rects, config, self._fiche, projet_info,
                          projet_id=self._current_projet_id or 0,
-                         amenagement_id=self._current_amenagement_id or 0)
+                         amenagement_id=self._current_amenagement_id or 0,
+                         all_pieces_projet=all_pieces if all_pieces else None)
             self.statusbar.showMessage(f"PDF exporte: {filepath}")
             QMessageBox.information(self, "Export PDF",
                                     f"PDF exporte avec succes:\n{filepath}")
