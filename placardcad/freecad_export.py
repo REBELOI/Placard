@@ -222,13 +222,17 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
         '<Document SchemaVersion="4" ProgramVersion="0.21.0" FileVersion="1">',
         '<Properties Count="4">',
         '<Property name="CreatedBy" type="App::PropertyString">',
-        '<String value="PlacardCAD"/></Property>',
+        '<String value="PlacardCAD"/>',
+        '</Property>',
         '<Property name="Label" type="App::PropertyString">',
-        '<String value="Placard"/></Property>',
+        '<String value="Placard"/>',
+        '</Property>',
         '<Property name="CreationDate" type="App::PropertyString">',
-        f'<String value="{datetime.now().isoformat()}"/></Property>',
+        f'<String value="{datetime.now().isoformat()}"/>',
+        '</Property>',
         '<Property name="Uid" type="App::PropertyUUID">',
-        f'<Uuid value="{uuid.uuid4()}"/></Property>',
+        f'<Uuid value="{uuid.uuid4()}"/>',
+        '</Property>',
         '</Properties>',
     ]
 
@@ -249,19 +253,23 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
 
         # Label
         lines.append('<Property name="Label" type="App::PropertyString">')
-        lines.append(f'<String value="{label}"/></Property>')
+        lines.append(f'<String value="{label}"/>')
+        lines.append('</Property>')
 
         # Length
         lines.append('<Property name="Length" type="App::PropertyLength">')
-        lines.append(f'<Float value="{obj["length"]:.6f}"/></Property>')
+        lines.append(f'<Float value="{obj["length"]:.6f}"/>')
+        lines.append('</Property>')
 
         # Width
         lines.append('<Property name="Width" type="App::PropertyLength">')
-        lines.append(f'<Float value="{obj["width"]:.6f}"/></Property>')
+        lines.append(f'<Float value="{obj["width"]:.6f}"/>')
+        lines.append('</Property>')
 
         # Height
         lines.append('<Property name="Height" type="App::PropertyLength">')
-        lines.append(f'<Float value="{obj["height"]:.6f}"/></Property>')
+        lines.append(f'<Float value="{obj["height"]:.6f}"/>')
+        lines.append('</Property>')
 
         # Placement
         lines.append('<Property name="Placement" type="App::PropertyPlacement">')
@@ -272,7 +280,8 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
             f'Q2="0.000000000000000e+0" Q3="1.000000000000000e+0" '
             f'A="0.000000000000000e+0" '
             f'Ox="0.000000000000000e+0" Oy="0.000000000000000e+0" '
-            f'Oz="1.000000000000000e+0"/></Property>')
+            f'Oz="1.000000000000000e+0"/>')
+        lines.append('</Property>')
 
         lines.append('</Properties>')
         lines.append('</Object>')
@@ -288,10 +297,11 @@ def _generer_guidocument_xml(objets: list[dict]) -> bytes:
 
     Construit le XML par formatage de chaines pour correspondre exactement
     au format attendu par le parser Xerces-C de FreeCAD.
+    Structure: Document > ViewProviderData > ViewProvider* + Camera.
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<Document SchemaVersion="1" ProgramVersion="0.21.0" FileVersion="1">',
+        f'<Document SchemaVersion="1">',
         f'<ViewProviderData Count="{len(objets)}">',
     ]
 
@@ -299,25 +309,45 @@ def _generer_guidocument_xml(objets: list[dict]) -> bytes:
         nom = xml_escape(obj["nom"])
         couleur = _couleur_packed(obj["couleur"])
 
-        lines.append(f'<ViewProvider name="{nom}">')
+        lines.append(f'<ViewProvider name="{nom}" expanded="0">')
         lines.append('<Properties Count="3">')
 
         # ShapeColor
         lines.append('<Property name="ShapeColor" type="App::PropertyColor">')
-        lines.append(f'<PropertyColor value="{couleur}"/></Property>')
+        lines.append(f'<PropertyColor value="{couleur}"/>')
+        lines.append('</Property>')
 
         # Transparency
         lines.append('<Property name="Transparency" type="App::PropertyPercent">')
-        lines.append(f'<Integer value="{obj["transparence"]}"/></Property>')
+        lines.append(f'<Integer value="{obj["transparence"]}"/>')
+        lines.append('</Property>')
 
         # Visibility
         lines.append('<Property name="Visibility" type="App::PropertyBool">')
-        lines.append('<Bool value="true"/></Property>')
+        lines.append('<Bool value="true"/>')
+        lines.append('</Property>')
 
         lines.append('</Properties>')
         lines.append('</ViewProvider>')
 
     lines.append('</ViewProviderData>')
+
+    # Camera obligatoire — vue isometrique par defaut (format Open Inventor)
+    cam = (
+        '#Inventor V2.1 ascii&#10;'
+        'OrthographicCamera {&#10;'
+        '  viewportMapping ADJUST_CAMERA&#10;'
+        '  position 0 -1 0&#10;'
+        '  orientation 1 0 0  1.5707963&#10;'
+        '  nearDistance -10000&#10;'
+        '  farDistance 10000&#10;'
+        '  aspectRatio 1&#10;'
+        '  focalDistance 0&#10;'
+        '  height 3000&#10;'
+        '}&#10;'
+    )
+    lines.append(f'<Camera settings="{cam}"/>')
+
     lines.append('</Document>')
 
     return '\n'.join(lines).encode("utf-8")
