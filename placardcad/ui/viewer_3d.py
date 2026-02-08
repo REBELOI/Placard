@@ -3,10 +3,13 @@ Widget de vue de face (2D filaire) du placard.
 Dessine la geometrie calculee par placard_builder.generer_geometrie_2d().
 """
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QSizePolicy,
+    QMenu, QApplication, QFileDialog,
+)
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import (
-    QPainter, QPen, QColor, QBrush, QFont, QFontMetrics, QPolygonF,
+    QPainter, QPen, QColor, QBrush, QFont, QFontMetrics, QPolygonF, QPixmap,
 )
 
 
@@ -311,3 +314,94 @@ class PlacardViewer(QWidget):
             painter.restore()
 
         painter.setFont(font)
+
+    # =================================================================
+    #  MENU CONTEXTUEL : COPIER / SAUVEGARDER
+    # =================================================================
+
+    def contextMenuEvent(self, event):
+        """Menu clic droit : copier ou sauvegarder la vue."""
+        if not self._rects:
+            return
+
+        menu = QMenu(self)
+        action_copier = menu.addAction("Copier l'image")
+        action_sauver = menu.addAction("Sauvegarder l'image...")
+
+        action = menu.exec_(event.globalPos())
+        if action == action_copier:
+            self._copier_image()
+        elif action == action_sauver:
+            self._sauvegarder_image()
+
+    def _render_pixmap(self, factor: int = 2) -> QPixmap:
+        """Rend la vue dans un QPixmap haute resolution (x factor)."""
+        w = self.width() * factor
+        h = self.height() * factor
+        pixmap = QPixmap(w, h)
+        pixmap.fill(QColor("white"))
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.scale(factor, factor)
+
+        scale, ox, oy = self._get_transform()
+
+        type_pens = {
+            "mur": (QColor("#D5D5D0"), QColor("#E8E8E4"), 1),
+            "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
+            "rayon_haut": (QColor("#8B7355"), QColor("#DEB887"), 1),
+            "rayon": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "cremaillere_encastree": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
+            "cremaillere_applique": (QColor("#CC0000"), QColor("#FF4444"), 0.5),
+            "panneau_mur": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "tasseau": (QColor("#8B6914"), QColor("#DAA520"), 1),
+        }
+
+        ordre = [
+            "mur", "panneau_mur", "separation", "rayon_haut",
+            "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau",
+        ]
+        rects_par_type = {}
+        for r in self._rects:
+            rects_par_type.setdefault(r.type_elem, []).append(r)
+
+        for type_elem in ordre:
+            if type_elem not in rects_par_type:
+                continue
+            pen_color, fill_color, pen_width = type_pens.get(
+                type_elem, (QColor("#333"), QColor("#CCC"), 1)
+            )
+            for r in rects_par_type[type_elem]:
+                p1 = self._to_screen(r.x, r.y + r.h, scale, ox, oy)
+                p2 = self._to_screen(r.x + r.w, r.y, scale, ox, oy)
+                rect_screen = QRectF(p1, p2)
+                if type_elem == "mur":
+                    painter.setBrush(QBrush(fill_color, Qt.Dense4Pattern))
+                else:
+                    painter.setBrush(QBrush(fill_color))
+                painter.setPen(QPen(pen_color, pen_width))
+                painter.drawRect(rect_screen)
+
+        if self._show_dimensions:
+            self._dessiner_cotations(painter, scale, ox, oy)
+
+        painter.end()
+        return pixmap
+
+    def _copier_image(self):
+        """Copie la vue dans le presse-papiers."""
+        pixmap = self._render_pixmap()
+        QApplication.clipboard().setPixmap(pixmap)
+
+    def _sauvegarder_image(self):
+        """Sauvegarde la vue dans un fichier image."""
+        filepath, filtre = QFileDialog.getSaveFileName(
+            self, "Sauvegarder la vue",
+            "placard_vue.png",
+            "PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp);;Tous (*)"
+        )
+        if not filepath:
+            return
+        pixmap = self._render_pixmap()
+        pixmap.save(filepath)
