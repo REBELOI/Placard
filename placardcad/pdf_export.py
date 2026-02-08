@@ -936,7 +936,8 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
 def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
                         projet_info: dict | None = None,
                         projet_id: int = 0,
-                        params_debit: ParametresDebit | None = None) -> str:
+                        params_debit: ParametresDebit | None = None,
+                        pieces_manuelles: list | None = None) -> str:
     """
     Exporte un PDF multi-pages avec une page par amenagement + plans de debit mixtes.
 
@@ -949,6 +950,7 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
         - fiche: FicheFabrication
         - nom: str (nom de l'amenagement)
         - amenagement_id: int
+    pieces_manuelles: liste optionnelle de PieceDebit complementaires.
     """
     if params_debit is None:
         params_debit = ParametresDebit()
@@ -970,6 +972,10 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
             am["fiche"], projet_id, am.get("amenagement_id", 0)
         )
         all_pieces.extend(am_pieces)
+
+    # Ajouter les pieces manuelles
+    if pieces_manuelles:
+        all_pieces.extend(pieces_manuelles)
 
     # --- Plans de debit mixtes (toutes pieces confondues) ---
     _dessiner_debit_mixte(c, all_pieces, params_debit, projet_info)

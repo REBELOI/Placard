@@ -18,12 +18,13 @@ from .schema_editor import SchemaEditor
 from .params_editor import ParamsEditor
 from .viewer_3d import PlacardViewer
 from .debit_dialog import DebitDialog
+from .pieces_manuelles_dialog import PiecesManualesDialog
 
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
-from ..optimisation_debit import pieces_depuis_fiche
+from ..optimisation_debit import pieces_depuis_fiche, PieceDebit
 
 
 class MainWindow(QMainWindow):
@@ -142,6 +143,11 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        # Pieces manuelles
+        self.action_pieces_manuelles = QAction("Pieces manuelles", self)
+        self.action_pieces_manuelles.triggered.connect(self._ouvrir_pieces_manuelles)
+        toolbar.addAction(self.action_pieces_manuelles)
+
         # Optimisation debit
         self.action_optim_debit = QAction("Optimisation debit", self)
         self.action_optim_debit.triggered.connect(self._ouvrir_debit_dialog)
@@ -250,12 +256,14 @@ class MainWindow(QMainWindow):
     # =====================================================================
 
     def _collecter_pieces_projet(self) -> list:
-        """Collecte les pieces de tous les amenagements du projet courant."""
+        """Collecte les pieces de tous les amenagements + pieces manuelles du projet."""
         if not self._current_projet_id:
             return []
 
-        amenagements = self.db.lister_amenagements(self._current_projet_id)
         all_pieces = []
+
+        # Pieces des amenagements
+        amenagements = self.db.lister_amenagements(self._current_projet_id)
         for am in amenagements:
             schema_txt = am["schema_txt"]
             if not schema_txt or not schema_txt.strip():
@@ -268,7 +276,6 @@ class MainWindow(QMainWindow):
             try:
                 config = schema_vers_config(schema_txt, params)
                 _, fiche = generer_geometrie_2d(config)
-                # Attribuer les references
                 for i, p in enumerate(fiche.pieces, 1):
                     p.reference = f"P{self._current_projet_id}/A{am['id']}/N{i:02d}"
                 am_pieces = pieces_depuis_fiche(
@@ -277,7 +284,31 @@ class MainWindow(QMainWindow):
                 all_pieces.extend(am_pieces)
             except Exception:
                 continue
+
+        # Pieces manuelles
+        all_pieces.extend(
+            self._collecter_pieces_manuelles(self._current_projet_id)
+        )
+
         return all_pieces
+
+    def _collecter_pieces_manuelles(self, projet_id: int) -> list[PieceDebit]:
+        """Convertit les pieces manuelles du projet en PieceDebit."""
+        pieces_m = self.db.lister_pieces_manuelles(projet_id)
+        result = []
+        for pm in pieces_m:
+            ref = pm["reference"] or f"P{projet_id}/M{pm['id']:02d}"
+            result.append(PieceDebit(
+                nom=pm["nom"] or "Piece manuelle",
+                reference=ref,
+                longueur=pm["longueur"],
+                largeur=pm["largeur"],
+                epaisseur=pm["epaisseur"],
+                couleur=pm["couleur"] or "Standard",
+                quantite=pm["quantite"],
+                sens_fil=bool(pm["sens_fil"]),
+            ))
+        return result
 
     def _exporter_pdf(self):
         """Exporte le placard en PDF avec debit mixte du projet."""
@@ -367,9 +398,13 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            pieces_m = self._collecter_pieces_manuelles(self._current_projet_id)
             exporter_pdf_projet(filepath, amenagements_data, projet_info,
-                                self._current_projet_id)
+                                self._current_projet_id,
+                                pieces_manuelles=pieces_m if pieces_m else None)
             msg = f"PDF projet exporte: {filepath}\n{len(amenagements_data)} page(s)."
+            if pieces_m:
+                msg += f"\n{len(pieces_m)} piece(s) manuelle(s) incluse(s)."
             if erreurs:
                 msg += f"\n\nAmenagements ignores ({len(erreurs)}):\n" + "\n".join(erreurs)
             self.statusbar.showMessage(f"PDF projet exporte: {filepath}")
@@ -404,6 +439,17 @@ class MainWindow(QMainWindow):
                                     f"Fiche exportee:\n{filepath}")
         except Exception as e:
             QMessageBox.critical(self, "Erreur export", str(e))
+
+    def _ouvrir_pieces_manuelles(self):
+        """Ouvre le dialogue de gestion des pieces manuelles."""
+        if not self._current_projet_id:
+            QMessageBox.warning(self, "Pieces manuelles",
+                                "Selectionnez d'abord un projet.")
+            return
+        dialog = PiecesManualesDialog(
+            self.db, self._current_projet_id, parent=self
+        )
+        dialog.exec_()
 
     def _ouvrir_debit_dialog(self):
         """Ouvre le dialogue d'optimisation de debit multi-projets."""

@@ -128,6 +128,19 @@ CREATE TABLE IF NOT EXISTS configurations (
     date_creation   TEXT NOT NULL,
     date_modif      TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pieces_manuelles (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    projet_id       INTEGER NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+    nom             TEXT NOT NULL DEFAULT '',
+    reference       TEXT DEFAULT '',
+    longueur        REAL NOT NULL DEFAULT 0,
+    largeur         REAL NOT NULL DEFAULT 0,
+    epaisseur       REAL NOT NULL DEFAULT 19,
+    couleur         TEXT DEFAULT '',
+    sens_fil        INTEGER NOT NULL DEFAULT 1,
+    quantite        INTEGER NOT NULL DEFAULT 1
+);
 """
 
 # Cles regroupees dans une configuration type (tout sauf dimensions)
@@ -356,3 +369,60 @@ class Database:
             d["params"] = json.loads(d["params_json"])
             return d
         return None
+
+    # --- Pieces manuelles ---
+
+    def ajouter_piece_manuelle(self, projet_id: int, nom: str = "",
+                               reference: str = "", longueur: float = 0,
+                               largeur: float = 0, epaisseur: float = 19,
+                               couleur: str = "", sens_fil: bool = True,
+                               quantite: int = 1) -> int:
+        """Ajoute une piece manuelle a un projet. Retourne son id."""
+        cur = self.conn.execute(
+            "INSERT INTO pieces_manuelles "
+            "(projet_id, nom, reference, longueur, largeur, epaisseur, "
+            " couleur, sens_fil, quantite) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (projet_id, nom, reference, longueur, largeur, epaisseur,
+             couleur, int(sens_fil), quantite)
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def modifier_piece_manuelle(self, piece_id: int, **kwargs):
+        """Modifie une piece manuelle."""
+        allowed = {"nom", "reference", "longueur", "largeur", "epaisseur",
+                   "couleur", "sens_fil", "quantite"}
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        if "sens_fil" in fields:
+            fields["sens_fil"] = int(fields["sens_fil"])
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = list(fields.values()) + [piece_id]
+        self.conn.execute(
+            f"UPDATE pieces_manuelles SET {sets} WHERE id = ?", vals
+        )
+        self.conn.commit()
+
+    def supprimer_piece_manuelle(self, piece_id: int):
+        """Supprime une piece manuelle."""
+        self.conn.execute(
+            "DELETE FROM pieces_manuelles WHERE id = ?", (piece_id,)
+        )
+        self.conn.commit()
+
+    def supprimer_pieces_manuelles_projet(self, projet_id: int):
+        """Supprime toutes les pieces manuelles d'un projet."""
+        self.conn.execute(
+            "DELETE FROM pieces_manuelles WHERE projet_id = ?", (projet_id,)
+        )
+        self.conn.commit()
+
+    def lister_pieces_manuelles(self, projet_id: int) -> list[dict]:
+        """Retourne les pieces manuelles d'un projet."""
+        rows = self.conn.execute(
+            "SELECT * FROM pieces_manuelles WHERE projet_id = ? ORDER BY id",
+            (projet_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]

@@ -186,10 +186,11 @@ class DebitDialog(QDialog):
         )
 
     def _collecter_pieces(self) -> tuple[list[PieceDebit], dict | None]:
-        """Collecte toutes les pieces des amenagements coches."""
+        """Collecte toutes les pieces des amenagements coches + pieces manuelles."""
         all_pieces: list[PieceDebit] = []
         projet_info = None
         erreurs = []
+        projets_inclus: set[int] = set()
 
         for i in range(self.tree.topLevelItemCount()):
             item_projet = self.tree.topLevelItem(i)
@@ -211,6 +212,8 @@ class DebitDialog(QDialog):
                 if projet_info is None:
                     projet_info = self.db.get_projet(projet_id)
 
+                projets_inclus.add(projet_id)
+
                 try:
                     params_json = am["params_json"]
                     params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
@@ -224,6 +227,22 @@ class DebitDialog(QDialog):
                     all_pieces.extend(pieces)
                 except Exception as e:
                     erreurs.append(f"{am['nom']}: {e}")
+
+        # Ajouter les pieces manuelles des projets inclus
+        for pid in projets_inclus:
+            pieces_m = self.db.lister_pieces_manuelles(pid)
+            for pm in pieces_m:
+                ref = pm["reference"] or f"P{pid}/M{pm['id']:02d}"
+                all_pieces.append(PieceDebit(
+                    nom=pm["nom"] or "Piece manuelle",
+                    reference=ref,
+                    longueur=pm["longueur"],
+                    largeur=pm["largeur"],
+                    epaisseur=pm["epaisseur"],
+                    couleur=pm["couleur"] or "Standard",
+                    quantite=pm["quantite"],
+                    sens_fil=bool(pm["sens_fil"]),
+                ))
 
         if erreurs:
             QMessageBox.warning(
