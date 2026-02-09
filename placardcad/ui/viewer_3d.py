@@ -321,6 +321,10 @@ class PlacardViewer(QWidget):
                 rayons_par_comp.setdefault(cn, []).append(r.y)
 
         if rayons_par_comp:
+            # Limite haute : dessous du rayon haut ou plafond
+            rh = next((r for r in self._rects if r.type_elem == "rayon_haut"), None)
+            z_plafond = rh.y if rh else H
+
             # Bords des compartiments
             edges_comp = [0.0]
             for s in seps:
@@ -344,7 +348,7 @@ class PlacardViewer(QWidget):
                 x_r = edges_comp[ci * 2 + 1]
                 x_mid = (x_l + x_r) / 2
 
-                niveaux = [0.0] + z_sorted
+                niveaux = [0.0] + z_sorted + [z_plafond]
 
                 painter.setPen(QPen(coul_vert, 1))
 

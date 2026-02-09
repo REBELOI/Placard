@@ -275,6 +275,10 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
                 rayons_par_comp.setdefault(cn, []).append(r.y)
 
     if rayons_par_comp:
+        # Limite haute : dessous du rayon haut ou plafond
+        rh = next((r for r in rects if r.type_elem == "rayon_haut"), None)
+        z_plafond = rh.y if rh else hauteur_placard
+
         # Bords des compartiments
         edges_comp = [0.0]
         for s in seps:
@@ -296,7 +300,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             x_mid = (x_l + x_r) / 2
             x_cot = ox + x_mid * scale
 
-            niveaux = [0.0] + z_sorted
+            niveaux = [0.0] + z_sorted + [z_plafond]
 
             c.setStrokeColor(coul_vert)
             c.setFillColor(coul_vert)
