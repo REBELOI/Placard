@@ -404,6 +404,19 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
             nb_rayons = comp["rayons"]
             espace = z_haut_rayons / (nb_rayons + 1)
 
+            # Arrondi au pas des cremailleres si les 2 cotes en ont
+            pas_arrondi = 0
+            _cg = comp.get("type_crem_gauche")
+            _pmg = comp.get("panneau_mur_gauche", False)
+            _cd = comp.get("type_crem_droite")
+            _pmd = comp.get("panneau_mur_droite", False)
+            pas_g = (ce.get("pas", 0) if (_pmg or _cg == "encastree")
+                     else ca.get("pas", 0) if _cg == "applique" else 0)
+            pas_d = (ce.get("pas", 0) if (_pmd or _cd == "encastree")
+                     else ca.get("pas", 0) if _cd == "applique" else 0)
+            if pas_g > 0 and pas_d > 0:
+                pas_arrondi = max(pas_g, pas_d)
+
             # Offset X du rayon
             x_rayon = x_debut
             crem_g = comp.get("type_crem_gauche")
@@ -418,6 +431,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
 
             for r_idx in range(nb_rayons):
                 z_rayon = espace * (r_idx + 1)
+                if pas_arrondi > 0:
+                    z_rayon = round(z_rayon / pas_arrondi) * pas_arrondi
                 rects.append(Rect(
                     x_rayon, z_rayon, larg_rayon, ep_rayon,
                     rgb_to_hex(config["panneau_rayon"]["couleur_rgb"]),
@@ -478,6 +493,8 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
 
             for r_idx in range(nb_rayons):
                 z_r = espace * (r_idx + 1)
+                if pas_arrondi > 0:
+                    z_r = round(z_r / pas_arrondi) * pas_arrondi
                 z_tass_r = z_r - tass["section_h"]
 
                 if tr_g:
