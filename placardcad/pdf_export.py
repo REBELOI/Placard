@@ -265,6 +265,60 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             c.drawCentredString(0, 0, f"Sep. {h_val:.0f}")
             c.restoreState()
 
+    # --- Cotations hauteurs entre rayons par compartiment ---
+    rayons_par_comp: dict[int, list[float]] = {}
+    for r in rects:
+        if r.type_elem == "rayon":
+            m_rayon = re.match(r'Rayon C(\d+)', r.label)
+            if m_rayon:
+                cn = int(m_rayon.group(1))
+                rayons_par_comp.setdefault(cn, []).append(r.y)
+
+    if rayons_par_comp:
+        # Bords des compartiments
+        edges_comp = [0.0]
+        for s in seps:
+            edges_comp.append(s.x)
+            edges_comp.append(s.x + s.w)
+        edges_comp.append(largeur_placard)
+
+        coul_vert = colors.Color(0.0, 0.55, 0.27)
+        c.setFont("Helvetica", 5)
+
+        for comp_n, z_list in sorted(rayons_par_comp.items()):
+            z_sorted = sorted(z_list)
+            ci = comp_n - 1
+            if ci * 2 + 1 >= len(edges_comp):
+                continue
+
+            x_l = edges_comp[ci * 2]
+            x_r = edges_comp[ci * 2 + 1]
+            x_mid = (x_l + x_r) / 2
+            x_cot = ox + x_mid * scale
+
+            niveaux = [0.0] + z_sorted
+
+            c.setStrokeColor(coul_vert)
+            c.setFillColor(coul_vert)
+            c.setLineWidth(0.4)
+
+            for i in range(len(niveaux) - 1):
+                z_bas = niveaux[i]
+                z_haut = niveaux[i + 1]
+                h_val = z_haut - z_bas
+
+                yb = oy + z_bas * scale
+                yh = oy + z_haut * scale
+
+                # Ligne verticale + fleches
+                c.line(x_cot, yb, x_cot, yh)
+                _fleche_v(x_cot, yb, False)
+                _fleche_v(x_cot, yh, True)
+
+                # Texte a droite de la ligne
+                y_mid = (yb + yh) / 2
+                c.drawString(x_cot + 5, y_mid - 2, f"{h_val:.0f}")
+
 
 # =========================================================================
 #  TABLEAU GENERIQUE
