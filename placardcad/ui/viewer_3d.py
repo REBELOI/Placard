@@ -236,9 +236,6 @@ class PlacardViewer(QWidget):
             [r for r in self._rects if r.type_elem == "separation"],
             key=lambda r: r.x
         )
-        if not seps:
-            return
-
         font_s = QFont()
         font_s.setPointSize(7)
         painter.setFont(font_s)
@@ -314,6 +311,62 @@ class PlacardViewer(QWidget):
             painter.restore()
 
         painter.setFont(font)
+
+        # --- Cotations hauteurs entre rayons par compartiment ---
+        rayons_par_comp: dict[int, list[float]] = {}
+        for r in self._rects:
+            if r.type_elem == "rayon" and r.label.startswith("Rayon C"):
+                parts = r.label.split()
+                cn = int(parts[1][1:])
+                rayons_par_comp.setdefault(cn, []).append(r.y)
+
+        if rayons_par_comp:
+            # Bords des compartiments
+            edges_comp = [0.0]
+            for s in seps:
+                edges_comp.append(s.x)
+                edges_comp.append(s.x + s.w)
+            edges_comp.append(L)
+
+            coul_vert = QColor(0, 140, 70)
+            font_r = QFont()
+            font_r.setPointSize(6)
+            painter.setFont(font_r)
+            fm_r = QFontMetrics(font_r)
+
+            for comp_n, z_list in sorted(rayons_par_comp.items()):
+                z_sorted = sorted(z_list)
+                ci = comp_n - 1
+                if ci * 2 + 1 >= len(edges_comp):
+                    continue
+
+                x_l = edges_comp[ci * 2]
+                x_r = edges_comp[ci * 2 + 1]
+                x_mid = (x_l + x_r) / 2
+
+                niveaux = [0.0] + z_sorted
+
+                painter.setPen(QPen(coul_vert, 1))
+
+                for i in range(len(niveaux) - 1):
+                    z_bas = niveaux[i]
+                    z_haut = niveaux[i + 1]
+                    h_val = z_haut - z_bas
+
+                    p_b = self._to_screen(x_mid, z_bas, scale, ox, oy)
+                    p_t = self._to_screen(x_mid, z_haut, scale, ox, oy)
+
+                    # Ligne verticale + fleches
+                    painter.drawLine(p_b, p_t)
+                    self._fleche_v(painter, p_b, vers_bas=True, taille=6)
+                    self._fleche_v(painter, p_t, vers_bas=False, taille=6)
+
+                    # Texte a droite de la ligne
+                    text = f"{h_val:.0f}"
+                    mid_y = (p_b.y() + p_t.y()) / 2 + fm_r.height() / 4
+                    painter.drawText(QPointF(p_b.x() + 6, mid_y), text)
+
+            painter.setFont(font)
 
     # =================================================================
     #  MENU CONTEXTUEL : COPIER / SAUVEGARDER
