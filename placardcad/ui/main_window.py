@@ -27,6 +27,7 @@ from ..pdf_export import exporter_pdf, exporter_pdf_projet
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
 from ..dxf_export import exporter_dxf
+from ..etiquettes_export import exporter_etiquettes
 
 
 class MainWindow(QMainWindow):
@@ -164,6 +165,11 @@ class MainWindow(QMainWindow):
         self.action_export_dxf = QAction("Exporter DXF", self)
         self.action_export_dxf.triggered.connect(self._exporter_dxf)
         toolbar.addAction(self.action_export_dxf)
+
+        # Etiquettes
+        self.action_etiquettes = QAction("Etiquettes", self)
+        self.action_etiquettes.triggered.connect(self._exporter_etiquettes)
+        toolbar.addAction(self.action_etiquettes)
 
         toolbar.addSeparator()
 
@@ -523,6 +529,39 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
+
+    def _exporter_etiquettes(self):
+        """Exporte les etiquettes de pieces en PDF A4."""
+        if not self._fiche:
+            QMessageBox.warning(self, "Etiquettes",
+                                "Aucun amenagement a exporter. Editez un schema d'abord.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter etiquettes", "etiquettes.pdf", "PDF (*.pdf)"
+        )
+        if not filepath:
+            return
+
+        projet_info = None
+        if self._current_projet_id:
+            projet_info = self.db.get_projet(self._current_projet_id)
+
+        try:
+            exporter_etiquettes(
+                filepath, self._fiche,
+                projet_id=self._current_projet_id or 0,
+                amenagement_id=self._current_amenagement_id or 0,
+                projet_info=projet_info,
+            )
+            self.statusbar.showMessage(f"Etiquettes exportees: {filepath}")
+            QMessageBox.information(
+                self, "Etiquettes",
+                f"Etiquettes exportees:\n{filepath}\n\n"
+                f"{sum(p.quantite for p in self._fiche.pieces)} etiquette(s) generee(s)."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur etiquettes", str(e))
 
     def _exporter_dxf(self):
         """Exporte le placard en fichier DXF (plan 2D)."""
