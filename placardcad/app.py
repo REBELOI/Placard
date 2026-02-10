@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 
 from .database import Database
 from .ui.main_window import MainWindow
@@ -30,6 +30,11 @@ def run():
     font = QFont()
     font.setPointSize(10)
     app.setFont(font)
+
+    # Icone application
+    icon_path = os.path.join(os.path.dirname(__file__), "resources", "icon_256.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     # Base de donnees
     db_path = get_db_path()

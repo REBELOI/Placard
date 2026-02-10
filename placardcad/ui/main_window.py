@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QLabel, QTabWidget, QStackedWidget
 )
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 
 from .project_panel import ProjectPanel
 from .schema_editor import SchemaEditor
@@ -45,6 +45,9 @@ class MainWindow(QMainWindow):
         self._fiche = None
 
         self.setWindowTitle("PlacardCAD - Conception de placards")
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon_256.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         self.resize(1400, 900)
         self._init_ui()
         self._init_toolbar()
