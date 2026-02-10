@@ -274,21 +274,45 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
     # --- Rayon haut ---
     if config["rayon_haut"]:
         z_rayon_haut = H - config["rayon_haut_position"]
-        rects.append(Rect(
-            0, z_rayon_haut, L, ep_rayon_haut,
-            rgb_to_hex(config["panneau_rayon_haut"]["couleur_rgb"]),
-            "Rayon haut", "rayon_haut"
-        ))
         rh_retrait_av = config["panneau_rayon_haut"].get("retrait_avant", 0)
         rh_retrait_ar = config["panneau_rayon_haut"].get("retrait_arriere", 0)
         prof_rh = P - config["panneau_rayon_haut"]["chant_epaisseur"] - rh_retrait_av - rh_retrait_ar
-        fiche.ajouter_piece(PieceInfo(
-            "Rayon haut (toute largeur)", L, prof_rh, ep_rayon_haut,
-            couleur_fab=config["panneau_rayon_haut"]["couleur_fab"],
-            chant_desc=f"Avant {config['panneau_rayon_haut']['chant_epaisseur']}mm",
-            notes="Pose sur tasseaux",
-            sens_fil=config["panneau_rayon_haut"].get("sens_fil", True),
-        ))
+
+        # Trouver les X des separations toute hauteur pour couper le rayon haut
+        coupures_x = []
+        x_acc = 0.0
+        for sep_idx in range(len(config["separations"])):
+            x_acc += largeurs[sep_idx]
+            if config["separations"][sep_idx]["mode"] == "toute_hauteur":
+                coupures_x.append(x_acc)
+            x_acc += ep_sep
+
+        # Segments du rayon haut (entre les coupures)
+        bords = [0.0] + coupures_x + [L]
+        for seg_idx in range(len(bords) - 1):
+            x_rh = bords[seg_idx]
+            w_rh = bords[seg_idx + 1] - x_rh
+            if w_rh <= 0:
+                continue
+            # Si le bord gauche est une coupure, decaler apres la separation
+            if seg_idx > 0:
+                x_rh += ep_sep
+                w_rh -= ep_sep
+            if w_rh <= 0:
+                continue
+            label = f"Rayon haut {seg_idx+1}" if len(bords) > 2 else "Rayon haut"
+            rects.append(Rect(
+                x_rh, z_rayon_haut, w_rh, ep_rayon_haut,
+                rgb_to_hex(config["panneau_rayon_haut"]["couleur_rgb"]),
+                label, "rayon_haut"
+            ))
+            fiche.ajouter_piece(PieceInfo(
+                label, w_rh, prof_rh, ep_rayon_haut,
+                couleur_fab=config["panneau_rayon_haut"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau_rayon_haut']['chant_epaisseur']}mm",
+                notes="Pose sur tasseaux",
+                sens_fil=config["panneau_rayon_haut"].get("sens_fil", True),
+            ))
 
     # --- Boucle compartiments ---
     for comp_idx in range(nb_comp):
