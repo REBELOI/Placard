@@ -26,6 +26,7 @@ from ..placard_builder import generer_geometrie_2d
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
+from ..dxf_export import exporter_dxf
 
 
 class MainWindow(QMainWindow):
@@ -158,6 +159,11 @@ class MainWindow(QMainWindow):
         self.action_export_freecad = QAction("Exporter FreeCAD", self)
         self.action_export_freecad.triggered.connect(self._exporter_freecad)
         toolbar.addAction(self.action_export_freecad)
+
+        # Export DXF
+        self.action_export_dxf = QAction("Exporter DXF", self)
+        self.action_export_dxf.triggered.connect(self._exporter_dxf)
+        toolbar.addAction(self.action_export_dxf)
 
         toolbar.addSeparator()
 
@@ -517,6 +523,34 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
+
+    def _exporter_dxf(self):
+        """Exporte le placard en fichier DXF (plan 2D)."""
+        if not self._rects:
+            QMessageBox.warning(self, "Export DXF",
+                                "Aucun amenagement a exporter. Editez un schema d'abord.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter DXF", "placard.dxf", "DXF (*.dxf)"
+        )
+        if not filepath:
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        config = schema_vers_config(schema_text, params)
+
+        try:
+            exporter_dxf(filepath, self._rects, config, self._fiche)
+            self.statusbar.showMessage(f"DXF exporte: {filepath}")
+            QMessageBox.information(
+                self, "Export DXF",
+                f"Fichier DXF exporte:\n{filepath}\n\n"
+                "Compatible AutoCAD, LibreCAD, FreeCAD, etc."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export DXF", str(e))
 
     def _ouvrir_debit_dialog(self):
         """Ouvre le dialogue d'optimisation de debit multi-projets."""
