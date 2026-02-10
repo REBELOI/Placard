@@ -230,7 +230,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
         # Decaler sous le sol
         sol_r = next((r for r in rects if r.type_elem == "sol"), None)
         sol_bas_pdf = oy + sol_r.y * scale if sol_r else oy
-        y_cot_comp = sol_bas_pdf - 6
+        y_cot_comp = sol_bas_pdf - 14
 
         for i in range(0, len(edges), 2):
             x_l = edges[i]
