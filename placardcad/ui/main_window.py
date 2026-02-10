@@ -4,6 +4,9 @@ Fenetre principale de PlacardCAD.
 
 import json
 import os
+import tempfile
+import subprocess
+import sys
 
 from PyQt5.QtWidgets import (
     QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
@@ -140,6 +143,11 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.action_regenerer)
 
         toolbar.addSeparator()
+
+        # Apercu PDF
+        self.action_apercu_pdf = QAction("Apercu PDF", self)
+        self.action_apercu_pdf.triggered.connect(self._apercu_pdf)
+        toolbar.addAction(self.action_apercu_pdf)
 
         # Export PDF
         self.action_export_pdf = QAction("Exporter PDF", self)
@@ -364,6 +372,51 @@ class MainWindow(QMainWindow):
             delignage=debit.get("delignage", 10.0),
             sens_fil=debit.get("sens_fil", True),
         )
+
+    def _apercu_pdf(self):
+        """Genere un PDF temporaire et l'ouvre dans le lecteur PDF du systeme."""
+        if not self._rects:
+            QMessageBox.warning(self, "Apercu PDF",
+                                "Aucun amenagement a afficher. Editez un schema d'abord.")
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        params = self.params_editor.get_params()
+        config = schema_vers_config(schema_text, params)
+
+        projet_info = None
+        if self._current_projet_id:
+            projet_info = self.db.get_projet(self._current_projet_id)
+
+        all_pieces = self._collecter_pieces_projet()
+        pieces_m = (self._collecter_pieces_manuelles(self._current_projet_id)
+                    if self._current_projet_id else [])
+
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".pdf", prefix="placardcad_apercu_", delete=False
+            )
+            tmp_path = tmp.name
+            tmp.close()
+
+            exporter_pdf(tmp_path, self._rects, config, self._fiche, projet_info,
+                         projet_id=self._current_projet_id or 0,
+                         amenagement_id=self._current_amenagement_id or 0,
+                         params_debit=self._get_params_debit(),
+                         all_pieces_projet=all_pieces if all_pieces else None,
+                         pieces_manuelles=pieces_m if pieces_m else None)
+
+            # Ouvrir avec le lecteur PDF du systeme
+            if sys.platform == "win32":
+                os.startfile(tmp_path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", tmp_path])
+            else:
+                subprocess.Popen(["xdg-open", tmp_path])
+
+            self.statusbar.showMessage("Apercu PDF ouvert.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur apercu PDF", str(e))
 
     def _exporter_pdf(self):
         """Exporte le placard en PDF avec debit mixte du projet."""
