@@ -220,7 +220,19 @@ def parser_schema(schema_text: str) -> dict:
                 largeurs = parts
 
     # --- Separations ---
-    separations = [{"mode": "sous_rayon"} for _ in range(nb_compartiments - 1)]
+    separations = []
+    for sep_idx in range(nb_compartiments - 1):
+        pos = sep_positions[sep_idx + 1]
+        # Si le separateur est present sur la ligne rayon haut (| ou /),
+        # la separation est sur toute la hauteur
+        mode = "sous_rayon"
+        if rayon_haut_line:
+            for delta in [0, -1, 1, -2, 2]:
+                p = pos + delta
+                if 0 <= p < len(rayon_haut_line) and rayon_haut_line[p] in ("|", "/"):
+                    mode = "toute_hauteur"
+                    break
+        separations.append({"mode": mode})
 
     return {
         "rayon_haut": has_rayon_haut,
