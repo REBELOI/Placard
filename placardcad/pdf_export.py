@@ -1,5 +1,5 @@
 """
-Export PDF pour PlacardCAD.
+Export PDF pour REB & ELOI.
 
 - exporter_pdf : une seule page paysage A4 pour un amenagement
 - exporter_pdf_projet : une page par amenagement pour tout le projet
@@ -464,7 +464,7 @@ def _dessiner_page(c: canvas.Canvas, rects: list[PlacardRect], config: dict,
     client = projet_info.get("client", "") if projet_info else ""
     adresse = projet_info.get("adresse", "") if projet_info else ""
 
-    titre = f"PlacardCAD - {nom_projet}"
+    titre = f"REB & ELOI - {nom_projet}"
     if amenagement_nom:
         titre += f" - {amenagement_nom}"
 
@@ -849,7 +849,7 @@ def _dessiner_page_pieces_manuelles(c: canvas.Canvas, pieces_manuelles: list,
     nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
     c.setFont("Helvetica-Bold", 12)
     c.setFillColor(colors.black)
-    c.drawString(marge, y_top, f"PlacardCAD - {nom_projet}")
+    c.drawString(marge, y_top, f"REB & ELOI - {nom_projet}")
 
     c.setFont("Helvetica", 8)
     info_parts = []
