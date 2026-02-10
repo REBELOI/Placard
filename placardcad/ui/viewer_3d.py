@@ -1,6 +1,8 @@
 """
 Widget de vue de face (2D filaire) du placard.
 Dessine la geometrie calculee par placard_builder.generer_geometrie_2d().
+
+Zoom molette, pan clic-milieu ou clic-gauche maintenu, double-clic = reset vue.
 """
 
 from PyQt5.QtWidgets import (
@@ -25,36 +27,114 @@ class PlacardViewer(QWidget):
         self._show_labels = True
         self._show_dimensions = True
 
+        # Zoom / pan
+        self._zoom = 1.0
+        self._pan_x = 0.0       # decalage en pixels
+        self._pan_y = 0.0
+        self._panning = False
+        self._pan_start = QPointF()
+
         self.setMinimumSize(400, 300)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background-color: white;")
+        self.setMouseTracking(True)
 
     def set_geometrie(self, rects: list, largeur: float, hauteur: float):
         """Met a jour la geometrie a afficher."""
         self._rects = rects
         self._placard_w = largeur
         self._placard_h = hauteur
+        self._reset_view()
         self.update()
 
     def clear(self):
         """Efface la vue."""
         self._rects = []
+        self._reset_view()
         self.update()
 
-    def _get_transform(self) -> tuple:
-        """Calcule l'echelle et le decalage pour le dessin."""
+    def _reset_view(self):
+        """Reinitialise zoom et pan."""
+        self._zoom = 1.0
+        self._pan_x = 0.0
+        self._pan_y = 0.0
+
+    # =================================================================
+    #  ZOOM / PAN — Evenements souris
+    # =================================================================
+
+    def wheelEvent(self, event):
+        """Zoom avec la molette, centre sur la position du curseur."""
+        if not self._rects:
+            return
+
+        pos = event.pos()
+        old_zoom = self._zoom
+
+        # Facteur de zoom par cran de molette
+        delta = event.angleDelta().y()
+        if delta > 0:
+            factor = 1.15
+        elif delta < 0:
+            factor = 1 / 1.15
+        else:
+            return
+
+        new_zoom = old_zoom * factor
+        new_zoom = max(0.2, min(new_zoom, 20.0))
+
+        # Zoom centre sur le curseur
+        # Le point sous le curseur doit rester fixe apres le zoom
+        ratio = new_zoom / old_zoom
+        self._pan_x = pos.x() - ratio * (pos.x() - self._pan_x)
+        self._pan_y = pos.y() - ratio * (pos.y() - self._pan_y)
+        self._zoom = new_zoom
+
+        self.update()
+
+    def mousePressEvent(self, event):
+        """Debut du pan (clic milieu ou clic gauche)."""
+        if event.button() in (Qt.MiddleButton, Qt.LeftButton):
+            self._panning = True
+            self._pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseMoveEvent(self, event):
+        """Deplacement pendant le pan."""
+        if self._panning:
+            delta = event.pos() - self._pan_start
+            self._pan_x += delta.x()
+            self._pan_y += delta.y()
+            self._pan_start = event.pos()
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        """Fin du pan."""
+        if event.button() in (Qt.MiddleButton, Qt.LeftButton):
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+
+    def mouseDoubleClickEvent(self, event):
+        """Double-clic = reinitialiser la vue."""
+        if event.button() == Qt.LeftButton:
+            self._reset_view()
+            self.update()
+
+    # =================================================================
+    #  TRANSFORMATIONS
+    # =================================================================
+
+    def _get_base_transform(self) -> tuple:
+        """Calcule l'echelle de base et le decalage (sans zoom/pan utilisateur)."""
         if self._placard_w <= 0 or self._placard_h <= 0:
             return 1.0, self._marge, self._marge
 
-        # Zone de dessin disponible
         view_w = self.width() - 2 * self._marge
         view_h = self.height() - 2 * self._marge
 
         if view_w <= 0 or view_h <= 0:
             return 1.0, self._marge, self._marge
 
-        # Espace pour murs + cotations (doublee)
-        mur_ep = 50
         padding = 100
         total_w = self._placard_w + 2 * padding
         total_h = self._placard_h + 2 * padding
@@ -63,11 +143,18 @@ class PlacardViewer(QWidget):
         scale_y = view_h / total_h
         scale = min(scale_x, scale_y)
 
-        # Centrer
         offset_x = self._marge + (view_w - total_w * scale) / 2 + padding * scale
         offset_y = self._marge + (view_h - total_h * scale) / 2 + padding * scale
 
         return scale, offset_x, offset_y
+
+    def _get_transform(self) -> tuple:
+        """Echelle et decalage avec zoom/pan utilisateur."""
+        base_scale, base_ox, base_oy = self._get_base_transform()
+        scale = base_scale * self._zoom
+        ox = base_ox * self._zoom + self._pan_x
+        oy = base_oy * self._zoom + self._pan_y
+        return scale, ox, oy
 
     def _to_screen(self, x: float, z: float, scale: float,
                    offset_x: float, offset_y: float) -> QPointF:
@@ -76,6 +163,10 @@ class PlacardViewer(QWidget):
         sx = offset_x + x * scale
         sy = offset_y + (self._placard_h - z) * scale
         return QPointF(sx, sy)
+
+    # =================================================================
+    #  DESSIN
+    # =================================================================
 
     def paintEvent(self, event):
         if not self._rects:
@@ -391,12 +482,17 @@ class PlacardViewer(QWidget):
         menu = QMenu(self)
         action_copier = menu.addAction("Copier l'image")
         action_sauver = menu.addAction("Sauvegarder l'image...")
+        menu.addSeparator()
+        action_reset = menu.addAction("Reinitialiser la vue")
 
         action = menu.exec_(event.globalPos())
         if action == action_copier:
             self._copier_image()
         elif action == action_sauver:
             self._sauvegarder_image()
+        elif action == action_reset:
+            self._reset_view()
+            self.update()
 
     def _render_pixmap(self, factor: int = 2) -> QPixmap:
         """Rend la vue dans un QPixmap haute resolution (x factor)."""
