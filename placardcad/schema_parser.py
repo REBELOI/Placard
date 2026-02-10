@@ -318,6 +318,14 @@ def schema_vers_config(schema_text: str, params_generaux: dict | None = None) ->
         "mur_transparence": 85,
         "export_fiche": True,
         "dossier_export": "",
+        "debit": {
+            "panneau_longueur": 2800,
+            "panneau_largeur": 2070,
+            "trait_scie": 4.0,
+            "surcote": 2.0,
+            "delignage": 10.0,
+            "sens_fil": True,
+        },
     }
 
     if params_generaux:

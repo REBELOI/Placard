@@ -72,6 +72,7 @@ class ParamsEditor(QWidget):
         self.tabs.addTab(self._creer_onglet_panneaux(), "Panneaux")
         self.tabs.addTab(self._creer_onglet_cremailleres(), "Cremailleres")
         self.tabs.addTab(self._creer_onglet_tasseaux(), "Tasseaux")
+        self.tabs.addTab(self._creer_onglet_debit(), "Debit")
 
     def _creer_spin(self, key: str, minimum: int = 0, maximum: int = 10000,
                     suffix: str = " mm") -> QSpinBox:
@@ -185,6 +186,18 @@ class ParamsEditor(QWidget):
         form.addRow("Section largeur:", self._creer_spin("tasseau.section_l", 10, 100))
         form.addRow("Retrait avant:", self._creer_spin("tasseau.retrait_avant", 0, 100))
         form.addRow("Biseau longueur:", self._creer_spin("tasseau.biseau_longueur", 0, 50))
+        return widget
+
+    def _creer_onglet_debit(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.addRow("Panneau longueur:", self._creer_spin("debit.panneau_longueur", 500, 5000))
+        form.addRow("Panneau largeur:", self._creer_spin("debit.panneau_largeur", 500, 3000))
+        form.addRow("Trait de scie:", self._creer_dspin("debit.trait_scie", 0, 10))
+        form.addRow("Surcote (par cote):", self._creer_dspin("debit.surcote", 0, 10))
+        form.addRow("Delignage:", self._creer_dspin("debit.delignage", 0, 30))
+        form.addRow("Sens du fil:", self._creer_check("debit.sens_fil",
+                                                       "Respecter le sens du fil"))
         return widget
 
     # --- Preset global ---

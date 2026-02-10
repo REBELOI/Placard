@@ -24,7 +24,7 @@ from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
-from ..optimisation_debit import pieces_depuis_fiche, PieceDebit
+from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
 
 
@@ -337,6 +337,19 @@ class MainWindow(QMainWindow):
             ))
         return result
 
+    def _get_params_debit(self) -> ParametresDebit:
+        """Construit les parametres de debit depuis l'onglet Debit de l'editeur."""
+        params = self.params_editor.get_params()
+        debit = params.get("debit", {})
+        return ParametresDebit(
+            panneau_longueur=debit.get("panneau_longueur", 2800),
+            panneau_largeur=debit.get("panneau_largeur", 2070),
+            trait_scie=debit.get("trait_scie", 4.0),
+            surcote=debit.get("surcote", 2.0),
+            delignage=debit.get("delignage", 10.0),
+            sens_fil=debit.get("sens_fil", True),
+        )
+
     def _exporter_pdf(self):
         """Exporte le placard en PDF avec debit mixte du projet."""
         if not self._rects:
@@ -368,6 +381,7 @@ class MainWindow(QMainWindow):
             exporter_pdf(filepath, self._rects, config, self._fiche, projet_info,
                          projet_id=self._current_projet_id or 0,
                          amenagement_id=self._current_amenagement_id or 0,
+                         params_debit=self._get_params_debit(),
                          all_pieces_projet=all_pieces if all_pieces else None,
                          pieces_manuelles=pieces_m if pieces_m else None)
             self.statusbar.showMessage(f"PDF exporte: {filepath}")
@@ -431,6 +445,7 @@ class MainWindow(QMainWindow):
             pieces_m = self._collecter_pieces_manuelles(self._current_projet_id)
             exporter_pdf_projet(filepath, amenagements_data, projet_info,
                                 self._current_projet_id,
+                                params_debit=self._get_params_debit(),
                                 pieces_manuelles=pieces_m if pieces_m else None)
             msg = f"PDF projet exporte: {filepath}\n{len(amenagements_data)} page(s)."
             if pieces_m:
