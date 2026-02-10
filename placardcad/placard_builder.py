@@ -357,8 +357,27 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
 
         # --- Cremailleres ---
         if comp["rayons"] > 0:
-            z_haut_crem = H - config["rayon_haut_position"] if config["rayon_haut"] else H
-            h_crem = z_haut_crem
+            h_sous_rayon = H - config["rayon_haut_position"] if config["rayon_haut"] else H
+
+            # Hauteur crem gauche = hauteur de la separation gauche (ou panneau mur)
+            if comp_idx > 0:
+                sep_g = config["separations"][comp_idx - 1]
+                if sep_g["mode"] == "toute_hauteur":
+                    h_crem_g = H
+                else:
+                    h_crem_g = h_sous_rayon
+            else:
+                h_crem_g = h_sous_rayon
+
+            # Hauteur crem droite = hauteur de la separation droite (ou panneau mur)
+            if comp_idx < nb_comp - 1:
+                sep_d = config["separations"][comp_idx]
+                if sep_d["mode"] == "toute_hauteur":
+                    h_crem_d = H
+                else:
+                    h_crem_d = h_sous_rayon
+            else:
+                h_crem_d = h_sous_rayon
 
             crem_g = comp.get("type_crem_gauche")
             panneau_mur_g = comp.get("panneau_mur_gauche", False)
@@ -372,23 +391,23 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 else:
                     x_cg = x_debut - ce["epaisseur"] + ce.get("saillie", 0)
                 rects.append(Rect(
-                    x_cg, 0, ce["epaisseur"], h_crem,
+                    x_cg, 0, ce["epaisseur"], h_crem_g,
                     rgb_to_hex(ce["couleur_rgb"]),
                     f"Crem enc. G C{comp_idx+1}", "cremaillere_encastree"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere encastree (C{comp_idx+1} gauche)", 2,
-                    f"L={h_crem:.0f}mm"
+                    f"L={h_crem_g:.0f}mm"
                 )
             elif crem_g == "applique":
                 rects.append(Rect(
-                    x_debut, 0, ca["epaisseur_saillie"], h_crem,
+                    x_debut, 0, ca["epaisseur_saillie"], h_crem_g,
                     rgb_to_hex(ca["couleur_rgb"]),
                     f"Crem app. G C{comp_idx+1}", "cremaillere_applique"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere applique (C{comp_idx+1} gauche)", 2,
-                    f"L={h_crem:.0f}mm"
+                    f"L={h_crem_g:.0f}mm"
                 )
 
             # Cremaillere droite
@@ -400,23 +419,23 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 else:
                     x_cd = x_fin - ce.get("saillie", 0)
                 rects.append(Rect(
-                    x_cd, 0, ce["epaisseur"], h_crem,
+                    x_cd, 0, ce["epaisseur"], h_crem_d,
                     rgb_to_hex(ce["couleur_rgb"]),
                     f"Crem enc. D C{comp_idx+1}", "cremaillere_encastree"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere encastree (C{comp_idx+1} droite)", 2,
-                    f"L={h_crem:.0f}mm"
+                    f"L={h_crem_d:.0f}mm"
                 )
             elif crem_d == "applique":
                 rects.append(Rect(
-                    x_fin - ca["epaisseur_saillie"], 0, ca["epaisseur_saillie"], h_crem,
+                    x_fin - ca["epaisseur_saillie"], 0, ca["epaisseur_saillie"], h_crem_d,
                     rgb_to_hex(ca["couleur_rgb"]),
                     f"Crem app. D C{comp_idx+1}", "cremaillere_applique"
                 ))
                 fiche.ajouter_quincaillerie(
                     f"Cremaillere applique (C{comp_idx+1} droite)", 2,
-                    f"L={h_crem:.0f}mm"
+                    f"L={h_crem_d:.0f}mm"
                 )
 
         # --- Rayons ---
