@@ -258,15 +258,16 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
     # --- Murs ---
     if config.get("afficher_murs", True):
         mur_ep = config.get("mur_epaisseur", 50)
+        mur_ep2 = mur_ep * 2
         mur_coul = rgb_to_hex(config.get("mur_couleur_rgb", (0.85, 0.85, 0.82)))
         # Mur gauche
-        rects.append(Rect(-mur_ep, 0, mur_ep, H, mur_coul, "Mur gauche", "mur"))
+        rects.append(Rect(-mur_ep2, 0, mur_ep2, H, mur_coul, "Mur gauche", "mur"))
         # Mur droit
-        rects.append(Rect(L, 0, mur_ep, H, mur_coul, "Mur droit", "mur"))
-        # Sol
-        rects.append(Rect(-mur_ep, -mur_ep, L + 2 * mur_ep, mur_ep, mur_coul, "Sol", "mur"))
+        rects.append(Rect(L, 0, mur_ep2, H, mur_coul, "Mur droit", "mur"))
+        # Sol (hachures gris fonce)
+        rects.append(Rect(-mur_ep2, -mur_ep2, L + 2 * mur_ep2, mur_ep2, "#555555", "Sol", "sol"))
         # Plafond
-        rects.append(Rect(-mur_ep, H, L + 2 * mur_ep, mur_ep, mur_coul, "Plafond", "mur"))
+        rects.append(Rect(-mur_ep2, H, L + 2 * mur_ep2, mur_ep2, mur_coul, "Plafond", "mur"))
 
     x_courant = 0.0
 

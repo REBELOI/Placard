@@ -99,6 +99,7 @@ class PlacardViewer(QWidget):
         # Couleurs de type d'element
         type_pens = {
             "mur": (QColor("#D5D5D0"), QColor("#E8E8E4"), 1),
+            "sol": (QColor("#444444"), QColor("#555555"), 1),
             "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
             "rayon_haut": (QColor("#8B7355"), QColor("#DEB887"), 1),
             "rayon": (QColor("#8B7355"), QColor("#D2B48C"), 1),
@@ -109,7 +110,7 @@ class PlacardViewer(QWidget):
         }
 
         # Dessiner les rectangles par ordre de couche
-        ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
+        ordre = ["sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
         rects_par_type = {}
         for r in self._rects:
             rects_par_type.setdefault(r.type_elem, []).append(r)
@@ -128,7 +129,9 @@ class PlacardViewer(QWidget):
                 rect_screen = QRectF(p1, p2)
 
                 # Remplissage
-                if type_elem == "mur":
+                if type_elem == "sol":
+                    painter.setBrush(QBrush(fill_color, Qt.BDiagPattern))
+                elif type_elem == "mur":
                     painter.setBrush(QBrush(fill_color, Qt.Dense4Pattern))
                 else:
                     painter.setBrush(QBrush(fill_color))
@@ -406,6 +409,7 @@ class PlacardViewer(QWidget):
 
         type_pens = {
             "mur": (QColor("#D5D5D0"), QColor("#E8E8E4"), 1),
+            "sol": (QColor("#444444"), QColor("#555555"), 1),
             "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
             "rayon_haut": (QColor("#8B7355"), QColor("#DEB887"), 1),
             "rayon": (QColor("#8B7355"), QColor("#D2B48C"), 1),
@@ -416,7 +420,7 @@ class PlacardViewer(QWidget):
         }
 
         ordre = [
-            "mur", "panneau_mur", "separation", "rayon_haut",
+            "sol", "mur", "panneau_mur", "separation", "rayon_haut",
             "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau",
         ]
         rects_par_type = {}
@@ -433,7 +437,9 @@ class PlacardViewer(QWidget):
                 p1 = self._to_screen(r.x, r.y + r.h, scale, ox, oy)
                 p2 = self._to_screen(r.x + r.w, r.y, scale, ox, oy)
                 rect_screen = QRectF(p1, p2)
-                if type_elem == "mur":
+                if type_elem == "sol":
+                    painter.setBrush(QBrush(fill_color, Qt.BDiagPattern))
+                elif type_elem == "mur":
                     painter.setBrush(QBrush(fill_color, Qt.Dense4Pattern))
                 else:
                     painter.setBrush(QBrush(fill_color))

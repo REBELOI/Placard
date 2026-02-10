@@ -31,6 +31,7 @@ from .optimisation_debit import (
 
 COULEURS_TYPE = {
     "mur": (colors.Color(0.9, 0.9, 0.88), colors.Color(0.7, 0.7, 0.68)),
+    "sol": (colors.Color(0.33, 0.33, 0.33), colors.Color(0.27, 0.27, 0.27)),
     "separation": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "rayon_haut": (colors.Color(0.87, 0.74, 0.53), colors.Color(0.55, 0.45, 0.33)),
     "rayon": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
@@ -102,7 +103,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     oy = y_orig + marge + (view_h - total_h * scale) / 2 + padding * scale
 
     # Dessiner les rectangles
-    ordre = ["mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
+    ordre = ["sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
     rects_par_type = {}
     for r in rects:
         rects_par_type.setdefault(r.type_elem, []).append(r)
@@ -120,11 +121,32 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
             sw = r.w * scale
             sh = r.h * scale
 
-            c.setFillColor(fill_color)
             c.setStrokeColor(stroke_color)
             lw = 0.2 if type_elem.startswith("cremaillere") else 0.5
             c.setLineWidth(lw)
-            c.rect(sx, sy, sw, sh, fill=1)
+
+            if type_elem == "sol":
+                # Fond gris fonce + hachures diagonales
+                c.setFillColor(colors.Color(0.85, 0.85, 0.85))
+                c.rect(sx, sy, sw, sh, fill=1)
+                c.saveState()
+                p = c.beginPath()
+                p.rect(sx, sy, sw, sh)
+                c.clipPath(p, stroke=0)
+                c.setStrokeColor(colors.Color(0.33, 0.33, 0.33))
+                c.setLineWidth(0.4)
+                pas_h = 4
+                for d in range(int((sw + sh) / pas_h) + 1):
+                    x0 = sx + d * pas_h
+                    c.line(x0, sy + sh, x0 - sh, sy)
+                c.restoreState()
+                # Contour
+                c.setStrokeColor(stroke_color)
+                c.setLineWidth(lw)
+                c.rect(sx, sy, sw, sh, fill=0)
+            else:
+                c.setFillColor(fill_color)
+                c.rect(sx, sy, sw, sh, fill=1)
 
     # --- Helper fleche PDF ---
     fl = 4  # taille fleche en points
