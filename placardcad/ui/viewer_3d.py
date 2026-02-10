@@ -187,8 +187,12 @@ class PlacardViewer(QWidget):
         L = self._placard_w
         fl = 8  # taille fleche en pixels
 
+        # Bas du sol (pour decaler les cotations en dessous)
+        sol_rect = next((r for r in self._rects if r.type_elem == "sol"), None)
+        sol_bas = sol_rect.y if sol_rect else 0
+
         # === Cotation largeur totale (en bas) ===
-        y_cot = -80
+        y_cot = sol_bas - 80
         p_left = self._to_screen(0, y_cot, scale, ox, oy)
         p_right = self._to_screen(L, y_cot, scale, ox, oy)
 
@@ -251,7 +255,7 @@ class PlacardViewer(QWidget):
             edges.append(s.x + s.w)
         edges.append(L)
 
-        z_cot_bas = -30
+        z_cot_bas = sol_bas - 30
         for i in range(0, len(edges), 2):
             x_l = edges[i]
             x_r = edges[i + 1]
