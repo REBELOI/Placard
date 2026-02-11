@@ -493,6 +493,23 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
                 sens_fil=config["panneau_rayon"].get("sens_fil", True),
             ))
 
+            # --- Taquets de cremailleres ---
+            crem_gauche = comp.get("panneau_mur_gauche", False) or \
+                comp.get("type_crem_gauche") in ("encastree", "applique")
+            crem_droite = comp.get("panneau_mur_droite", False) or \
+                comp.get("type_crem_droite") in ("encastree", "applique")
+            taquets_par_rayon = 0
+            if crem_gauche:
+                taquets_par_rayon += 2
+            if crem_droite:
+                taquets_par_rayon += 2
+            if taquets_par_rayon > 0:
+                fiche.ajouter_quincaillerie(
+                    f"Taquets cremaillere (C{comp_idx+1})",
+                    taquets_par_rayon * nb_rayons,
+                    f"{taquets_par_rayon} par rayon x {nb_rayons} rayons",
+                )
+
         # --- Tasseaux ---
         tass = config["tasseau"]
         longueur_tasseau = P - config["panneau_rayon"]["chant_epaisseur"] - tass["retrait_avant"]

@@ -31,6 +31,7 @@ from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebi
 from ..freecad_export import exporter_freecad
 from ..dxf_export import exporter_dxf
 from ..etiquettes_export import exporter_etiquettes
+from ..liste_courses import generer_liste_courses, exporter_liste_courses
 
 
 class MainWindow(QMainWindow):
@@ -178,6 +179,11 @@ class MainWindow(QMainWindow):
         self.action_etiquettes = QAction("Etiquettes", self)
         self.action_etiquettes.triggered.connect(self._exporter_etiquettes)
         toolbar.addAction(self.action_etiquettes)
+
+        # Liste de courses
+        self.action_liste_courses = QAction("Liste de courses", self)
+        self.action_liste_courses.triggered.connect(self._exporter_liste_courses)
+        toolbar.addAction(self.action_liste_courses)
 
         toolbar.addSeparator()
 
@@ -615,6 +621,83 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur etiquettes", str(e))
+
+    def _exporter_liste_courses(self):
+        """Exporte la liste de courses du projet en PDF."""
+        if not self._current_projet_id:
+            QMessageBox.warning(self, "Liste de courses",
+                                "Aucun projet selectionne.")
+            return
+
+        amenagements = self.db.lister_amenagements(self._current_projet_id)
+        if not amenagements:
+            QMessageBox.warning(self, "Liste de courses",
+                                "Le projet ne contient aucun amenagement.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter liste de courses", "liste_courses.pdf", "PDF (*.pdf)"
+        )
+        if not filepath:
+            return
+
+        projet_info = self.db.get_projet(self._current_projet_id)
+
+        amenagements_data = []
+        erreurs = []
+        for am in amenagements:
+            schema_txt = am["schema_txt"]
+            if not schema_txt or not schema_txt.strip():
+                continue
+            try:
+                params_json = am["params_json"]
+                params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
+            except json.JSONDecodeError:
+                params = dict(PARAMS_DEFAUT)
+
+            try:
+                config = schema_vers_config(schema_txt, params)
+                _rects, fiche = generer_geometrie_2d(config)
+                amenagements_data.append({
+                    "fiche": fiche,
+                    "nom": am["nom"],
+                    "amenagement_id": am["id"],
+                })
+            except Exception as e:
+                erreurs.append(f"{am['nom']}: {e}")
+
+        if not amenagements_data:
+            QMessageBox.warning(self, "Liste de courses",
+                                "Aucun amenagement valide dans ce projet.")
+            return
+
+        try:
+            pieces_m = self._collecter_pieces_manuelles(self._current_projet_id)
+            liste = generer_liste_courses(
+                amenagements_data,
+                params_debit=self._get_params_debit(),
+                projet_id=self._current_projet_id,
+                pieces_manuelles=pieces_m if pieces_m else None,
+            )
+            exporter_liste_courses(filepath, liste, projet_info)
+            nb_pan = sum(p["quantite"] for p in liste["panneaux_bruts"])
+            nb_crem = sum(c["quantite"] for c in liste["cremailleres"])
+            nb_taquets = liste.get("taquets", 0)
+            nb_tass = sum(t["quantite"] for t in liste["tasseaux"])
+            msg = (
+                f"Liste de courses exportee:\n{filepath}\n\n"
+                f"{len(amenagements_data)} amenagement(s) analyse(s)\n"
+                f"{nb_pan} panneau(x) brut(s)\n"
+                f"{nb_crem} cremaillere(s)\n"
+                f"{nb_taquets} taquet(s)\n"
+                f"{nb_tass} tasseau(x)"
+            )
+            if erreurs:
+                msg += f"\n\nAmenagements ignores ({len(erreurs)}):\n" + "\n".join(erreurs)
+            self.statusbar.showMessage(f"Liste de courses exportee: {filepath}")
+            QMessageBox.information(self, "Liste de courses", msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur liste de courses", str(e))
 
     def _exporter_dxf(self):
         """Exporte le placard en fichier DXF (plan 2D)."""
