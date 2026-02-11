@@ -1,9 +1,13 @@
-"""
-Liste de courses — synthese des fournitures necessaires pour un projet.
+"""Liste de courses -- synthese des fournitures necessaires pour un projet.
 
 Agrege les fiches de fabrication de tous les amenagements d'un projet
-pour produire un recapitulatif: panneaux bruts, cremailleres, tasseaux,
-chants, et quincaillerie diverse.
+pour produire un recapitulatif complet des fournitures a acheter:
+panneaux bruts, cremailleres, tasseaux, chants, quincaillerie diverse
+et visserie estimee.
+
+Fonctions principales:
+    - generer_liste_courses: calcule la synthese a partir des amenagements.
+    - exporter_liste_courses: genere le PDF A4 de la liste de courses.
 """
 
 from __future__ import annotations
@@ -25,22 +29,33 @@ def generer_liste_courses(
     projet_id: int = 0,
     pieces_manuelles: list | None = None,
 ) -> dict:
-    """
-    Agrege les fiches de fabrication et retourne un dict de synthese.
+    """Agrege les fiches de fabrication de tous les amenagements et retourne une synthese.
 
-    amenagements_data: liste de dicts avec cles:
-        - fiche: FicheFabrication
-        - nom: str
-        - amenagement_id: int
-    pieces_manuelles: liste optionnelle de PieceDebit.
+    Collecte toutes les pieces et la quincaillerie de chaque amenagement,
+    lance l'optimisation de debit pour determiner le nombre de panneaux bruts,
+    puis agrege cremailleres, tasseaux, chants, quincaillerie diverse et
+    estime la visserie necessaire.
 
-    Retourne un dict:
-        panneaux_bruts: list[dict]   — {epaisseur, couleur, quantite, dim}
-        cremailleres: list[dict]     — {type, longueur_mm, quantite}
-        tasseaux: list[dict]         — {longueur_mm, section, quantite}
-        chants: list[dict]           — {couleur, epaisseur_mm, longueur_m}
-        quincaillerie: list[dict]    — {nom, quantite, description}
-        resume_pieces: list[dict]    — {epaisseur, couleur, nb_pieces, surface_m2}
+    Args:
+        amenagements_data: Liste de dictionnaires, chacun avec les cles:
+            - fiche: FicheFabrication - fiche de fabrication de l'amenagement.
+            - nom: str - nom de l'amenagement.
+            - amenagement_id: int - identifiant de l'amenagement.
+        params_debit: Parametres de debit ou None pour les valeurs par defaut.
+        projet_id: Identifiant du projet pour les references.
+        pieces_manuelles: Liste optionnelle de PieceDebit complementaires
+            a inclure dans le debit.
+
+    Returns:
+        Dictionnaire de synthese avec les cles:
+            - panneaux_bruts: list[dict] - {epaisseur, couleur, quantite, dim}.
+            - resume_pieces: list[dict] - {epaisseur, couleur, materiau, nb_pieces, surface_m2}.
+            - cremailleres: list[dict] - {type, longueur_mm, quantite}.
+            - taquets: int - nombre total de taquets de cremaillere.
+            - tasseaux: list[dict] - {longueur_mm, section, quantite}.
+            - chants: list[dict] - {couleur, epaisseur_mm, longueur_m}.
+            - quincaillerie: list[dict] - {nom, quantite, description}.
+            - visserie: list[dict] - {nom, quantite, description}.
     """
     if params_debit is None:
         params_debit = ParametresDebit()
@@ -260,7 +275,18 @@ _COL_GAP = 15
 
 def _titre_section(c: canvas.Canvas, x: float, y: float,
                    titre: str, w: float) -> float:
-    """Dessine un titre de section avec fond colore. Retourne le nouveau y."""
+    """Dessine un titre de section avec un fond colore fonce et texte blanc.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        x: Position X du bord gauche en points PDF.
+        y: Position Y du haut de la zone en points PDF.
+        titre: Texte du titre de section a afficher.
+        w: Largeur du bandeau de titre en points PDF.
+
+    Returns:
+        Nouvelle position Y apres le titre (en dessous), en points PDF.
+    """
     h_titre = 16
     c.setFillColor(colors.HexColor("#2C3E50"))
     c.rect(x, y - h_titre, w, h_titre, fill=1, stroke=0)
@@ -274,7 +300,22 @@ def _titre_section(c: canvas.Canvas, x: float, y: float,
 def _tableau(c: canvas.Canvas, x: float, y: float, w: float,
              colonnes: list[tuple[str, float]], lignes: list[list[str]],
              font_size: float = 8) -> float:
-    """Dessine un tableau simple. Retourne le nouveau y."""
+    """Dessine un tableau simple avec en-tete gris clair et lignes alternees.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        x: Position X du bord gauche du tableau en points PDF.
+        y: Position Y du haut du tableau en points PDF.
+        w: Largeur totale du tableau en points PDF.
+        colonnes: Liste de tuples (nom_colonne, largeur_colonne) definissant
+            les colonnes du tableau.
+        lignes: Liste de lignes de donnees, chaque ligne etant une liste de
+            chaines correspondant aux valeurs des colonnes.
+        font_size: Taille de police en points.
+
+    Returns:
+        Nouvelle position Y apres le tableau (en dessous), en points PDF.
+    """
     row_h = font_size + 5
     # En-tete
     c.setFillColor(colors.HexColor("#ECF0F1"))
@@ -313,10 +354,22 @@ def exporter_liste_courses(
     liste: dict,
     projet_info: dict | None = None,
 ) -> str:
-    """
-    Exporte la liste de courses en PDF A4 portrait.
+    """Exporte la liste de courses en PDF A4 portrait.
 
-    Retourne le chemin du fichier genere.
+    Genere un document PDF contenant les sections: panneaux bruts a acheter,
+    resume des pieces a debiter, cremailleres, tasseaux, bandes de chant,
+    quincaillerie et visserie estimee. Gere automatiquement les sauts de
+    page si le contenu depasse une page.
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        liste: Dictionnaire de synthese tel que retourne par
+            generer_liste_courses.
+        projet_info: Dictionnaire avec les informations du projet (nom, client,
+            adresse) ou None. Affiche dans le cartouche en haut de page.
+
+    Returns:
+        Chemin du fichier PDF genere (identique a filepath).
     """
     page_w, page_h = A4
     c_pdf = canvas.Canvas(filepath, pagesize=A4)

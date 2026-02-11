@@ -1,32 +1,52 @@
-"""
-Parser de schema compact pour amenagement de placard.
+"""Parser de schema compact pour amenagement de placard.
 
-Syntaxe du schema:
+Ce module fournit les fonctions pour analyser un schema compact textuel
+(dessin ASCII) decrivant la configuration d'un placard, et le convertir
+en un dictionnaire de configuration exploitable par le constructeur.
+
+Syntaxe du schema::
+
     *-----------*-----------*
     |__________|__________|
     |__________|__________|
     500         800
 
 Symboles:
-    -   rayon haut (1ere ligne)
-    _   rayon dans un compartiment
-    *   tasseau sous ce rayon
-    |   cremaillere encastree (+ panneau mur si bord exterieur)
-    /   cremaillere en applique
-    (espace) rien / mur brut
-    Derniere ligne (chiffres) : largeurs en mm par compartiment
+    - ``-`` : rayon haut (1ere ligne uniquement)
+    - ``_`` : rayon dans un compartiment
+    - ``*`` : tasseau sous ce rayon a cette position
+    - ``|`` : cremaillere encastree (+ panneau mur si bord exterieur)
+    - ``/`` : cremaillere en applique
+    - espace : rien / mur brut
+    - Derniere ligne (chiffres) : largeurs en mm par compartiment
 """
 
 import re
 
 
 def parser_schema(schema_text: str) -> dict:
-    """
-    Parse un schema compact et retourne les elements d'amenagement.
+    """Parse un schema compact et retourne les elements d'amenagement.
 
-    Retourne un dict avec:
-        rayon_haut, nombre_compartiments, mode_largeur,
-        largeurs_compartiments, separations, compartiments
+    Analyse le texte du schema ligne par ligne pour en extraire la topologie
+    du placard : rayon haut, compartiments, separations, cremailleres,
+    tasseaux et largeurs.
+
+    Args:
+        schema_text: Texte du schema compact (dessin ASCII multi-lignes).
+
+    Returns:
+        Dictionnaire contenant les cles suivantes :
+            - ``rayon_haut`` (bool) : presence d'un rayon haut.
+            - ``nombre_compartiments`` (int) : nombre de compartiments detectes.
+            - ``mode_largeur`` (str) : ``"egal"``, ``"dimensions"`` ou ``"mixte"``.
+            - ``largeurs_compartiments`` (list) : largeurs specifiees en mm ou liste vide.
+            - ``separations`` (list[dict]) : liste des separations avec leur mode.
+            - ``compartiments`` (list[dict]) : details de chaque compartiment
+              (rayons, cremailleres, tasseaux, panneaux mur).
+
+    Raises:
+        ValueError: Si le schema contient moins de 2 lignes ou moins de
+            2 separateurs verticaux.
     """
     lines = schema_text.strip().split("\n")
     if len(lines) < 2:
@@ -245,9 +265,26 @@ def parser_schema(schema_text: str) -> dict:
 
 
 def schema_vers_config(schema_text: str, params_generaux: dict | None = None) -> dict:
-    """
-    Combine un schema compact avec des parametres generaux pour produire
-    un CONFIG complet pret a passer au constructeur.
+    """Combine un schema compact avec des parametres generaux pour produire une configuration complete.
+
+    Parse le schema compact, puis fusionne le resultat avec des valeurs
+    par defaut et les parametres generaux fournis. Le dictionnaire resultant
+    est directement exploitable par le constructeur (``generer_geometrie_2d``).
+
+    Args:
+        schema_text: Texte du schema compact (dessin ASCII multi-lignes).
+        params_generaux: Parametres optionnels surchargeant les valeurs par
+            defaut (dimensions, panneaux, cremailleres, tasseaux, etc.).
+            Les sous-dictionnaires sont fusionnes recursivement.
+
+    Returns:
+        Dictionnaire de configuration complet contenant toutes les cles
+        necessaires au constructeur : dimensions globales, topologie du
+        schema, parametres de panneaux, cremailleres, tasseaux, murs
+        et options d'export.
+
+    Raises:
+        ValueError: Si le schema est invalide (propage depuis ``parser_schema``).
     """
     parsed = parser_schema(schema_text)
 

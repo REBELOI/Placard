@@ -1,5 +1,4 @@
-"""
-Export FreeCAD pour PlacardCAD.
+"""Export FreeCAD pour PlacardCAD.
 
 Genere un fichier .FCStd (format natif FreeCAD) contenant le placard en 3D.
 Le fichier FCStd est une archive ZIP contenant Document.xml et GuiDocument.xml
@@ -9,9 +8,9 @@ A l'ouverture dans FreeCAD, selectionner tout (Ctrl+A) puis
 Edit > Refresh (Ctrl+Shift+R) pour recalculer les formes.
 
 Convention d'axes FreeCAD:
-  X = largeur (gauche -> droite)
-  Y = profondeur (face avant -> mur du fond)
-  Z = hauteur (sol -> plafond)
+    - X = largeur (gauche vers droite).
+    - Y = profondeur (face avant vers mur du fond).
+    - Z = hauteur (sol vers plafond).
 """
 
 import uuid
@@ -35,9 +34,25 @@ COULEURS_3D = {
 
 
 def _profondeur_element(type_elem: str, config: dict) -> tuple[float, float]:
-    """Retourne (profondeur_mm, y_offset_mm) pour un type d'element.
+    """Calcule la profondeur et le decalage Y pour un type d'element du placard.
+
+    Chaque type d'element (separation, rayon, cremaillere, etc.) a une
+    profondeur et un positionnement en Y specifiques, determines par les
+    parametres de configuration (retraits, chants, etc.).
 
     Y=0 est la face avant visible du placard, Y=P le mur du fond.
+
+    Args:
+        type_elem: Type de l'element ('separation', 'rayon', 'rayon_haut',
+            'panneau_mur', 'cremaillere_encastree', 'cremaillere_applique',
+            'tasseau', 'mur').
+        config: Dictionnaire de configuration du placard contenant les
+            parametres de profondeur, retraits et chants par type d'element.
+
+    Returns:
+        Tuple (profondeur_mm, y_offset_mm) ou profondeur_mm est la dimension
+        de l'element selon l'axe Y et y_offset_mm le decalage depuis la
+        face avant.
     """
     P = config["profondeur"]
 
@@ -89,7 +104,20 @@ def _profondeur_element(type_elem: str, config: dict) -> tuple[float, float]:
 
 
 def _nom_freecad(label: str, idx: int, type_elem: str) -> str:
-    """Nettoie un label pour en faire un nom FreeCAD valide."""
+    """Nettoie un label pour en faire un nom d'objet FreeCAD valide.
+
+    Remplace les caracteres non autorises (espaces, slashs, points, etc.)
+    par des underscores. Si le label est vide, genere un nom a partir
+    du type d'element et de l'index.
+
+    Args:
+        label: Label d'origine de l'element.
+        idx: Index de l'element dans sa liste (utilise si label est vide).
+        type_elem: Type de l'element (utilise si label est vide).
+
+    Returns:
+        Nom nettoye utilisable comme identifiant d'objet FreeCAD.
+    """
     nom = label or f"{type_elem}_{idx + 1}"
     # Remplacer les caracteres non valides
     for ch in " /.-()+'\"":
@@ -98,7 +126,20 @@ def _nom_freecad(label: str, idx: int, type_elem: str) -> str:
 
 
 def _nom_unique(nom: str, noms_utilises: set[str]) -> str:
-    """Assure l'unicite du nom en ajoutant un suffixe numerique si necessaire."""
+    """Assure l'unicite du nom en ajoutant un suffixe numerique si necessaire.
+
+    Si le nom existe deja dans l'ensemble, ajoute un suffixe _2, _3, etc.
+    jusqu'a trouver un nom disponible. Le nom retourne est ajoute a
+    l'ensemble des noms utilises.
+
+    Args:
+        nom: Nom de base a rendre unique.
+        noms_utilises: Ensemble mutable des noms deja attribues.
+
+    Returns:
+        Nom garanti unique, identique a nom si disponible, sinon avec
+        suffixe numerique.
+    """
     if nom not in noms_utilises:
         noms_utilises.add(nom)
         return nom
@@ -111,10 +152,16 @@ def _nom_unique(nom: str, noms_utilises: set[str]) -> str:
 
 
 def _couleur_packed(rgb: tuple[float, float, float]) -> int:
-    """Encode une couleur RGB (0.0-1.0) en uint32 RGBA pour FreeCAD.
+    """Encode une couleur RGB en entier uint32 RGBA pour FreeCAD.
 
-    Format: (R<<24) | (G<<16) | (B<<8) | A
-    Alpha=0 signifie opaque dans FreeCAD.
+    Le format est (R<<24) | (G<<16) | (B<<8) | A, ou Alpha=0 signifie
+    opaque dans la convention FreeCAD.
+
+    Args:
+        rgb: Tuple de 3 flottants (R, G, B) dans l'intervalle [0.0, 1.0].
+
+    Returns:
+        Entier uint32 representant la couleur au format RGBA FreeCAD.
     """
     r = min(255, max(0, int(round(rgb[0] * 255))))
     g = min(255, max(0, int(round(rgb[1] * 255))))
@@ -125,8 +172,25 @@ def _couleur_packed(rgb: tuple[float, float, float]) -> int:
 def _collecter_objets_3d(config: dict) -> list[dict]:
     """Collecte tous les objets 3D a partir de la configuration du placard.
 
-    Retourne une liste de dicts avec: nom, label, length, width, height,
-    px, py, pz, couleur, transparence.
+    Genere la geometrie 2D via le builder, puis convertit chaque rectangle
+    en objet 3D en calculant la profondeur selon le type d'element.
+    Ajoute egalement les murs et le sol comme elements de contexte
+    transparents.
+
+    Args:
+        config: Dictionnaire de configuration complet du placard (schema
+            parse + parametres physiques).
+
+    Returns:
+        Liste de dictionnaires, chacun representant un objet 3D avec les cles:
+            - nom: str - nom unique de l'objet FreeCAD.
+            - label: str - label affiche dans FreeCAD.
+            - length: float - dimension selon X en mm.
+            - width: float - dimension selon Y (profondeur) en mm.
+            - height: float - dimension selon Z en mm.
+            - px, py, pz: float - position du coin d'origine en mm.
+            - couleur: tuple[float, float, float] - couleur RGB [0-1].
+            - transparence: int - pourcentage de transparence (0=opaque).
     """
     rects, _fiche = generer_geometrie_2d(config)
 
@@ -215,7 +279,16 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
     """Genere le contenu Document.xml du fichier FCStd.
 
     Construit le XML par formatage de chaines pour correspondre exactement
-    au format attendu par le parser Xerces-C de FreeCAD.
+    au format attendu par le parser Xerces-C de FreeCAD. Chaque objet est
+    declare comme Part::Box avec ses proprietes Label, Length, Width,
+    Height et Placement.
+
+    Args:
+        objets: Liste de dictionnaires representant les objets 3D, tels que
+            retournes par _collecter_objets_3d.
+
+    Returns:
+        Contenu XML du Document.xml encode en UTF-8.
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -296,8 +369,18 @@ def _generer_guidocument_xml(objets: list[dict]) -> bytes:
     """Genere le contenu GuiDocument.xml du fichier FCStd.
 
     Construit le XML par formatage de chaines pour correspondre exactement
-    au format attendu par le parser Xerces-C de FreeCAD.
+    au format attendu par le parser Xerces-C de FreeCAD. Definit les
+    proprietes visuelles (couleur, transparence, visibilite) de chaque
+    objet et configure la camera par defaut en vue isometrique.
+
     Structure: Document > ViewProviderData > ViewProvider* + Camera.
+
+    Args:
+        objets: Liste de dictionnaires representant les objets 3D, tels que
+            retournes par _collecter_objets_3d.
+
+    Returns:
+        Contenu XML du GuiDocument.xml encode en UTF-8.
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -361,10 +444,17 @@ def exporter_freecad(filepath: str, config: dict) -> str:
     """Exporte le placard en fichier FreeCAD natif (.FCStd).
 
     Le fichier FCStd est une archive ZIP contenant Document.xml (modele
-    parametrique) et GuiDocument.xml (proprietes visuelles).
+    parametrique) et GuiDocument.xml (proprietes visuelles). A l'ouverture
+    dans FreeCAD, les formes seront recalculees automatiquement ou via
+    Edit > Refresh (Ctrl+Shift+R).
 
-    A l'ouverture dans FreeCAD, les formes seront recalculees
-    automatiquement ou via Edit > Refresh (Ctrl+Shift+R).
+    Args:
+        filepath: Chemin du fichier .FCStd a generer.
+        config: Dictionnaire de configuration complet du placard (schema
+            parse + parametres physiques).
+
+    Returns:
+        Chemin du fichier FCStd genere (identique a filepath).
     """
     objets = _collecter_objets_3d(config)
 

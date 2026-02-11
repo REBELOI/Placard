@@ -1,9 +1,10 @@
-"""
-Export DXF (format R12 ASCII) pour PlacardCAD.
+"""Export DXF (format R12 ASCII) pour PlacardCAD.
 
-Genere un fichier DXF 2D a partir de la geometrie calculee par placard_builder.
-Compatible avec AutoCAD, LibreCAD, FreeCAD, etc.
-Aucune dependance externe requise.
+Genere un fichier DXF 2D de la vue de face d'un placard a partir de la
+geometrie calculee par placard_builder. Le format DXF R12 ASCII est
+compatible avec AutoCAD, LibreCAD, FreeCAD et la plupart des logiciels CAO.
+
+Aucune dependance externe requise : le DXF est genere par formatage de chaines.
 """
 
 from .placard_builder import Rect, FicheFabrication
@@ -36,7 +37,18 @@ LAYER_COLORS = {
 
 
 def _dxf_header(largeur: float, hauteur: float) -> str:
-    """Genere l'en-tete DXF minimal avec les limites du dessin."""
+    """Genere l'en-tete DXF minimal avec les limites du dessin.
+
+    Definit la version AutoCAD (AC1009 = R12), les limites d'extension
+    et les limites du dessin avec une marge de 100 mm de chaque cote.
+
+    Args:
+        largeur: Largeur du placard en mm (axe X).
+        hauteur: Hauteur du placard en mm (axe Y).
+
+    Returns:
+        Chaine formatee contenant la section HEADER du fichier DXF.
+    """
     return f"""0
 SECTION
 2
@@ -75,7 +87,15 @@ ENDSEC
 
 
 def _dxf_tables() -> str:
-    """Genere la section TABLES avec les calques."""
+    """Genere la section TABLES avec la definition des calques DXF.
+
+    Cree un calque par type d'element (MURS, SEPARATIONS, RAYONS, etc.)
+    avec une couleur ACI distincte, plus un calque COTATIONS pour les
+    dimensions.
+
+    Returns:
+        Chaine formatee contenant la section TABLES du fichier DXF.
+    """
     lines = ["0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n10"]
 
     # Calque par defaut
@@ -94,7 +114,18 @@ def _dxf_tables() -> str:
 
 def _dxf_rect(x: float, y: float, w: float, h: float,
               layer: str = "0") -> str:
-    """Genere un rectangle DXF (LWPOLYLINE fermee)."""
+    """Genere un rectangle DXF sous forme de LWPOLYLINE fermee a 4 sommets.
+
+    Args:
+        x: Position X du coin bas-gauche en mm.
+        y: Position Y du coin bas-gauche en mm.
+        w: Largeur du rectangle en mm.
+        h: Hauteur du rectangle en mm.
+        layer: Nom du calque DXF cible.
+
+    Returns:
+        Chaine formatee contenant l'entite LWPOLYLINE du fichier DXF.
+    """
     x2 = x + w
     y2 = y + h
     return f"""0
@@ -126,7 +157,18 @@ LWPOLYLINE
 
 def _dxf_line(x1: float, y1: float, x2: float, y2: float,
               layer: str = "0") -> str:
-    """Genere une ligne DXF."""
+    """Genere une entite LINE DXF entre deux points.
+
+    Args:
+        x1: Position X du point de depart en mm.
+        y1: Position Y du point de depart en mm.
+        x2: Position X du point d'arrivee en mm.
+        y2: Position Y du point d'arrivee en mm.
+        layer: Nom du calque DXF cible.
+
+    Returns:
+        Chaine formatee contenant l'entite LINE du fichier DXF.
+    """
     return f"""0
 LINE
 8
@@ -144,7 +186,18 @@ LINE
 
 def _dxf_text(x: float, y: float, texte: str, hauteur: float = 30.0,
               layer: str = "0") -> str:
-    """Genere un texte DXF."""
+    """Genere une entite TEXT DXF a la position donnee.
+
+    Args:
+        x: Position X du point d'insertion en mm.
+        y: Position Y du point d'insertion en mm.
+        texte: Contenu textuel a afficher.
+        hauteur: Hauteur des caracteres en mm.
+        layer: Nom du calque DXF cible.
+
+    Returns:
+        Chaine formatee contenant l'entite TEXT du fichier DXF.
+    """
     return f"""0
 TEXT
 8
@@ -162,7 +215,21 @@ TEXT
 
 def _dxf_dim_h(x1: float, x2: float, y: float, texte: str,
                layer: str = "COTATIONS") -> str:
-    """Cotation horizontale simplifiee (ligne + texte)."""
+    """Genere une cotation horizontale simplifiee composee d'une ligne et d'un texte.
+
+    La cotation est tracee entre x1 et x2 a la hauteur y, avec des traits
+    verticaux aux extremites et le texte centre au-dessus.
+
+    Args:
+        x1: Position X du point gauche en mm.
+        x2: Position X du point droit en mm.
+        y: Position Y de la ligne de cotation en mm.
+        texte: Texte de la cotation (typiquement la dimension en mm).
+        layer: Nom du calque DXF cible.
+
+    Returns:
+        Chaine formatee contenant les entites DXF de la cotation.
+    """
     mid_x = (x1 + x2) / 2
     result = _dxf_line(x1, y, x2, y, layer)
     # Petits traits verticaux aux extremites
@@ -175,7 +242,21 @@ def _dxf_dim_h(x1: float, x2: float, y: float, texte: str,
 
 def _dxf_dim_v(x: float, y1: float, y2: float, texte: str,
                layer: str = "COTATIONS") -> str:
-    """Cotation verticale simplifiee (ligne + texte)."""
+    """Genere une cotation verticale simplifiee composee d'une ligne et d'un texte.
+
+    La cotation est tracee entre y1 et y2 a la position x, avec des traits
+    horizontaux aux extremites et le texte place a cote.
+
+    Args:
+        x: Position X de la ligne de cotation en mm.
+        y1: Position Y du point bas en mm.
+        y2: Position Y du point haut en mm.
+        texte: Texte de la cotation (typiquement la dimension en mm).
+        layer: Nom du calque DXF cible.
+
+    Returns:
+        Chaine formatee contenant les entites DXF de la cotation.
+    """
     mid_y = (y1 + y2) / 2
     result = _dxf_line(x, y1, x, y2, layer)
     # Petits traits horizontaux aux extremites
@@ -188,10 +269,21 @@ def _dxf_dim_v(x: float, y1: float, y2: float, texte: str,
 
 def exporter_dxf(filepath: str, rects: list[Rect], config: dict,
                  fiche: FicheFabrication | None = None):
-    """Exporte la vue de face en fichier DXF.
+    """Exporte la vue de face du placard en fichier DXF R12 ASCII.
 
-    Le plan est en mm, coordonnees identiques au modele :
-    X = largeur (gauche->droite), Y = hauteur (sol->plafond).
+    Le plan est en mm, avec des coordonnees identiques au modele:
+    X = largeur (gauche vers droite), Y = hauteur (sol vers plafond).
+    Les elements sont repartis sur des calques distincts par type.
+    Des cotations sont ajoutees pour la largeur et hauteur totales
+    ainsi que pour chaque compartiment.
+
+    Args:
+        filepath: Chemin du fichier DXF a generer.
+        rects: Liste des rectangles 2D representant les elements du placard.
+        config: Dictionnaire de configuration du placard contenant au minimum
+            les cles 'hauteur' et 'largeur' en mm.
+        fiche: Fiche de fabrication (non utilisee actuellement, reservee pour
+            des extensions futures).
     """
     H = config["hauteur"]
     L = config["largeur"]

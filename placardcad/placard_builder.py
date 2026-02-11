@@ -1,23 +1,57 @@
-"""
-Constructeur de placard - Calculs geometriques et fiche de fabrication.
+"""Constructeur de placard - Calculs geometriques et fiche de fabrication.
 
-Ce module fournit:
-- Le calcul des dimensions de chaque element du placard
-- La generation de la geometrie 2D (vue de face) pour le viewer et le PDF
-- La fiche de fabrication (liste des pieces et quincaillerie)
-- L'integration FreeCAD optionnelle pour la 3D
+Ce module fournit :
+    - Le calcul des dimensions de chaque element du placard.
+    - La generation de la geometrie 2D (vue de face) pour le viewer et le PDF.
+    - La fiche de fabrication (liste des pieces et quincaillerie).
+    - L'integration FreeCAD optionnelle pour la 3D.
+
+Les fonctions principales sont ``calculer_largeurs_compartiments``,
+``calculer_dimensions_rayon`` et ``generer_geometrie_2d``.
 """
 
 from datetime import datetime
 
 
 class PieceInfo:
-    """Informations d'une piece pour la fiche de fabrication."""
+    """Informations d'une piece pour la fiche de fabrication.
+
+    Represente un panneau ou un element decoupable avec ses dimensions,
+    son materiau, sa couleur et ses informations de chant.
+
+    Attributes:
+        nom: Designation de la piece (ex. ``"Rayon compartiment 1"``).
+        longueur: Longueur de la piece en mm.
+        largeur: Largeur de la piece en mm.
+        epaisseur: Epaisseur de la piece en mm.
+        materiau: Type de materiau (ex. ``"Agglomere melamine"``).
+        couleur_fab: Couleur / finition du fabricant.
+        chant_desc: Description du chant applique (ex. ``"Avant 1mm"``).
+        quantite: Nombre d'exemplaires identiques.
+        notes: Notes complementaires pour la fabrication.
+        reference: Reference catalogue ou interne de la piece.
+        sens_fil: ``True`` si le sens du fil est dans le sens de la longueur.
+    """
 
     def __init__(self, nom: str, longueur: float, largeur: float, epaisseur: float,
                  materiau: str = "Agglomere melamine", couleur_fab: str = "",
                  chant_desc: str = "", quantite: int = 1, notes: str = "",
                  reference: str = "", sens_fil: bool = True):
+        """Initialise une piece avec ses dimensions et proprietes.
+
+        Args:
+            nom: Designation de la piece.
+            longueur: Longueur en mm.
+            largeur: Largeur en mm.
+            epaisseur: Epaisseur en mm.
+            materiau: Type de materiau.
+            couleur_fab: Couleur / finition du fabricant.
+            chant_desc: Description du chant applique.
+            quantite: Nombre d'exemplaires identiques.
+            notes: Notes complementaires.
+            reference: Reference catalogue ou interne.
+            sens_fil: Sens du fil dans le sens de la longueur.
+        """
         self.nom = nom
         self.longueur = longueur
         self.largeur = largeur
@@ -31,21 +65,50 @@ class PieceInfo:
         self.sens_fil = sens_fil
 
     def __repr__(self):
+        """Retourne une representation textuelle de la piece.
+
+        Returns:
+            Chaine au format ``"Nom: LxlxEp mm (xQte) - Notes"``.
+        """
         return (f"{self.nom}: {self.longueur:.0f}x{self.largeur:.0f}x{self.epaisseur:.0f}mm "
                 f"(x{self.quantite}) - {self.notes}")
 
 
 class FicheFabrication:
-    """Liste des pieces et quincaillerie d'un amenagement."""
+    """Liste des pieces et quincaillerie d'un amenagement.
+
+    Accumule les pieces (panneaux, tasseaux) et la quincaillerie
+    (cremailleres, taquets) au fil de la generation de la geometrie,
+    puis permet de produire un recapitulatif texte ou des donnees
+    pour l'export PDF.
+
+    Attributes:
+        pieces: Liste des pieces de type ``PieceInfo``.
+        quincaillerie: Liste de dictionnaires decrivant chaque
+            element de quincaillerie (nom, quantite, description).
+    """
 
     def __init__(self):
+        """Initialise une fiche de fabrication vide."""
         self.pieces: list[PieceInfo] = []
         self.quincaillerie: list[dict] = []
 
     def ajouter_piece(self, piece: PieceInfo):
+        """Ajoute une piece a la fiche de fabrication.
+
+        Args:
+            piece: Instance de ``PieceInfo`` a ajouter.
+        """
         self.pieces.append(piece)
 
     def ajouter_quincaillerie(self, nom: str, quantite: int, description: str = ""):
+        """Ajoute un element de quincaillerie a la fiche.
+
+        Args:
+            nom: Designation de l'element (ex. ``"Cremaillere encastree"``).
+            quantite: Nombre d'exemplaires.
+            description: Description complementaire (ex. longueur).
+        """
         self.quincaillerie.append({
             "nom": nom,
             "quantite": quantite,
@@ -53,7 +116,20 @@ class FicheFabrication:
         })
 
     def generer_texte(self, config: dict) -> str:
-        """Genere la fiche de fabrication en texte formate."""
+        """Genere la fiche de fabrication en texte formate.
+
+        Produit un recapitulatif complet comprenant les dimensions globales,
+        la liste des panneaux avec leurs dimensions et chants, la quincaillerie
+        et un resume par materiau.
+
+        Args:
+            config: Dictionnaire de configuration complet du placard
+                (dimensions globales, panneaux, etc.).
+
+        Returns:
+            Chaine de caracteres multi-lignes formatee pour affichage
+            ou export texte.
+        """
         lines = []
         lines.append("=" * 80)
         lines.append("  FICHE DE FABRICATION - AMENAGEMENT INTERIEUR PLACARD")
@@ -119,7 +195,24 @@ class FicheFabrication:
 # =========================================================================
 
 def calculer_largeurs_compartiments(config: dict) -> list[float]:
-    """Calcule la largeur utile de chaque compartiment en mm."""
+    """Calcule la largeur utile de chaque compartiment en mm.
+
+    Repartit la largeur totale du placard entre les compartiments en
+    tenant compte de l'epaisseur des separations, selon le mode de
+    largeur specifie dans la configuration (``egal``, ``proportions``,
+    ``dimensions`` ou ``mixte``).
+
+    Args:
+        config: Dictionnaire de configuration complet contenant au minimum
+            les cles ``largeur``, ``separations``, ``panneau_separation``,
+            ``mode_largeur``, ``largeurs_compartiments`` et ``compartiments``.
+
+    Returns:
+        Liste des largeurs utiles en mm, une valeur par compartiment.
+
+    Raises:
+        ValueError: Si le mode de largeur est inconnu.
+    """
     largeur_totale = config["largeur"]
     nb_separations = len(config["separations"])
     ep_sep = config["panneau_separation"]["epaisseur"]
@@ -170,7 +263,20 @@ def calculer_largeurs_compartiments(config: dict) -> list[float]:
 
 def calculer_dimensions_rayon(config: dict, compartiment_idx: int,
                                largeur_compartiment: float) -> tuple[float, float]:
-    """Calcule (profondeur_rayon, largeur_rayon) pour un compartiment."""
+    """Calcule les dimensions d'un rayon pour un compartiment donne.
+
+    Deduit les encombrements des cremailleres, panneaux mur, chants
+    et retraits pour obtenir les dimensions nettes du rayon.
+
+    Args:
+        config: Dictionnaire de configuration complet du placard.
+        compartiment_idx: Indice du compartiment (base 0).
+        largeur_compartiment: Largeur utile brute du compartiment en mm
+            (telle que retournee par ``calculer_largeurs_compartiments``).
+
+    Returns:
+        Tuple ``(profondeur_rayon, largeur_rayon)`` en mm.
+    """
     comp = config["compartiments"][compartiment_idx]
     profondeur = config["profondeur"]
     chant_ep = config["panneau_rayon"]["chant_epaisseur"]
@@ -214,9 +320,36 @@ def calculer_dimensions_rayon(config: dict, compartiment_idx: int,
 # =========================================================================
 
 class Rect:
-    """Rectangle 2D pour le dessin en vue de face."""
+    """Rectangle 2D pour le dessin en vue de face.
+
+    Represente un element du placard dans le plan XZ (vue de face) :
+    X correspond a la largeur (gauche vers droite) et Y correspond
+    a la hauteur (sol vers plafond).
+
+    Attributes:
+        x: Position horizontale du coin inferieur gauche en mm.
+        y: Position verticale du coin inferieur gauche en mm.
+        w: Largeur du rectangle en mm.
+        h: Hauteur du rectangle en mm.
+        couleur: Couleur de remplissage au format hexadecimal (ex. ``"#C8B68C"``).
+        label: Libelle descriptif de l'element (ex. ``"Rayon C1 R2"``).
+        type_elem: Type d'element pour le filtrage et le rendu
+            (ex. ``"rayon"``, ``"separation"``, ``"mur"``).
+    """
+
     def __init__(self, x: float, y: float, w: float, h: float,
                  couleur: str = "#C8B68C", label: str = "", type_elem: str = ""):
+        """Initialise un rectangle 2D.
+
+        Args:
+            x: Position horizontale du coin inferieur gauche en mm.
+            y: Position verticale du coin inferieur gauche en mm.
+            w: Largeur du rectangle en mm.
+            h: Hauteur du rectangle en mm.
+            couleur: Couleur de remplissage au format hexadecimal.
+            label: Libelle descriptif de l'element.
+            type_elem: Type d'element (ex. ``"rayon"``, ``"separation"``).
+        """
         self.x = x
         self.y = y
         self.w = w
@@ -226,21 +359,51 @@ class Rect:
         self.type_elem = type_elem
 
     def __repr__(self):
+        """Retourne une representation textuelle du rectangle.
+
+        Returns:
+            Chaine au format ``"Rect(label: x=..., y=..., w=..., h=...)"``.
+        """
         return f"Rect({self.label}: x={self.x:.0f}, y={self.y:.0f}, w={self.w:.0f}, h={self.h:.0f})"
 
 
 def rgb_to_hex(rgb: tuple | list) -> str:
-    """Convertit un tuple RGB (0-1) en couleur hex."""
+    """Convertit un tuple RGB normalise en couleur hexadecimale.
+
+    Args:
+        rgb: Tuple ou liste de 3 flottants entre 0 et 1 representant
+            les composantes rouge, vert et bleu.
+
+    Returns:
+        Chaine hexadecimale au format ``"#rrggbb"``.
+    """
     r, g, b = rgb[:3]
     return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
 
 def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
-    """
-    Genere la liste des rectangles 2D (vue de face, plan XZ) et la fiche de fabrication.
+    """Genere la geometrie 2D (vue de face) et la fiche de fabrication.
 
-    Retourne (rectangles, fiche_fabrication).
-    Vue de face: X = largeur (gauche->droite), Z = hauteur (sol->plafond).
+    Parcourt la configuration complete du placard pour produire la liste
+    des rectangles representant chaque element en vue de face (plan XZ)
+    ainsi que la fiche de fabrication correspondante. Les elements generes
+    incluent les murs, le rayon haut, les separations, les cremailleres,
+    les rayons, les tasseaux et les panneaux mur.
+
+    Convention d'axes pour la vue de face :
+        - X = largeur (gauche vers droite)
+        - Z = hauteur (sol vers plafond)
+
+    Args:
+        config: Dictionnaire de configuration complet du placard, tel que
+            produit par ``schema_vers_config``. Doit contenir toutes les cles
+            de dimensions, topologie, panneaux, cremailleres et tasseaux.
+
+    Returns:
+        Tuple ``(rectangles, fiche_fabrication)`` ou :
+            - ``rectangles`` est une liste d'instances ``Rect`` pour le rendu 2D.
+            - ``fiche_fabrication`` est une instance ``FicheFabrication`` contenant
+              la nomenclature des pieces et de la quincaillerie.
     """
     rects = []
     fiche = FicheFabrication()

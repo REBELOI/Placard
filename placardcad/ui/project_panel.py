@@ -1,6 +1,8 @@
-"""
-Panneau arbre des projets et amenagements.
-Inclut une barre de recherche et la duplication d'amenagements.
+"""Panneau arbre des projets et amenagements.
+
+Inclut une barre de recherche pour filtrer les projets/amenagements,
+la duplication d'amenagements (dans le meme projet ou vers un autre),
+et un menu contextuel pour les operations CRUD.
 """
 
 from PyQt5.QtWidgets import (
@@ -13,7 +15,23 @@ from PyQt5.QtGui import QIcon, QFont
 
 
 class ProjectPanel(QWidget):
-    """Arbre des projets avec leurs amenagements."""
+    """Panneau lateral avec arbre des projets et leurs amenagements.
+
+    Affiche une hierarchie projets > amenagements dans un QTreeWidget,
+    avec barre de recherche, barre d'outils et menu contextuel.
+    Emet des signaux lors de la selection d'elements.
+
+    Attributes:
+        projet_selectionne: Signal emis avec le projet_id quand un projet est selectionne.
+        amenagement_selectionne: Signal emis avec (projet_id, amenagement_id) quand un
+            amenagement est selectionne.
+        pieces_manuelles_selectionnees: Signal emis avec le projet_id quand le noeud
+            pieces manuelles est selectionne.
+        donnees_modifiees: Signal emis quand les donnees de l'arbre changent.
+        db: Instance de la base de donnees.
+        tree: Widget QTreeWidget affichant la hierarchie.
+        search_bar: Barre de recherche pour filtrer l'arbre.
+    """
 
     # Signaux
     projet_selectionne = pyqtSignal(int)          # projet_id
@@ -22,12 +40,19 @@ class ProjectPanel(QWidget):
     donnees_modifiees = pyqtSignal()
 
     def __init__(self, db, parent=None):
+        """Initialise le panneau des projets.
+
+        Args:
+            db: Instance de la base de donnees.
+            parent: Widget parent optionnel.
+        """
         super().__init__(parent)
         self.db = db
         self._init_ui()
         self.rafraichir()
 
     def _init_ui(self):
+        """Initialise l'interface : barre de recherche, barre d'outils et arbre."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -80,7 +105,15 @@ class ProjectPanel(QWidget):
     # =================================================================
 
     def _filtrer(self, texte: str):
-        """Filtre l'arbre projets selon le texte saisi."""
+        """Filtre l'arbre projets selon le texte saisi dans la barre de recherche.
+
+        Masque les projets et amenagements dont le nom ne correspond pas
+        au filtre. Un projet reste visible si lui-meme ou l'un de ses
+        enfants correspond.
+
+        Args:
+            texte: Texte de recherche saisi par l'utilisateur.
+        """
         filtre = texte.strip().lower()
 
         for i in range(self.tree.topLevelItemCount()):
@@ -116,7 +149,11 @@ class ProjectPanel(QWidget):
     # =================================================================
 
     def rafraichir(self):
-        """Recharge l'arbre depuis la base de donnees."""
+        """Recharge l'arbre complet depuis la base de donnees.
+
+        Vide l'arbre et reconstruit tous les noeuds projets, amenagements
+        et pieces manuelles. Re-applique le filtre de recherche actif.
+        """
         self.tree.clear()
         projets = self.db.lister_projets()
 
@@ -155,6 +192,11 @@ class ProjectPanel(QWidget):
             self._filtrer(filtre)
 
     def _on_selection_changed(self):
+        """Slot appele quand la selection dans l'arbre change.
+
+        Active ou desactive les boutons de la barre d'outils selon le type
+        d'element selectionne et emet le signal correspondant.
+        """
         items = self.tree.selectedItems()
         if not items:
             self.action_nouvel_amenagement.setEnabled(False)
@@ -176,6 +218,14 @@ class ProjectPanel(QWidget):
             self.pieces_manuelles_selectionnees.emit(data[1])
 
     def _on_double_click(self, item, column):
+        """Slot appele lors d'un double-clic sur un element de l'arbre.
+
+        Ouvre le dialogue de renommage pour les projets et amenagements.
+
+        Args:
+            item: Element clique dans l'arbre.
+            column: Indice de la colonne cliquee.
+        """
         data = item.data(0, Qt.UserRole)
         if data[0] == "projet":
             self._renommer_projet(data[1])
@@ -184,7 +234,14 @@ class ProjectPanel(QWidget):
         # pas d'action double-clic pour pieces_manuelles
 
     def _get_projet_id_selectionne(self) -> int | None:
-        """Retourne l'id du projet selectionne (ou parent du amenagement selectionne)."""
+        """Retourne l'identifiant du projet actuellement selectionne.
+
+        Si un amenagement ou un noeud pieces manuelles est selectionne,
+        retourne l'identifiant du projet parent.
+
+        Returns:
+            Identifiant du projet selectionne, ou None si rien n'est selectionne.
+        """
         items = self.tree.selectedItems()
         if not items:
             return None
@@ -202,6 +259,7 @@ class ProjectPanel(QWidget):
     # =================================================================
 
     def _nouveau_projet(self):
+        """Cree un nouveau projet via un dialogue de saisie du nom."""
         nom, ok = QInputDialog.getText(self, "Nouveau projet", "Nom du projet:")
         if ok and nom:
             self.db.creer_projet(nom=nom)

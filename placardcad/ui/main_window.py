@@ -1,5 +1,8 @@
-"""
-Fenetre principale de PlacardCAD.
+"""Fenetre principale de PlacardCAD.
+
+Contient la classe MainWindow qui orchestre l'ensemble de l'interface :
+arbre des projets, editeurs de schema et parametres, vue 2D de face,
+et toutes les actions d'export (PDF, DXF, FreeCAD, etiquettes, liste de courses).
 """
 
 import json
@@ -35,9 +38,31 @@ from ..liste_courses import generer_liste_courses, exporter_liste_courses
 
 
 class MainWindow(QMainWindow):
-    """Fenetre principale de l'application PlacardCAD."""
+    """Fenetre principale de l'application PlacardCAD.
+
+    Organise l'interface en trois panneaux horizontaux :
+    arbre projets (gauche), editeurs schema/parametres (centre),
+    vue de face 2D (droite). Gere la sauvegarde automatique,
+    la generation de la vue et les exports.
+
+    Attributes:
+        db: Instance de la base de donnees SQLite.
+        splitter_main: Splitter horizontal principal.
+        project_panel: Panneau arbre des projets et amenagements.
+        schema_editor: Editeur du schema compact.
+        params_editor: Editeur des parametres generaux.
+        pieces_editor: Editeur tableur des pieces manuelles.
+        viewer: Widget de visualisation 2D de face.
+        stacked_centre: Widget empile pour alterner editeurs / pieces manuelles.
+    """
 
     def __init__(self, db: Database, parent=None):
+        """Initialise la fenetre principale.
+
+        Args:
+            db: Instance de la base de donnees a utiliser.
+            parent: Widget parent optionnel.
+        """
         super().__init__(parent)
         self.db = db
         self._current_projet_id = None
@@ -60,6 +85,12 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
 
     def _init_ui(self):
+        """Initialise l'interface utilisateur.
+
+        Cree le splitter principal avec trois panneaux :
+        arbre projets, editeurs (schema/parametres/pieces manuelles)
+        et viewer 2D.
+        """
         # Splitter principal : gauche (arbre) | centre (editeurs) | droite (viewer)
         self.splitter_main = QSplitter(Qt.Horizontal)
         self.setCentralWidget(self.splitter_main)
@@ -122,6 +153,11 @@ class MainWindow(QMainWindow):
         self.splitter_main.setStretchFactor(2, 3)  # viewer
 
     def _init_toolbar(self):
+        """Initialise la barre d'outils avec les actions principales.
+
+        Ajoute les boutons pour la creation de projets/amenagements,
+        l'actualisation de la vue, les exports et l'optimisation de debit.
+        """
         toolbar = QToolBar("Actions")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
@@ -193,6 +229,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.action_optim_debit)
 
     def _init_statusbar(self):
+        """Initialise la barre de statut en bas de la fenetre."""
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("Pret. Creez ou selectionnez un projet pour commencer.")
@@ -202,6 +239,11 @@ class MainWindow(QMainWindow):
     # =====================================================================
 
     def _on_projet_selectionne(self, projet_id: int):
+        """Slot appele lorsqu'un projet est selectionne dans l'arbre.
+
+        Args:
+            projet_id: Identifiant du projet selectionne.
+        """
         self._current_projet_id = projet_id
         self._current_amenagement_id = None
         projet = self.db.get_projet(projet_id)
@@ -209,6 +251,15 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage(f"Projet: {projet['nom']}")
 
     def _on_amenagement_selectionne(self, projet_id: int, amenagement_id: int):
+        """Slot appele lorsqu'un amenagement est selectionne dans l'arbre.
+
+        Bascule le panneau central sur les editeurs schema/parametres
+        et charge l'amenagement.
+
+        Args:
+            projet_id: Identifiant du projet parent.
+            amenagement_id: Identifiant de l'amenagement selectionne.
+        """
         self._current_projet_id = projet_id
         self._current_amenagement_id = amenagement_id
         # Basculer sur les editeurs schema/params
@@ -216,7 +267,14 @@ class MainWindow(QMainWindow):
         self._charger_amenagement(amenagement_id)
 
     def _on_pieces_manuelles_selectionnees(self, projet_id: int):
-        """Affiche l'editeur de pieces manuelles dans le panneau central."""
+        """Affiche l'editeur de pieces manuelles dans le panneau central.
+
+        Bascule le stacked widget sur la page de l'editeur tableur
+        de pieces manuelles.
+
+        Args:
+            projet_id: Identifiant du projet dont on edite les pieces.
+        """
         self._current_projet_id = projet_id
         self._current_amenagement_id = None
         # Basculer sur l'editeur de pieces manuelles
@@ -227,11 +285,21 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage(f"Pieces manuelles — {nom}")
 
     def _on_pieces_manuelles_modifiees(self):
-        """Rafraichit l'arbre quand les pieces manuelles changent."""
+        """Rafraichit l'arbre des projets quand les pieces manuelles changent.
+
+        Slot connecte au signal donnees_modifiees du PiecesManualesEditor.
+        """
         self.project_panel.rafraichir()
 
     def _charger_amenagement(self, amenagement_id: int):
-        """Charge un amenagement dans les editeurs."""
+        """Charge un amenagement dans les editeurs schema et parametres.
+
+        Recupere les donnees depuis la base, met a jour l'editeur de schema
+        et l'editeur de parametres, puis regenere la vue.
+
+        Args:
+            amenagement_id: Identifiant de l'amenagement a charger.
+        """
         am = self.db.get_amenagement(amenagement_id)
         if not am:
             return
@@ -252,17 +320,34 @@ class MainWindow(QMainWindow):
         self._regenerer_vue()
 
     def _on_schema_modifie(self, schema_text: str):
-        """Appele quand le schema est modifie."""
+        """Slot appele quand le schema compact est modifie.
+
+        Demarre le timer de sauvegarde automatique et regenere la vue.
+
+        Args:
+            schema_text: Nouveau texte du schema compact.
+        """
         self._auto_save_timer.start()
         self._regenerer_vue()
 
     def _on_params_modifies(self, params: dict):
-        """Appele quand les parametres sont modifies."""
+        """Slot appele quand les parametres generaux sont modifies.
+
+        Demarre le timer de sauvegarde automatique et regenere la vue.
+
+        Args:
+            params: Dictionnaire des parametres mis a jour.
+        """
         self._auto_save_timer.start()
         self._regenerer_vue()
 
     def _sauvegarder_amenagement(self):
-        """Sauvegarde l'amenagement courant en base."""
+        """Sauvegarde l'amenagement courant en base de donnees.
+
+        Recupere le schema et les parametres depuis les editeurs
+        et met a jour l'enregistrement en base. Ne fait rien si
+        aucun amenagement n'est selectionne.
+        """
         if self._current_amenagement_id is None:
             return
 
@@ -282,7 +367,12 @@ class MainWindow(QMainWindow):
     # =====================================================================
 
     def _regenerer_vue(self):
-        """Regenere la vue de face depuis le schema et les parametres courants."""
+        """Regenere la vue de face depuis le schema et les parametres courants.
+
+        Parse le schema compact, genere la geometrie 2D et met a jour
+        le viewer. Affiche un message d'erreur dans la barre de statut
+        en cas de schema invalide.
+        """
         schema_text = self.schema_editor.get_schema()
         if not schema_text.strip():
             self.viewer.clear()
@@ -312,7 +402,15 @@ class MainWindow(QMainWindow):
     # =====================================================================
 
     def _collecter_pieces_projet(self) -> list:
-        """Collecte les pieces de tous les amenagements + pieces manuelles du projet."""
+        """Collecte les pieces de tous les amenagements et pieces manuelles du projet.
+
+        Parcourt tous les amenagements du projet courant, genere leurs fiches
+        de debit, puis ajoute les pieces manuelles.
+
+        Returns:
+            Liste de PieceDebit pour l'ensemble du projet. Liste vide si
+            aucun projet n'est selectionne.
+        """
         if not self._current_projet_id:
             return []
 
@@ -349,7 +447,14 @@ class MainWindow(QMainWindow):
         return all_pieces
 
     def _collecter_pieces_manuelles(self, projet_id: int) -> list[PieceDebit]:
-        """Convertit les pieces manuelles du projet en PieceDebit."""
+        """Convertit les pieces manuelles du projet en objets PieceDebit.
+
+        Args:
+            projet_id: Identifiant du projet.
+
+        Returns:
+            Liste de PieceDebit correspondant aux pieces manuelles du projet.
+        """
         pieces_m = self.db.lister_pieces_manuelles(projet_id)
         result = []
         for pm in pieces_m:
@@ -367,7 +472,15 @@ class MainWindow(QMainWindow):
         return result
 
     def _get_params_debit(self) -> ParametresDebit:
-        """Construit les parametres de debit depuis l'onglet Debit de l'editeur."""
+        """Construit les parametres de debit depuis l'onglet Debit de l'editeur.
+
+        Lit les valeurs de l'onglet Debit dans l'editeur de parametres
+        et retourne un objet ParametresDebit avec des valeurs par defaut
+        si certaines cles sont absentes.
+
+        Returns:
+            Objet ParametresDebit configure selon les parametres courants.
+        """
         params = self.params_editor.get_params()
         debit = params.get("debit", {})
         return ParametresDebit(
@@ -380,7 +493,12 @@ class MainWindow(QMainWindow):
         )
 
     def _apercu_pdf(self):
-        """Genere un PDF temporaire et l'ouvre dans le lecteur PDF du systeme."""
+        """Genere un PDF temporaire et l'ouvre dans le lecteur PDF du systeme.
+
+        Cree un fichier temporaire PDF avec la vue de face, la fiche de debit
+        et les informations du projet, puis l'ouvre avec le lecteur par defaut
+        du systeme (xdg-open, open ou startfile selon la plateforme).
+        """
         if not self._rects:
             QMessageBox.warning(self, "Apercu PDF",
                                 "Aucun amenagement a afficher. Editez un schema d'abord.")
@@ -425,7 +543,12 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur apercu PDF", str(e))
 
     def _exporter_pdf(self):
-        """Exporte le placard en PDF avec debit mixte du projet."""
+        """Exporte le placard courant en PDF avec debit mixte du projet.
+
+        Demande a l'utilisateur un chemin de fichier via un dialogue de
+        sauvegarde, puis genere le PDF contenant la vue de face, la fiche
+        de debit et le plan de decoupe.
+        """
         if not self._rects:
             QMessageBox.warning(self, "Export PDF",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
@@ -465,7 +588,13 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export PDF", str(e))
 
     def _exporter_pdf_projet(self):
-        """Exporte tout le projet en PDF (une page par amenagement)."""
+        """Exporte tout le projet en PDF multi-pages.
+
+        Genere un PDF avec une page par amenagement valide du projet,
+        incluant les fiches de debit et les pieces manuelles.
+        Affiche un avertissement si des amenagements sont ignores en
+        raison d'erreurs de schema.
+        """
         if not self._current_projet_id:
             QMessageBox.warning(self, "Export PDF projet",
                                 "Aucun projet selectionne.")
@@ -532,7 +661,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export PDF projet", str(e))
 
     def _exporter_fiche_texte(self):
-        """Exporte la fiche de fabrication en texte."""
+        """Exporte la fiche de fabrication en fichier texte brut.
+
+        Genere un fichier texte contenant la nomenclature des pieces,
+        les dimensions et les quantites de l'amenagement courant.
+        """
         if not self._fiche:
             QMessageBox.warning(self, "Export fiche",
                                 "Aucun amenagement a exporter.")
@@ -560,7 +693,12 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export", str(e))
 
     def _exporter_freecad(self):
-        """Exporte le placard en fichier FreeCAD natif (.FCStd)."""
+        """Exporte le placard en fichier FreeCAD natif (.FCStd).
+
+        Genere un fichier FreeCAD 3D a partir de la configuration courante
+        du schema et des parametres. Le fichier peut etre ouvert dans
+        FreeCAD pour visualisation et modification.
+        """
         if not self._rects:
             QMessageBox.warning(self, "Export FreeCAD",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
@@ -590,7 +728,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
 
     def _exporter_etiquettes(self):
-        """Exporte les etiquettes de pieces en PDF A4."""
+        """Exporte les etiquettes de pieces en PDF format A4.
+
+        Genere un PDF avec une etiquette par piece de la fiche de
+        fabrication, incluant les dimensions et la reference de chaque piece.
+        """
         if not self._fiche:
             QMessageBox.warning(self, "Etiquettes",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
@@ -623,7 +765,12 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur etiquettes", str(e))
 
     def _exporter_liste_courses(self):
-        """Exporte la liste de courses du projet en PDF."""
+        """Exporte la liste de courses du projet en PDF.
+
+        Analyse tous les amenagements du projet pour generer une liste
+        consolidee des materiaux a acheter : panneaux bruts, cremailleres,
+        taquets et tasseaux.
+        """
         if not self._current_projet_id:
             QMessageBox.warning(self, "Liste de courses",
                                 "Aucun projet selectionne.")
@@ -700,7 +847,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur liste de courses", str(e))
 
     def _exporter_dxf(self):
-        """Exporte le placard en fichier DXF (plan 2D)."""
+        """Exporte le placard en fichier DXF pour plan 2D.
+
+        Genere un fichier DXF compatible avec AutoCAD, LibreCAD et
+        FreeCAD a partir de la geometrie et de la fiche de l'amenagement courant.
+        """
         if not self._rects:
             QMessageBox.warning(self, "Export DXF",
                                 "Aucun amenagement a exporter. Editez un schema d'abord.")
@@ -728,12 +879,24 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export DXF", str(e))
 
     def _ouvrir_debit_dialog(self):
-        """Ouvre le dialogue d'optimisation de debit multi-projets."""
+        """Ouvre le dialogue modal d'optimisation de debit multi-projets.
+
+        Cree et affiche un DebitDialog permettant de selectionner des
+        amenagements a travers plusieurs projets et de lancer l'optimisation
+        de decoupe.
+        """
         dialog = DebitDialog(self.db, parent=self)
         dialog.exec_()
 
     def closeEvent(self, event):
-        """Sauvegarde avant fermeture."""
+        """Sauvegarde les donnees avant fermeture de la fenetre.
+
+        Sauvegarde l'amenagement courant et les pieces manuelles,
+        puis ferme la connexion a la base de donnees.
+
+        Args:
+            event: Evenement de fermeture Qt.
+        """
         self._sauvegarder_amenagement()
         self.pieces_editor.sauvegarder_maintenant()
         self.db.close()

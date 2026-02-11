@@ -1,5 +1,4 @@
-"""
-Optimisation de debit de panneaux — wrapper PlacardCAD.
+"""Optimisation de debit de panneaux -- wrapper PlacardCAD.
 
 Ce module re-exporte le moteur standalone ``guillotine_packing``
 et ajoute la fonction ``pieces_depuis_fiche`` qui fait le pont
@@ -7,6 +6,16 @@ entre la FicheFabrication de PlacardCAD et les PieceDebit du moteur.
 
 Pour utiliser le moteur d'optimisation dans un autre projet,
 importez directement ``guillotine_packing`` (aucune dependance).
+
+Re-exports:
+    PANNEAU_STD_LONGUEUR: Longueur standard d'un panneau brut en mm.
+    PANNEAU_STD_LARGEUR: Largeur standard d'un panneau brut en mm.
+    ParametresDebit: Dataclass des parametres de debit.
+    PieceDebit: Dataclass representant une piece a debiter.
+    ZoneLibre: Dataclass representant une zone libre dans un panneau.
+    Placement: Dataclass representant le placement d'une piece.
+    PlanDecoupe: Dataclass representant un plan de decoupe complet.
+    optimiser_debit: Fonction principale d'optimisation de debit.
 """
 
 # Re-export complet du moteur standalone

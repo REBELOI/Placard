@@ -1,16 +1,15 @@
-"""
-Export PDF d'etiquettes de pieces pour PlacardCAD.
+"""Export PDF d'etiquettes de pieces pour PlacardCAD.
 
-Genere des planches A4 d'etiquettes a coller sur chaque piece debitee.
-Format standard : 7 lignes x 2 colonnes = 14 etiquettes par page (70x37mm).
+Genere des planches A4 portrait d'etiquettes a coller sur chaque piece debitee.
+Format standard: 7 lignes x 2 colonnes = 14 etiquettes par page (95x37mm).
 
 Chaque etiquette contient:
-- Reference (P{projet}/A{amenagement}/N{numero})
-- Nom de la piece
-- Dimensions L x l x ep
-- Couleur / finition
-- Chants a plaquer
-- Sens du fil (fleche)
+    - Reference (P{projet}/A{amenagement}/N{numero}).
+    - Nom de la piece.
+    - Dimensions L x l x ep.
+    - Couleur / finition.
+    - Chants a plaquer.
+    - Sens du fil (fleche directionnelle).
 """
 
 from reportlab.lib.pagesizes import A4
@@ -32,7 +31,20 @@ MARGE_HAUT = 15 * mm
 
 def _dessiner_etiquette(c: canvas.Canvas, x: float, y: float,
                         piece: PieceInfo, index: int):
-    """Dessine une etiquette a la position (x, y) = coin bas-gauche."""
+    """Dessine une etiquette individuelle a la position donnee sur le canvas.
+
+    L'etiquette comporte un cadre pointille et affiche la reference, le nom,
+    les dimensions, la couleur, les chants, le sens du fil (fleche) et la
+    quantite si superieure a 1.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        x: Position X du coin bas-gauche de l'etiquette en points PDF.
+        y: Position Y du coin bas-gauche de l'etiquette en points PDF.
+        piece: Informations sur la piece (reference, nom, dimensions, etc.).
+        index: Numero d'ordre de l'etiquette, utilise comme reference par
+            defaut si la piece n'a pas de reference attribuee.
+    """
     w = ETIQ_W
     h = ETIQ_H
     pad = 3 * mm
@@ -99,9 +111,19 @@ def _dessiner_etiquette(c: canvas.Canvas, x: float, y: float,
 def exporter_etiquettes(filepath: str, fiche: FicheFabrication,
                         projet_id: int = 0, amenagement_id: int = 0,
                         projet_info: dict | None = None):
-    """Exporte les etiquettes en PDF A4 portrait.
+    """Exporte les etiquettes d'un amenagement en PDF A4 portrait.
 
-    Chaque piece genere autant d'etiquettes que sa quantite.
+    Chaque piece genere autant d'etiquettes que sa quantite. Les etiquettes
+    sont disposees en grille de 2 colonnes x 7 lignes (14 par page) et la
+    pagination est geree automatiquement.
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        fiche: Fiche de fabrication contenant les pieces a etiqueter.
+        projet_id: Identifiant du projet pour les references.
+        amenagement_id: Identifiant de l'amenagement pour les references.
+        projet_info: Dictionnaire avec les informations du projet (nom, client)
+            ou None. Affiche dans l'en-tete de chaque page.
     """
     page_w, page_h = A4  # portrait
 
@@ -154,7 +176,21 @@ def exporter_etiquettes(filepath: str, fiche: FicheFabrication,
 def exporter_etiquettes_projet(filepath: str, amenagements_data: list,
                                projet_info: dict | None = None,
                                projet_id: int = 0):
-    """Exporte les etiquettes de tout un projet (multi-amenagements)."""
+    """Exporte les etiquettes de tout un projet en PDF A4 portrait.
+
+    Regroupe les pieces de tous les amenagements du projet en une seule
+    serie d'etiquettes paginee. Chaque piece genere autant d'etiquettes
+    que sa quantite.
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        amenagements_data: Liste de dictionnaires, chacun avec les cles:
+            - fiche: FicheFabrication - fiche de fabrication de l'amenagement.
+            - amenagement_id: int - identifiant de l'amenagement.
+        projet_info: Dictionnaire avec les informations du projet (nom, client)
+            ou None. Affiche dans l'en-tete de chaque page.
+        projet_id: Identifiant du projet pour les references.
+    """
     page_w, page_h = A4
 
     c = canvas.Canvas(filepath, pagesize=A4)

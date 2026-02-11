@@ -1,14 +1,17 @@
-"""
-Export PDF pour REB & ELOI.
+"""Export PDF pour REB & ELOI.
 
-- exporter_pdf : une seule page paysage A4 pour un amenagement
-- exporter_pdf_projet : une page par amenagement pour tout le projet
+Ce module genere les exports PDF des amenagements de placards.
 
-Chaque page contient:
-- A gauche : Vue de face filaire avec cotations
-- A droite : Fiche de debit + quincaillerie + chants + resume materiaux
-- Cartouche en haut
-- References panneaux pour etiquettes (format P{projet}/A{amenagement}/N{piece})
+Fonctions principales:
+    - exporter_pdf: une seule page paysage A4 pour un amenagement.
+    - exporter_pdf_projet: une page par amenagement pour tout le projet.
+    - exporter_pdf_debit: export standalone des plans de debit optimises.
+
+Chaque page d'amenagement contient:
+    - A gauche: vue de face filaire avec cotations.
+    - A droite: fiche de debit + quincaillerie + chants + resume materiaux.
+    - Cartouche en haut avec informations projet.
+    - References panneaux pour etiquettes (format P{projet}/A{amenagement}/N{piece}).
 """
 
 import re
@@ -48,7 +51,16 @@ COULEURS_TYPE = {
 
 def _attribuer_references(fiche: FicheFabrication, projet_id: int = 0,
                           amenagement_id: int = 0):
-    """Attribue une reference unique a chaque piece : P{projet}/A{amenag}/N{numero}."""
+    """Attribue une reference unique a chaque piece de la fiche de fabrication.
+
+    Le format de reference est P{projet}/A{amenagement}/N{numero}, ou le numero
+    est incremente sequentiellement a partir de 1.
+
+    Args:
+        fiche: Fiche de fabrication contenant les pieces a referencer.
+        projet_id: Identifiant du projet (0 par defaut).
+        amenagement_id: Identifiant de l'amenagement (0 par defaut).
+    """
     p_id = projet_id or 0
     a_id = amenagement_id or 0
     for i, piece in enumerate(fiche.pieces, 1):
@@ -56,9 +68,19 @@ def _attribuer_references(fiche: FicheFabrication, projet_id: int = 0,
 
 
 def _calculer_chants(fiche: FicheFabrication) -> dict:
-    """Calcule le metrage lineaire de chant par (couleur, epaisseur).
+    """Calcule le metrage lineaire de chant par couleur et epaisseur.
 
-    Retourne {(couleur, ep_chant_mm): longueur_totale_mm}.
+    Parcourt toutes les pieces de la fiche et extrait l'epaisseur du chant
+    depuis la description textuelle. Agrege les longueurs par combinaison
+    (couleur, epaisseur).
+
+    Args:
+        fiche: Fiche de fabrication contenant les pieces avec descriptions de chants.
+
+    Returns:
+        Dictionnaire {(couleur, ep_chant_mm): longueur_totale_mm} ou chaque cle
+        est un tuple (nom de couleur, epaisseur en mm) et la valeur est le
+        metrage total en mm.
     """
     chants: dict[tuple, float] = {}
     for p in fiche.pieces:
@@ -83,7 +105,23 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
                        largeur_placard: float, hauteur_placard: float,
                        x_orig: float, y_orig: float,
                        draw_w: float, draw_h: float):
-    """Dessine la vue de face du placard sur le canvas a la position donnee."""
+    """Dessine la vue de face du placard sur le canvas PDF a la position donnee.
+
+    Trace tous les elements du placard (murs, separations, rayons, cremailleres,
+    tasseaux) avec des couleurs distinctes par type, puis ajoute les cotations
+    globales (largeur, hauteur), les cotations par compartiment et les cotations
+    des hauteurs entre rayons.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        rects: Liste des rectangles 2D representant les elements du placard.
+        largeur_placard: Largeur totale du placard en mm.
+        hauteur_placard: Hauteur totale du placard en mm.
+        x_orig: Position X du coin bas-gauche de la zone de dessin en points PDF.
+        y_orig: Position Y du coin bas-gauche de la zone de dessin en points PDF.
+        draw_w: Largeur disponible pour le dessin en points PDF.
+        draw_h: Hauteur disponible pour le dessin en points PDF.
+    """
     if not rects or largeur_placard <= 0 or hauteur_placard <= 0:
         c.setFont("Helvetica", 10)
         c.setFillColor(colors.grey)
@@ -357,7 +395,27 @@ def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
                       y_start: float, row_h: float, font_size: float,
                       cols: list[tuple[str, int]],
                       rows_data: list[list[str]]) -> float:
-    """Dessine un tableau avec en-tete et lignes. Retourne y apres le tableau."""
+    """Dessine un tableau generique avec en-tete et lignes de donnees.
+
+    Le tableau comporte un en-tete sur fond sombre avec texte blanc,
+    des lignes alternees (fond gris clair une ligne sur deux), et une
+    grille de separation.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        tab_x: Position X du bord gauche du tableau en points PDF.
+        tab_w: Largeur totale du tableau en points PDF.
+        y_start: Position Y du haut du tableau en points PDF.
+        row_h: Hauteur de chaque ligne en points PDF.
+        font_size: Taille de police en points.
+        cols: Liste de tuples (nom_colonne, largeur_colonne) definissant
+            les colonnes du tableau.
+        rows_data: Liste de lignes, chaque ligne etant une liste de chaines
+            correspondant aux valeurs des colonnes.
+
+    Returns:
+        Position Y apres la derniere ligne du tableau en points PDF.
+    """
     y = y_start
 
     # En-tete
@@ -409,7 +467,23 @@ def _dessiner_tableau(c: canvas.Canvas, tab_x: float, tab_w: float,
 
 def _calculer_tailles(nb_pieces: int, nb_quinc: int, nb_materiaux: int,
                       nb_chants: int, hauteur_dispo: float) -> tuple[float, float]:
-    """Calcule row_h et font_size pour faire tenir tout le contenu."""
+    """Calcule la hauteur de ligne et la taille de police adaptatives.
+
+    Ajuste dynamiquement les dimensions pour faire tenir l'ensemble du
+    contenu (fiche de debit, quincaillerie, materiaux, chants) dans
+    la hauteur disponible sur la page.
+
+    Args:
+        nb_pieces: Nombre de pieces dans la fiche de debit.
+        nb_quinc: Nombre de lignes de quincaillerie.
+        nb_materiaux: Nombre de types de materiaux distincts.
+        nb_chants: Nombre de types de chants distincts.
+        hauteur_dispo: Hauteur disponible en points PDF pour le contenu.
+
+    Returns:
+        Tuple (row_h, font_size) ou row_h est la hauteur de ligne en points
+        (entre 6 et 11) et font_size la taille de police (entre 4.5 et 6.5).
+    """
     espace_fixe = (
         12      # titre fiche
         + 4     # gap apres pieces
@@ -449,7 +523,26 @@ def _dessiner_page(c: canvas.Canvas, rects: list[PlacardRect], config: dict,
                    fiche: FicheFabrication, projet_info: dict | None,
                    amenagement_nom: str | None,
                    projet_id: int, amenagement_id: int):
-    """Dessine une page complete (cartouche + vue de face + fiche de debit)."""
+    """Dessine une page complete d'amenagement en paysage A4.
+
+    La page comprend un cartouche en haut avec les informations du projet,
+    la vue de face filaire avec cotations dans la moitie gauche, et la
+    fiche de debit avec quincaillerie, chants et resume materiaux dans
+    la moitie droite.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        rects: Liste des rectangles 2D representant les elements du placard.
+        config: Dictionnaire de configuration du placard (hauteur, largeur,
+            profondeur, etc.).
+        fiche: Fiche de fabrication contenant pieces et quincaillerie.
+        projet_info: Dictionnaire avec les informations du projet (nom, client,
+            adresse) ou None.
+        amenagement_nom: Nom de l'amenagement a afficher dans le cartouche,
+            ou None.
+        projet_id: Identifiant du projet pour les references.
+        amenagement_id: Identifiant de l'amenagement pour les references.
+    """
     page_w, page_h = landscape(A4)
     marge = 10 * mm
 
@@ -649,7 +742,22 @@ def _dessiner_page_debit(c: canvas.Canvas, plan: PlanDecoupe,
                          numero: int, total: int,
                          projet_info: dict | None,
                          amenagement_nom: str | None):
-    """Dessine une page de plan de debit pour un panneau."""
+    """Dessine une page de plan de debit pour un panneau brut.
+
+    Represente graphiquement le panneau avec les pieces placees, chacune
+    identifiee par sa reference et ses dimensions. Inclut un cartouche,
+    un resume (nombre de pieces, pourcentage de chute, surfaces) et une
+    legende associant references et noms de pieces.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        plan: Plan de decoupe contenant le panneau et ses placements.
+        params: Parametres de debit (dimensions panneau brut, trait de scie, etc.).
+        numero: Numero du panneau dans la sequence (1-indexed).
+        total: Nombre total de panneaux dans la sequence.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        amenagement_nom: Nom de l'amenagement a afficher ou None.
+    """
     page_w, page_h = landscape(A4)
     marge = 10 * mm
 
@@ -798,7 +906,22 @@ def _generer_et_dessiner_debit(c: canvas.Canvas, fiche: FicheFabrication,
                                 amenagement_nom: str | None,
                                 projet_id: int, amenagement_id: int,
                                 params_debit: ParametresDebit | None = None):
-    """Genere les plans de debit et dessine les pages correspondantes."""
+    """Genere les plans de debit optimises et dessine les pages correspondantes.
+
+    Convertit la fiche de fabrication en pieces de debit, lance l'optimisation
+    de placement, puis dessine une page par panneau. Si des pieces sont trop
+    grandes pour le gabarit, une page d'alerte supplementaire est ajoutee.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        fiche: Fiche de fabrication contenant les pieces a debiter.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        amenagement_nom: Nom de l'amenagement a afficher ou None.
+        projet_id: Identifiant du projet pour les references.
+        amenagement_id: Identifiant de l'amenagement pour les references.
+        params_debit: Parametres de debit (dimensions panneau, trait de scie, etc.).
+            Si None, les parametres par defaut sont utilises.
+    """
     if params_debit is None:
         params_debit = ParametresDebit()
 
@@ -840,7 +963,17 @@ def _generer_et_dessiner_debit(c: canvas.Canvas, fiche: FicheFabrication,
 
 def _dessiner_page_pieces_manuelles(c: canvas.Canvas, pieces_manuelles: list,
                                      projet_info: dict | None):
-    """Dessine une page fiche de debit dediee aux pieces manuelles (complementaires)."""
+    """Dessine une page fiche de debit dediee aux pieces manuelles complementaires.
+
+    Genere un tableau avec references, designations, dimensions, couleurs et
+    quantites, suivi d'un resume de surface totale et d'un resume materiaux.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        pieces_manuelles: Liste de PieceDebit representant les pieces
+            complementaires ajoutees manuellement.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+    """
     page_w, page_h = landscape(A4)
     marge = 10 * mm
 
@@ -949,7 +1082,18 @@ def _dessiner_page_pieces_manuelles(c: canvas.Canvas, pieces_manuelles: list,
 def _dessiner_debit_mixte(c: canvas.Canvas, all_pieces: list,
                           params_debit: ParametresDebit,
                           projet_info: dict | None):
-    """Dessine les pages de debit pour un ensemble de pieces mixtes."""
+    """Dessine les pages de debit pour un ensemble de pieces mixtes (multi-amenagements).
+
+    Optimise le placement de toutes les pieces confondues sur des panneaux bruts,
+    puis dessine une page par panneau. Ajoute une page d'alerte si des pieces
+    sont hors gabarit.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        all_pieces: Liste de toutes les PieceDebit a placer.
+        params_debit: Parametres de debit (dimensions panneau, trait de scie, etc.).
+        projet_info: Dictionnaire avec les informations du projet ou None.
+    """
     if not all_pieces:
         return
 
@@ -988,10 +1132,17 @@ def _dessiner_debit_mixte(c: canvas.Canvas, all_pieces: list,
 def _dessiner_pages_liste_pieces(c: canvas.Canvas, all_pieces: list,
                                   projet_info: dict | None,
                                   titre: str = "Optimisation de debit"):
-    """Dessine une ou plusieurs pages avec la liste des pieces a decouper.
+    """Dessine une ou plusieurs pages avec la liste complete des pieces a decouper.
 
-    Gere la pagination si le nombre de pieces depasse la capacite d'une page.
-    Les pieces sont triees par (couleur, epaisseur, nom).
+    Gere la pagination automatiquement si le nombre de pieces depasse la
+    capacite d'une page. Les pieces sont triees par (couleur, epaisseur, nom).
+    La derniere page inclut un resume de surface totale et un resume materiaux.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        all_pieces: Liste de toutes les PieceDebit a lister.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        titre: Titre affiche dans le cartouche de chaque page.
     """
     page_w, page_h = landscape(A4)
     marge = 10 * mm
@@ -1116,7 +1267,25 @@ def exporter_pdf_debit(filepath: str, all_pieces: list,
                        params_debit: ParametresDebit,
                        projet_info: dict | None = None,
                        titre: str = "Optimisation de debit") -> str:
-    """Exporte un PDF avec liste des pieces + plans de debit + resume."""
+    """Exporte un PDF standalone contenant la liste des pieces, les plans de debit et un resume.
+
+    Le document PDF genere contient dans l'ordre:
+    1. Pages de liste des pieces a decouper (paginee si necessaire).
+    2. Pages de plans de debit (une par panneau brut).
+    3. Page d'alerte pour les pieces hors gabarit (si applicable).
+    4. Page de resume de l'optimisation (panneaux par materiau, chutes).
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        all_pieces: Liste de toutes les PieceDebit a optimiser et lister.
+        params_debit: Parametres de debit (dimensions panneau brut, trait de scie,
+            surcote, delignage).
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        titre: Titre affiche dans les cartouches des pages.
+
+    Returns:
+        Chemin du fichier PDF genere (identique a filepath).
+    """
     plans, hors_gabarit = optimiser_debit(all_pieces, params_debit)
 
     c = canvas.Canvas(filepath, pagesize=landscape(A4))
@@ -1160,7 +1329,20 @@ def exporter_pdf_debit(filepath: str, all_pieces: list,
 def _dessiner_resume_debit(c: canvas.Canvas, plans: list[PlanDecoupe],
                            hors_gabarit: list, params: ParametresDebit,
                            projet_info: dict | None, titre: str):
-    """Page resume de l'optimisation de debit."""
+    """Dessine la page de resume de l'optimisation de debit.
+
+    Regroupe les plans par (epaisseur, couleur) et affiche pour chaque
+    groupe le nombre de panneaux, les surfaces pieces/panneaux et le
+    pourcentage de chute moyen. Liste egalement les pieces hors gabarit.
+
+    Args:
+        c: Canvas ReportLab sur lequel dessiner.
+        plans: Liste des plans de decoupe optimises.
+        hors_gabarit: Liste des PieceDebit qui ne rentrent pas dans un panneau.
+        params: Parametres de debit utilises pour l'optimisation.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        titre: Titre affiche en haut de la page de resume.
+    """
     page_w, page_h = landscape(A4)
     m = 10 * mm
 
@@ -1228,11 +1410,30 @@ def exporter_pdf(filepath: str, rects: list[PlacardRect], config: dict,
                  params_debit: ParametresDebit | None = None,
                  all_pieces_projet: list | None = None,
                  pieces_manuelles: list | None = None):
-    """Exporte un PDF: page amenagement + fiche pieces manuelles + plans de debit.
+    """Exporte un PDF pour un amenagement unique avec plans de debit.
+
+    Le document genere contient la page d'amenagement (vue de face + fiche de
+    debit), suivie optionnellement d'une page pour les pieces manuelles, puis
+    des pages de plans de debit optimises.
 
     Si all_pieces_projet est fourni, le debit est mixte (toutes les pieces
     du projet ensemble). Sinon, seul cet amenagement est optimise.
-    pieces_manuelles: liste optionnelle de PieceDebit complementaires.
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        rects: Liste des rectangles 2D representant les elements du placard.
+        config: Dictionnaire de configuration du placard.
+        fiche: Fiche de fabrication contenant pieces et quincaillerie.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        projet_id: Identifiant du projet pour les references.
+        amenagement_id: Identifiant de l'amenagement pour les references.
+        params_debit: Parametres de debit ou None pour les valeurs par defaut.
+        all_pieces_projet: Liste de toutes les PieceDebit du projet pour un
+            debit mixte, ou None pour optimiser cet amenagement seul.
+        pieces_manuelles: Liste optionnelle de PieceDebit complementaires.
+
+    Returns:
+        Chemin du fichier PDF genere (identique a filepath).
     """
     if params_debit is None:
         params_debit = ParametresDebit()
@@ -1266,19 +1467,29 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
                         projet_id: int = 0,
                         params_debit: ParametresDebit | None = None,
                         pieces_manuelles: list | None = None) -> str:
-    """
-    Exporte un PDF multi-pages avec une page par amenagement + plans de debit mixtes.
+    """Exporte un PDF multi-pages avec une page par amenagement et plans de debit mixtes.
 
     Les pieces de tous les amenagements sont regroupees pour une optimisation
     globale du debit, ce qui reduit les chutes en remplissant mieux les panneaux.
+    Le document contient une page par amenagement, suivie optionnellement d'une
+    page pour les pieces manuelles, puis des plans de debit mixtes.
 
-    amenagements_data: liste de dicts avec cles:
-        - rects: list[Rect]
-        - config: dict
-        - fiche: FicheFabrication
-        - nom: str (nom de l'amenagement)
-        - amenagement_id: int
-    pieces_manuelles: liste optionnelle de PieceDebit complementaires.
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        amenagements_data: Liste de dictionnaires, chacun avec les cles:
+            - rects: list[Rect] - rectangles 2D de l'amenagement.
+            - config: dict - configuration du placard.
+            - fiche: FicheFabrication - fiche de fabrication.
+            - nom: str - nom de l'amenagement.
+            - amenagement_id: int - identifiant de l'amenagement.
+        projet_info: Dictionnaire avec les informations du projet ou None.
+        projet_id: Identifiant du projet pour les references.
+        params_debit: Parametres de debit ou None pour les valeurs par defaut.
+        pieces_manuelles: Liste optionnelle de PieceDebit complementaires
+            a inclure dans le debit global.
+
+    Returns:
+        Chemin du fichier PDF genere (identique a filepath).
     """
     if params_debit is None:
         params_debit = ParametresDebit()
