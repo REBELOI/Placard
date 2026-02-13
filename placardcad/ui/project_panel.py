@@ -1,0 +1,442 @@
+"""Panneau arbre des projets et amenagements.
+
+Inclut une barre de recherche pour filtrer les projets/amenagements,
+la duplication d'amenagements (dans le meme projet ou vers un autre),
+et un menu contextuel pour les operations CRUD.
+"""
+
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
+    QToolBar, QAction, QInputDialog, QMessageBox, QMenu,
+    QLineEdit,
+)
+from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtGui import QIcon, QFont
+
+
+class ProjectPanel(QWidget):
+    """Panneau lateral avec arbre des projets et leurs amenagements.
+
+    Affiche une hierarchie projets > amenagements dans un QTreeWidget,
+    avec barre de recherche, barre d'outils et menu contextuel.
+    Emet des signaux lors de la selection d'elements.
+
+    Attributes:
+        projet_selectionne: Signal emis avec le projet_id quand un projet est selectionne.
+        amenagement_selectionne: Signal emis avec (projet_id, amenagement_id) quand un
+            amenagement est selectionne.
+        pieces_manuelles_selectionnees: Signal emis avec le projet_id quand le noeud
+            pieces manuelles est selectionne.
+        donnees_modifiees: Signal emis quand les donnees de l'arbre changent.
+        db: Instance de la base de donnees.
+        tree: Widget QTreeWidget affichant la hierarchie.
+        search_bar: Barre de recherche pour filtrer l'arbre.
+    """
+
+    # Signaux
+    projet_selectionne = pyqtSignal(int)          # projet_id
+    amenagement_selectionne = pyqtSignal(int, int) # projet_id, amenagement_id
+    pieces_manuelles_selectionnees = pyqtSignal(int)  # projet_id
+    donnees_modifiees = pyqtSignal()
+
+    def __init__(self, db, parent=None):
+        """Initialise le panneau des projets.
+
+        Args:
+            db: Instance de la base de donnees.
+            parent: Widget parent optionnel.
+        """
+        super().__init__(parent)
+        self.db = db
+        self._init_ui()
+        self.rafraichir()
+
+    def _init_ui(self):
+        """Initialise l'interface : barre de recherche, barre d'outils et arbre."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Barre de recherche
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Rechercher...")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._filtrer)
+        layout.addWidget(self.search_bar)
+
+        # Barre d'outils
+        toolbar = QToolBar()
+        toolbar.setIconSize(toolbar.iconSize())
+
+        self.action_nouveau_projet = QAction("+ Projet", self)
+        self.action_nouveau_projet.setToolTip("Nouveau projet")
+        self.action_nouveau_projet.triggered.connect(self._nouveau_projet)
+        toolbar.addAction(self.action_nouveau_projet)
+
+        self.action_nouvel_amenagement = QAction("+ Amenagement", self)
+        self.action_nouvel_amenagement.setToolTip("Nouvel amenagement")
+        self.action_nouvel_amenagement.triggered.connect(self._nouvel_amenagement)
+        self.action_nouvel_amenagement.setEnabled(False)
+        toolbar.addAction(self.action_nouvel_amenagement)
+
+        self.action_supprimer = QAction("Supprimer", self)
+        self.action_supprimer.setToolTip("Supprimer l'element selectionne")
+        self.action_supprimer.triggered.connect(self._supprimer)
+        self.action_supprimer.setEnabled(False)
+        toolbar.addAction(self.action_supprimer)
+
+        layout.addWidget(toolbar)
+
+        # Arbre
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Projets / Amenagements"])
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._menu_contextuel)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
+        self.tree.itemDoubleClicked.connect(self._on_double_click)
+
+        font = QFont()
+        font.setPointSize(10)
+        self.tree.setFont(font)
+
+        layout.addWidget(self.tree)
+
+    # =================================================================
+    #  RECHERCHE / FILTRE
+    # =================================================================
+
+    def _filtrer(self, texte: str):
+        """Filtre l'arbre projets selon le texte saisi dans la barre de recherche.
+
+        Masque les projets et amenagements dont le nom ne correspond pas
+        au filtre. Un projet reste visible si lui-meme ou l'un de ses
+        enfants correspond.
+
+        Args:
+            texte: Texte de recherche saisi par l'utilisateur.
+        """
+        filtre = texte.strip().lower()
+
+        for i in range(self.tree.topLevelItemCount()):
+            item_p = self.tree.topLevelItem(i)
+            projet_visible = False
+
+            if not filtre:
+                # Pas de filtre : tout afficher
+                item_p.setHidden(False)
+                for j in range(item_p.childCount()):
+                    item_p.child(j).setHidden(False)
+                item_p.setExpanded(True)
+                continue
+
+            # Verifier si le projet correspond
+            projet_match = filtre in item_p.text(0).lower()
+
+            # Verifier les enfants
+            for j in range(item_p.childCount()):
+                child = item_p.child(j)
+                child_match = filtre in child.text(0).lower()
+                child.setHidden(not child_match and not projet_match)
+                if child_match:
+                    projet_visible = True
+
+            # Le projet est visible s'il match ou si un enfant match
+            item_p.setHidden(not projet_match and not projet_visible)
+            if projet_match or projet_visible:
+                item_p.setExpanded(True)
+
+    # =================================================================
+    #  RAFRAICHIR / SELECTION
+    # =================================================================
+
+    def rafraichir(self):
+        """Recharge l'arbre complet depuis la base de donnees.
+
+        Vide l'arbre et reconstruit tous les noeuds projets, amenagements
+        et pieces manuelles. Re-applique le filtre de recherche actif.
+        """
+        self.tree.clear()
+        projets = self.db.lister_projets()
+
+        for projet in projets:
+            item_projet = QTreeWidgetItem([
+                f"{projet['nom']} ({projet['client']})" if projet['client']
+                else projet['nom']
+            ])
+            item_projet.setData(0, Qt.UserRole, ("projet", projet["id"]))
+            font = item_projet.font(0)
+            font.setBold(True)
+            item_projet.setFont(0, font)
+
+            amenagements = self.db.lister_amenagements(projet["id"])
+            for am in amenagements:
+                item_am = QTreeWidgetItem([f"  {am['nom']}"])
+                item_am.setData(0, Qt.UserRole, ("amenagement", projet["id"], am["id"]))
+                item_projet.addChild(item_am)
+
+            # Noeud Pieces manuelles
+            nb_pieces = len(self.db.lister_pieces_manuelles(projet["id"]))
+            label = f"  Pieces manuelles ({nb_pieces})" if nb_pieces else "  Pieces manuelles"
+            item_pm = QTreeWidgetItem([label])
+            item_pm.setData(0, Qt.UserRole, ("pieces_manuelles", projet["id"]))
+            font_pm = item_pm.font(0)
+            font_pm.setItalic(True)
+            item_pm.setFont(0, font_pm)
+            item_projet.addChild(item_pm)
+
+            self.tree.addTopLevelItem(item_projet)
+            item_projet.setExpanded(True)
+
+        # Re-appliquer le filtre actif
+        filtre = self.search_bar.text().strip()
+        if filtre:
+            self._filtrer(filtre)
+
+    def _on_selection_changed(self):
+        """Slot appele quand la selection dans l'arbre change.
+
+        Active ou desactive les boutons de la barre d'outils selon le type
+        d'element selectionne et emet le signal correspondant.
+        """
+        items = self.tree.selectedItems()
+        if not items:
+            self.action_nouvel_amenagement.setEnabled(False)
+            self.action_supprimer.setEnabled(False)
+            return
+
+        data = items[0].data(0, Qt.UserRole)
+        if data[0] == "projet":
+            self.action_nouvel_amenagement.setEnabled(True)
+            self.action_supprimer.setEnabled(True)
+            self.projet_selectionne.emit(data[1])
+        elif data[0] == "amenagement":
+            self.action_nouvel_amenagement.setEnabled(True)
+            self.action_supprimer.setEnabled(True)
+            self.amenagement_selectionne.emit(data[1], data[2])
+        elif data[0] == "pieces_manuelles":
+            self.action_nouvel_amenagement.setEnabled(True)
+            self.action_supprimer.setEnabled(False)
+            self.pieces_manuelles_selectionnees.emit(data[1])
+
+    def _on_double_click(self, item, column):
+        """Slot appele lors d'un double-clic sur un element de l'arbre.
+
+        Ouvre le dialogue de renommage pour les projets et amenagements.
+
+        Args:
+            item: Element clique dans l'arbre.
+            column: Indice de la colonne cliquee.
+        """
+        data = item.data(0, Qt.UserRole)
+        if data[0] == "projet":
+            self._renommer_projet(data[1])
+        elif data[0] == "amenagement":
+            self._renommer_amenagement(data[2])
+        # pas d'action double-clic pour pieces_manuelles
+
+    def _get_projet_id_selectionne(self) -> int | None:
+        """Retourne l'identifiant du projet actuellement selectionne.
+
+        Si un amenagement ou un noeud pieces manuelles est selectionne,
+        retourne l'identifiant du projet parent.
+
+        Returns:
+            Identifiant du projet selectionne, ou None si rien n'est selectionne.
+        """
+        items = self.tree.selectedItems()
+        if not items:
+            return None
+        data = items[0].data(0, Qt.UserRole)
+        if data[0] == "projet":
+            return data[1]
+        elif data[0] == "amenagement":
+            return data[1]
+        elif data[0] == "pieces_manuelles":
+            return data[1]
+        return None
+
+    # =================================================================
+    #  ACTIONS CRUD
+    # =================================================================
+
+    def _nouveau_projet(self):
+        """Cree un nouveau projet via un dialogue de saisie du nom."""
+        nom, ok = QInputDialog.getText(self, "Nouveau projet", "Nom du projet:")
+        if ok and nom:
+            self.db.creer_projet(nom=nom)
+            self.rafraichir()
+            self.donnees_modifiees.emit()
+
+    def _nouvel_amenagement(self):
+        projet_id = self._get_projet_id_selectionne()
+        if projet_id is None:
+            QMessageBox.warning(self, "Attention", "Selectionnez d'abord un projet.")
+            return
+        am_id = self.db.creer_amenagement(projet_id)
+        self.rafraichir()
+        self.donnees_modifiees.emit()
+        # Selectionner le nouvel amenagement
+        self._selectionner_amenagement(projet_id, am_id)
+
+    def _dupliquer_amenagement(self, amenagement_id: int):
+        """Duplique un amenagement (schema + parametres) dans le meme projet."""
+        am = self.db.get_amenagement(amenagement_id)
+        if not am:
+            return
+
+        nom, ok = QInputDialog.getText(
+            self, "Dupliquer l'amenagement",
+            "Nom de la copie:",
+            text=f"{am['nom']} (copie)"
+        )
+        if not ok or not nom:
+            return
+
+        new_id = self.db.creer_amenagement(
+            am["projet_id"],
+            nom=nom,
+            schema_txt=am["schema_txt"],
+            params_json=am["params_json"],
+        )
+        self.rafraichir()
+        self.donnees_modifiees.emit()
+        self._selectionner_amenagement(am["projet_id"], new_id)
+
+    def _dupliquer_vers_projet(self, amenagement_id: int):
+        """Duplique un amenagement vers un autre projet."""
+        am = self.db.get_amenagement(amenagement_id)
+        if not am:
+            return
+
+        projets = self.db.lister_projets()
+        if not projets:
+            return
+
+        noms = [f"{p['nom']} ({p['client']})" if p['client'] else p['nom']
+                for p in projets]
+        nom_choisi, ok = QInputDialog.getItem(
+            self, "Dupliquer vers un projet",
+            "Projet destination:", noms, editable=False
+        )
+        if not ok:
+            return
+
+        idx = noms.index(nom_choisi)
+        dest_id = projets[idx]["id"]
+
+        new_id = self.db.creer_amenagement(
+            dest_id,
+            nom=f"{am['nom']} (copie)",
+            schema_txt=am["schema_txt"],
+            params_json=am["params_json"],
+        )
+        self.rafraichir()
+        self.donnees_modifiees.emit()
+        self._selectionner_amenagement(dest_id, new_id)
+
+    def _selectionner_amenagement(self, projet_id: int, amenagement_id: int):
+        """Selectionne un amenagement dans l'arbre."""
+        for i in range(self.tree.topLevelItemCount()):
+            item_p = self.tree.topLevelItem(i)
+            data_p = item_p.data(0, Qt.UserRole)
+            if data_p[0] == "projet" and data_p[1] == projet_id:
+                for j in range(item_p.childCount()):
+                    item_a = item_p.child(j)
+                    data_a = item_a.data(0, Qt.UserRole)
+                    if data_a[0] == "amenagement" and data_a[2] == amenagement_id:
+                        self.tree.setCurrentItem(item_a)
+                        return
+
+    def _supprimer(self):
+        items = self.tree.selectedItems()
+        if not items:
+            return
+        data = items[0].data(0, Qt.UserRole)
+
+        if data[0] == "projet":
+            rep = QMessageBox.question(
+                self, "Confirmer",
+                "Supprimer ce projet et tous ses amenagements ?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if rep == QMessageBox.Yes:
+                self.db.supprimer_projet(data[1])
+                self.rafraichir()
+                self.donnees_modifiees.emit()
+
+        elif data[0] == "amenagement":
+            rep = QMessageBox.question(
+                self, "Confirmer",
+                "Supprimer cet amenagement ?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if rep == QMessageBox.Yes:
+                self.db.supprimer_amenagement(data[2])
+                self.rafraichir()
+                self.donnees_modifiees.emit()
+
+    def _renommer_projet(self, projet_id: int):
+        projet = self.db.get_projet(projet_id)
+        if not projet:
+            return
+        nom, ok = QInputDialog.getText(
+            self, "Renommer le projet", "Nouveau nom:", text=projet["nom"]
+        )
+        if ok and nom:
+            self.db.modifier_projet(projet_id, nom=nom)
+            self.rafraichir()
+            self.donnees_modifiees.emit()
+
+    def _renommer_amenagement(self, amenagement_id: int):
+        am = self.db.get_amenagement(amenagement_id)
+        if not am:
+            return
+        nom, ok = QInputDialog.getText(
+            self, "Renommer l'amenagement", "Nouveau nom:", text=am["nom"]
+        )
+        if ok and nom:
+            self.db.modifier_amenagement(amenagement_id, nom=nom)
+            self.rafraichir()
+            self.donnees_modifiees.emit()
+
+    # =================================================================
+    #  MENU CONTEXTUEL
+    # =================================================================
+
+    def _menu_contextuel(self, pos):
+        item = self.tree.itemAt(pos)
+        menu = QMenu(self)
+
+        if item is None:
+            action = menu.addAction("Nouveau projet")
+            action.triggered.connect(self._nouveau_projet)
+        else:
+            data = item.data(0, Qt.UserRole)
+            if data[0] == "projet":
+                a1 = menu.addAction("Renommer")
+                a1.triggered.connect(lambda: self._renommer_projet(data[1]))
+                a2 = menu.addAction("Nouvel amenagement")
+                a2.triggered.connect(self._nouvel_amenagement)
+                menu.addSeparator()
+                a3 = menu.addAction("Modifier infos projet...")
+                a3.triggered.connect(lambda: self.projet_selectionne.emit(data[1]))
+                menu.addSeparator()
+                a4 = menu.addAction("Supprimer")
+                a4.triggered.connect(self._supprimer)
+            elif data[0] == "amenagement":
+                a1 = menu.addAction("Renommer")
+                a1.triggered.connect(lambda: self._renommer_amenagement(data[2]))
+                menu.addSeparator()
+                a_dup = menu.addAction("Dupliquer")
+                a_dup.triggered.connect(lambda: self._dupliquer_amenagement(data[2]))
+                a_dup2 = menu.addAction("Dupliquer vers un projet...")
+                a_dup2.triggered.connect(lambda: self._dupliquer_vers_projet(data[2]))
+                menu.addSeparator()
+                a2 = menu.addAction("Supprimer")
+                a2.triggered.connect(self._supprimer)
+            elif data[0] == "pieces_manuelles":
+                a1 = menu.addAction("Editer les pieces manuelles")
+                a1.triggered.connect(
+                    lambda: self.pieces_manuelles_selectionnees.emit(data[1])
+                )
+
+        menu.exec_(self.tree.mapToGlobal(pos))

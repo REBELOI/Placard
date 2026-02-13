@@ -1,122 +1,82 @@
-"""
-Parser de schéma compact pour aménagement de placard.
+"""Parser de schema compact pour amenagement de placard.
 
-Syntaxe du schéma:
+Ce module fournit les fonctions pour analyser un schema compact textuel
+(dessin ASCII) decrivant la configuration d'un placard, et le convertir
+en un dictionnaire de configuration exploitable par le constructeur.
+
+Syntaxe du schema::
+
     *-----------*-----------*
-    *|__________|/_________ |
-    *|__________|/_________ |
-    *|__________|/_________ |
-     |__________|/          |
-     |          |           |
-    500                   600
+    |__________|__________|
+    |__________|__________|
+    500         800
 
 Symboles:
-    Première ligne (rayon haut):
-        -   rayon haut (présent)
-        *   tasseau sous le rayon haut à cette position
-        |   séparateur avec crémaillère encastrée
-        /   séparateur avec crémaillère en applique
-        (espace) pas de séparateur
-
-    Lignes de rayons:
-        _   rayon dans ce compartiment
-        *   tasseau sous ce rayon (en début ou fin de zone rayon)
-        |   crémaillère encastrée (+ panneau mur si en bord extérieur)
-        /   crémaillère en applique
-        (espace) rien (mur brut)
-
-    Dernière ligne (largeurs):
-        nombre  largeur en mm du compartiment
-        (vide)  répartition automatique (mode "egal")
-
-Exemples:
-    CONFIG_EXEMPLE_3 (3 compartiments, crém. encastrées, tasseaux rayon haut):
-        *-----------*-----------*
-        *|__________|__________|*
-        *|__________|__________|*
-        *|__________|__________|*
-         |__________|__________|
-         |          |           |
-
-    2 compartiments, gauche applique, droite encastrée:
-        /----------*
-        /__________|
-        /__________|
-        /__________|
-        /          |
-       500       800
+    - ``-`` : rayon haut (1ere ligne uniquement)
+    - ``_`` : rayon dans un compartiment
+    - ``*`` : tasseau sous ce rayon a cette position
+    - ``|`` : cremaillere encastree (+ panneau mur si bord exterieur)
+    - ``/`` : cremaillere en applique
+    - espace : rien / mur brut
+    - Derniere ligne (chiffres) : largeurs en mm par compartiment
 """
 
+import re
 
-def parser_schema(schema_text):
-    """
-    Parse un schéma compact et retourne les éléments d'aménagement.
 
-    Retourne un dict:
-    {
-        "rayon_haut": bool,
-        "nombre_compartiments": int,
-        "mode_largeur": "egal" | "dimensions",
-        "largeurs_compartiments": list,
-        "separations": [{"mode": "sous_rayon"}, ...],
-        "compartiments": [
-            {
-                "nom": str,
-                "rayons": int,
-                "type_crem_gauche": "encastree" | "applique" | None,
-                "type_crem_droite": "encastree" | "applique" | None,
-                "panneau_mur_gauche": bool,
-                "panneau_mur_droite": bool,
-                "tasseau_rayon_haut_gauche": bool,
-                "tasseau_rayon_haut_droite": bool,
-                "tasseau_rayons_gauche": bool,
-                "tasseau_rayons_droite": bool,
-            }, ...
-        ]
-    }
+def parser_schema(schema_text: str) -> dict:
+    """Parse un schema compact et retourne les elements d'amenagement.
+
+    Analyse le texte du schema ligne par ligne pour en extraire la topologie
+    du placard : rayon haut, compartiments, separations, cremailleres,
+    tasseaux et largeurs.
+
+    Args:
+        schema_text: Texte du schema compact (dessin ASCII multi-lignes).
+
+    Returns:
+        Dictionnaire contenant les cles suivantes :
+            - ``rayon_haut`` (bool) : presence d'un rayon haut.
+            - ``nombre_compartiments`` (int) : nombre de compartiments detectes.
+            - ``mode_largeur`` (str) : ``"egal"``, ``"dimensions"`` ou ``"mixte"``.
+            - ``largeurs_compartiments`` (list) : largeurs specifiees en mm ou liste vide.
+            - ``separations`` (list[dict]) : liste des separations avec leur mode.
+            - ``compartiments`` (list[dict]) : details de chaque compartiment
+              (rayons, cremailleres, tasseaux, panneaux mur).
+
+    Raises:
+        ValueError: Si le schema contient moins de 2 lignes ou moins de
+            2 separateurs verticaux.
     """
     lines = schema_text.strip().split("\n")
     if len(lines) < 2:
-        raise ValueError("Le schéma doit contenir au moins 2 lignes")
+        raise ValueError("Le schema doit contenir au moins 2 lignes")
 
-    # --- 1. Identifier les colonnes de séparateurs ---
-    # Trouver toutes les positions de séparateurs (|, /, *) sur toutes les lignes
-    # sauf la dernière (largeurs)
-    
-    # D'abord, détecter si la dernière ligne contient des largeurs
+    # Detecter si la derniere ligne contient des largeurs
     last_line = lines[-1].strip()
     has_widths = any(c.isdigit() for c in last_line)
-    
+
     content_lines = lines[:-1] if has_widths else lines[:]
     width_line = lines[-1] if has_widths else None
-    
-    # La première ligne est le rayon haut (si contient -)
+
+    # La premiere ligne est le rayon haut si elle contient -
     first_line = content_lines[0]
     has_rayon_haut = "-" in first_line or "_" in first_line
-    
+
     if has_rayon_haut:
         rayon_haut_line = first_line
         rayon_lines = content_lines[1:]
     else:
         rayon_haut_line = None
         rayon_lines = content_lines[:]
-    
-    # --- 2. Trouver les positions des séparateurs verticaux ---
-    # | et / sont des séparateurs. * est un tasseau PLUS séparateur.
-    # On collecte toutes les positions qui ont |, / ou * et on les regroupe.
-    # Une position est un séparateur si elle a au moins un |, / ou * sur l'ensemble des lignes.
-    
+
+    # --- Trouver les positions des separateurs verticaux ---
     all_positions = set()
     for line in content_lines:
         for i, c in enumerate(line):
             if c in ("|", "/", "*"):
                 all_positions.add(i)
-    
-    # Filtrer : une position doit avoir un | ou / sur au moins une ligne
-    # OU avoir un * ET être cohérente (voisine d'autres séparateurs)
-    # Approche simple : on prend toutes les positions avec |, /, ou *
-    # MAIS on exclut les * isolés qui ne sont pas alignés avec des |//
-    
+
     hard_sep_positions = set()
     star_only_positions = set()
     for pos in all_positions:
@@ -129,29 +89,22 @@ def parser_schema(schema_text):
             hard_sep_positions.add(pos)
         else:
             star_only_positions.add(pos)
-    
-    # Les * isolés sont des tasseaux aux positions de séparateurs.
-    # On les fusionne avec la position de séparateur dur la plus proche.
-    # Puis on regroupe les positions adjacentes en clusters.
-    
+
     all_sep = sorted(hard_sep_positions | star_only_positions)
-    
-    # Fusionner les positions adjacentes (±1) en clusters
+
     if not all_sep:
-        raise ValueError("Le schéma doit contenir au moins 2 séparateurs verticaux (| ou /)")
-    
+        raise ValueError("Le schema doit contenir au moins 2 separateurs verticaux (| ou /)")
+
+    # Fusionner les positions adjacentes en clusters
     clusters = [[all_sep[0]]]
     for pos in all_sep[1:]:
         if pos - clusters[-1][-1] <= 3:
             clusters[-1].append(pos)
         else:
             clusters.append([pos])
-    
-    # Chaque cluster = 1 séparateur logique.
-    # On prend la position du | ou / comme position de référence, sinon la première.
+
     sep_positions = []
     for cluster in clusters:
-        # Préférer la position d'un séparateur dur
         ref = None
         for p in cluster:
             if p in hard_sep_positions:
@@ -160,11 +113,11 @@ def parser_schema(schema_text):
         if ref is None:
             ref = cluster[0]
         sep_positions.append(ref)
-    
+
     if len(sep_positions) < 2:
-        raise ValueError("Le schéma doit contenir au moins 2 séparateurs verticaux (| ou /)")
-    
-    # Map: position de cluster -> contient un * (tasseau)?
+        raise ValueError("Le schema doit contenir au moins 2 separateurs verticaux (| ou /)")
+
+    # Map: position -> contient un * (tasseau) ?
     cluster_has_star = {}
     for i, cluster in enumerate(clusters):
         has_star = False
@@ -172,7 +125,6 @@ def parser_schema(schema_text):
             if p in star_only_positions:
                 has_star = True
                 break
-            # Vérifier aussi si * apparaît à cette position sur une ligne
             for line in content_lines:
                 if p < len(line) and line[p] == "*":
                     has_star = True
@@ -180,21 +132,14 @@ def parser_schema(schema_text):
             if has_star:
                 break
         cluster_has_star[sep_positions[i]] = has_star
-    
-    if len(sep_positions) < 2:
-        raise ValueError("Le schéma doit contenir au moins 2 séparateurs verticaux (| ou /)")
-    
-    # Les séparateurs délimitent les compartiments
-    # Le premier et le dernier sont les bords (mur gauche / mur droit)
-    # Les intermédiaires sont des séparations
+
     nb_separateurs = len(sep_positions)
     nb_compartiments = nb_separateurs - 1
-    
-    # --- 3. Analyser le rayon haut ---
-    tasseau_rh = {}  # par position de séparateur: True/False
+
+    # --- Analyser le rayon haut ---
+    tasseau_rh = {}
     if rayon_haut_line:
         for pos in sep_positions:
-            # Vérifier si * sur la ligne rayon haut à cette position ou ±1
             has_star = False
             for delta in [0, -1, 1, -2, 2]:
                 p = pos + delta
@@ -202,10 +147,9 @@ def parser_schema(schema_text):
                     has_star = True
                     break
             tasseau_rh[pos] = has_star
-    
-    # --- 4. Déterminer le type de crémaillère par séparateur ---
-    # Pour chaque séparateur, déterminer le type de crémaillère (|, /, ou espace)
-    sep_types = {}  # pos -> "encastree" | "applique" | None
+
+    # --- Determiner le type de cremaillere par separateur ---
+    sep_types = {}
     for pos in sep_positions:
         crem_type = None
         for line in content_lines:
@@ -222,50 +166,40 @@ def parser_schema(schema_text):
             if crem_type:
                 break
         sep_types[pos] = crem_type
+
     compartiments = []
-    
     for comp_idx in range(nb_compartiments):
         pos_gauche = sep_positions[comp_idx]
         pos_droite = sep_positions[comp_idx + 1]
-        
-        # Type de crémaillère: déjà déterminé
+
         type_crem_g = sep_types[pos_gauche]
         type_crem_d = sep_types[pos_droite]
-        
-        # Compter les rayons et détecter tasseaux rayons
+
         nb_rayons = 0
         tasseau_rayons_g = False
         tasseau_rayons_d = False
-        
+
         for line in rayon_lines:
-            # Extraire la zone entre les 2 séparateurs
             zone = ""
             if pos_droite < len(line):
                 zone = line[pos_gauche:pos_droite + 1]
             elif pos_gauche < len(line):
                 zone = line[pos_gauche:]
-            
-            # Un rayon existe si _ est présent dans la zone intérieure
+
             inner_zone = zone[1:-1] if len(zone) > 2 else zone[1:] if len(zone) > 1 else ""
             if "_" in inner_zone:
                 nb_rayons += 1
-                
-                # Tasseau gauche sur les rayons: * à la position du séparateur gauche
                 if pos_gauche < len(line) and line[pos_gauche] == "*":
                     tasseau_rayons_g = True
-                
-                # Tasseau droite sur les rayons
                 if pos_droite < len(line) and line[pos_droite] == "*":
                     tasseau_rayons_d = True
-        
-        # Panneau mur : si bord extérieur avec crémaillère encastrée
+
         panneau_mur_g = (comp_idx == 0 and type_crem_g == "encastree")
         panneau_mur_d = (comp_idx == nb_compartiments - 1 and type_crem_d == "encastree")
-        
-        # Tasseaux rayon haut
+
         trh_gauche = tasseau_rh.get(pos_gauche, False) if has_rayon_haut else False
         trh_droite = tasseau_rh.get(pos_droite, False) if has_rayon_haut else False
-        
+
         compartiments.append({
             "nom": f"Compartiment {comp_idx + 1}",
             "rayons": nb_rayons,
@@ -278,41 +212,48 @@ def parser_schema(schema_text):
             "tasseau_rayons_gauche": tasseau_rayons_g,
             "tasseau_rayons_droite": tasseau_rayons_d,
         })
-    
-    # --- 5. Parser les largeurs ---
+
+    # --- Parser les largeurs ---
     mode_largeur = "egal"
     largeurs = []
-    
+
     if width_line:
-        # Extraire les nombres entre les séparateurs
-        parts = []
-        for comp_idx in range(nb_compartiments):
-            pos_g = sep_positions[comp_idx]
-            pos_d = sep_positions[comp_idx + 1]
-            # Prendre la zone complète entre les 2 positions
-            zone = width_line[pos_g:pos_d + 1] if pos_d < len(width_line) else width_line[pos_g:]
-            zone = zone.strip()
-            # Extraire le nombre (tous les chiffres consécutifs)
-            import re
-            nums = re.findall(r'\d+', zone)
-            if nums:
-                parts.append(int(nums[0]))
-            else:
-                parts.append(None)
-        
+        parts = [None] * nb_compartiments
+
+        # Trouver chaque nombre et l'assigner au compartiment
+        # dont la zone contient le centre du nombre
+        for match in re.finditer(r'\d+', width_line):
+            center = (match.start() + match.end()) / 2
+            for comp_idx in range(nb_compartiments):
+                pos_g = sep_positions[comp_idx]
+                pos_d = sep_positions[comp_idx + 1]
+                if pos_g < center < pos_d:
+                    parts[comp_idx] = int(match.group())
+                    break
+
         if any(p is not None for p in parts):
             if all(p is not None for p in parts):
-                # Toutes les largeurs spécifiées
                 mode_largeur = "dimensions"
                 largeurs = parts
             else:
-                # Mode mixte : certaines spécifiées, les autres None (= auto)
                 mode_largeur = "mixte"
-                largeurs = parts  # contient des int et des None
-    
-    # --- 6. Séparations ---
-    separations = [{"mode": "sous_rayon"} for _ in range(nb_compartiments - 1)]
-    
+                largeurs = parts
+
+    # --- Separations ---
+    separations = []
+    for sep_idx in range(nb_compartiments - 1):
+        pos = sep_positions[sep_idx + 1]
+        # Si le separateur est present sur la ligne rayon haut (| ou /),
+        # la separation est sur toute la hauteur
+        mode = "sous_rayon"
+        if rayon_haut_line:
+            for delta in [0, -1, 1, -2, 2]:
+                p = pos + delta
+                if 0 <= p < len(rayon_haut_line) and rayon_haut_line[p] in ("|", "/"):
+                    mode = "toute_hauteur"
+                    break
+        separations.append({"mode": mode})
+
     return {
         "rayon_haut": has_rayon_haut,
         "nombre_compartiments": nb_compartiments,
@@ -323,17 +264,30 @@ def parser_schema(schema_text):
     }
 
 
-def schema_vers_config(schema_text, params_generaux=None):
-    """
-    Combine un schéma compact avec des paramètres généraux pour produire
-    un CONFIG complet prêt à passer à construire_placard().
-    
-    params_generaux : dict optionnel avec les paramètres non couverts par le schéma
-    (dimensions, couleurs, épaisseurs, etc.)
+def schema_vers_config(schema_text: str, params_generaux: dict | None = None) -> dict:
+    """Combine un schema compact avec des parametres generaux pour produire une configuration complete.
+
+    Parse le schema compact, puis fusionne le resultat avec des valeurs
+    par defaut et les parametres generaux fournis. Le dictionnaire resultant
+    est directement exploitable par le constructeur (``generer_geometrie_2d``).
+
+    Args:
+        schema_text: Texte du schema compact (dessin ASCII multi-lignes).
+        params_generaux: Parametres optionnels surchargeant les valeurs par
+            defaut (dimensions, panneaux, cremailleres, tasseaux, etc.).
+            Les sous-dictionnaires sont fusionnes recursivement.
+
+    Returns:
+        Dictionnaire de configuration complet contenant toutes les cles
+        necessaires au constructeur : dimensions globales, topologie du
+        schema, parametres de panneaux, cremailleres, tasseaux, murs
+        et options d'export.
+
+    Raises:
+        ValueError: Si le schema est invalide (propage depuis ``parser_schema``).
     """
     parsed = parser_schema(schema_text)
-    
-    # Paramètres par défaut
+
     config = {
         "hauteur": 2500,
         "largeur": 3000,
@@ -347,33 +301,38 @@ def schema_vers_config(schema_text, params_generaux=None):
         "compartiments": parsed["compartiments"],
         "panneau_separation": {
             "epaisseur": 19,
-            "couleur_fab": "Chêne clair",
+            "couleur_fab": "Chene clair",
             "couleur_rgb": (0.82, 0.71, 0.55),
             "chant_epaisseur": 1,
-            "chant_couleur_fab": "Chêne clair",
+            "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
         },
         "panneau_rayon": {
             "epaisseur": 19,
-            "couleur_fab": "Chêne clair",
+            "couleur_fab": "Chene clair",
             "couleur_rgb": (0.82, 0.71, 0.55),
             "chant_epaisseur": 1,
-            "chant_couleur_fab": "Chêne clair",
+            "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
+            "retrait_avant": 0,
+            "retrait_arriere": 0,
         },
         "panneau_rayon_haut": {
             "epaisseur": 22,
-            "couleur_fab": "Chêne clair",
+            "couleur_fab": "Chene clair",
             "couleur_rgb": (0.82, 0.71, 0.55),
             "chant_epaisseur": 1,
-            "chant_couleur_fab": "Chêne clair",
+            "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
+            "retrait_avant": 0,
+            "retrait_arriere": 0,
         },
         "crem_encastree": {
             "largeur": 16,
             "epaisseur": 5,
             "saillie": 0,
             "jeu_rayon": 2,
+            "pas": 32,
             "retrait_avant": 80,
             "retrait_arriere": 80,
             "couleur_rgb": (0.6, 0.6, 0.6),
@@ -382,6 +341,7 @@ def schema_vers_config(schema_text, params_generaux=None):
             "largeur": 25,
             "epaisseur_saillie": 12,
             "jeu_rayon": 2,
+            "pas": 32,
             "retrait_avant": 80,
             "retrait_arriere": 80,
             "couleur_rgb": (0.6, 0.6, 0.6),
@@ -395,10 +355,10 @@ def schema_vers_config(schema_text, params_generaux=None):
         },
         "panneau_mur": {
             "epaisseur": 19,
-            "couleur_fab": "Chêne clair",
+            "couleur_fab": "Chene clair",
             "couleur_rgb": (0.82, 0.71, 0.55),
             "chant_epaisseur": 1,
-            "chant_couleur_fab": "Chêne clair",
+            "chant_couleur_fab": "Chene clair",
             "chant_couleur_rgb": (0.85, 0.74, 0.58),
         },
         "afficher_murs": True,
@@ -407,19 +367,21 @@ def schema_vers_config(schema_text, params_generaux=None):
         "mur_transparence": 85,
         "export_fiche": True,
         "dossier_export": "",
+        "debit": {
+            "panneau_longueur": 2800,
+            "panneau_largeur": 2070,
+            "trait_scie": 4.0,
+            "surcote": 2.0,
+            "delignage": 10.0,
+            "sens_fil": True,
+        },
     }
-    
-    # Fusionner les paramètres généraux (écrasent les défauts)
+
     if params_generaux:
         for key, value in params_generaux.items():
             if isinstance(value, dict) and key in config and isinstance(config[key], dict):
                 config[key].update(value)
             else:
                 config[key] = value
-    
+
     return config
-
-
-# ===========================================================================
-#  TESTS
-# ===========================================================================

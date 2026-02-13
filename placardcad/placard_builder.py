@@ -1,0 +1,793 @@
+"""Constructeur de placard - Calculs geometriques et fiche de fabrication.
+
+Ce module fournit :
+    - Le calcul des dimensions de chaque element du placard.
+    - La generation de la geometrie 2D (vue de face) pour le viewer et le PDF.
+    - La fiche de fabrication (liste des pieces et quincaillerie).
+    - L'integration FreeCAD optionnelle pour la 3D.
+
+Les fonctions principales sont ``calculer_largeurs_compartiments``,
+``calculer_dimensions_rayon`` et ``generer_geometrie_2d``.
+"""
+
+from datetime import datetime
+
+
+class PieceInfo:
+    """Informations d'une piece pour la fiche de fabrication.
+
+    Represente un panneau ou un element decoupable avec ses dimensions,
+    son materiau, sa couleur et ses informations de chant.
+
+    Attributes:
+        nom: Designation de la piece (ex. ``"Rayon compartiment 1"``).
+        longueur: Longueur de la piece en mm.
+        largeur: Largeur de la piece en mm.
+        epaisseur: Epaisseur de la piece en mm.
+        materiau: Type de materiau (ex. ``"Agglomere melamine"``).
+        couleur_fab: Couleur / finition du fabricant.
+        chant_desc: Description du chant applique (ex. ``"Avant 1mm"``).
+        quantite: Nombre d'exemplaires identiques.
+        notes: Notes complementaires pour la fabrication.
+        reference: Reference catalogue ou interne de la piece.
+        sens_fil: ``True`` si le sens du fil est dans le sens de la longueur.
+    """
+
+    def __init__(self, nom: str, longueur: float, largeur: float, epaisseur: float,
+                 materiau: str = "Agglomere melamine", couleur_fab: str = "",
+                 chant_desc: str = "", quantite: int = 1, notes: str = "",
+                 reference: str = "", sens_fil: bool = True):
+        """Initialise une piece avec ses dimensions et proprietes.
+
+        Args:
+            nom: Designation de la piece.
+            longueur: Longueur en mm.
+            largeur: Largeur en mm.
+            epaisseur: Epaisseur en mm.
+            materiau: Type de materiau.
+            couleur_fab: Couleur / finition du fabricant.
+            chant_desc: Description du chant applique.
+            quantite: Nombre d'exemplaires identiques.
+            notes: Notes complementaires.
+            reference: Reference catalogue ou interne.
+            sens_fil: Sens du fil dans le sens de la longueur.
+        """
+        self.nom = nom
+        self.longueur = longueur
+        self.largeur = largeur
+        self.epaisseur = epaisseur
+        self.materiau = materiau
+        self.couleur_fab = couleur_fab
+        self.chant_desc = chant_desc
+        self.quantite = quantite
+        self.notes = notes
+        self.reference = reference
+        self.sens_fil = sens_fil
+
+    def __repr__(self):
+        """Retourne une representation textuelle de la piece.
+
+        Returns:
+            Chaine au format ``"Nom: LxlxEp mm (xQte) - Notes"``.
+        """
+        return (f"{self.nom}: {self.longueur:.0f}x{self.largeur:.0f}x{self.epaisseur:.0f}mm "
+                f"(x{self.quantite}) - {self.notes}")
+
+
+class FicheFabrication:
+    """Liste des pieces et quincaillerie d'un amenagement.
+
+    Accumule les pieces (panneaux, tasseaux) et la quincaillerie
+    (cremailleres, taquets) au fil de la generation de la geometrie,
+    puis permet de produire un recapitulatif texte ou des donnees
+    pour l'export PDF.
+
+    Attributes:
+        pieces: Liste des pieces de type ``PieceInfo``.
+        quincaillerie: Liste de dictionnaires decrivant chaque
+            element de quincaillerie (nom, quantite, description).
+    """
+
+    def __init__(self):
+        """Initialise une fiche de fabrication vide."""
+        self.pieces: list[PieceInfo] = []
+        self.quincaillerie: list[dict] = []
+
+    def ajouter_piece(self, piece: PieceInfo):
+        """Ajoute une piece a la fiche de fabrication.
+
+        Args:
+            piece: Instance de ``PieceInfo`` a ajouter.
+        """
+        self.pieces.append(piece)
+
+    def ajouter_quincaillerie(self, nom: str, quantite: int, description: str = ""):
+        """Ajoute un element de quincaillerie a la fiche.
+
+        Args:
+            nom: Designation de l'element (ex. ``"Cremaillere encastree"``).
+            quantite: Nombre d'exemplaires.
+            description: Description complementaire (ex. longueur).
+        """
+        self.quincaillerie.append({
+            "nom": nom,
+            "quantite": quantite,
+            "description": description,
+        })
+
+    def generer_texte(self, config: dict) -> str:
+        """Genere la fiche de fabrication en texte formate.
+
+        Produit un recapitulatif complet comprenant les dimensions globales,
+        la liste des panneaux avec leurs dimensions et chants, la quincaillerie
+        et un resume par materiau.
+
+        Args:
+            config: Dictionnaire de configuration complet du placard
+                (dimensions globales, panneaux, etc.).
+
+        Returns:
+            Chaine de caracteres multi-lignes formatee pour affichage
+            ou export texte.
+        """
+        lines = []
+        lines.append("=" * 80)
+        lines.append("  FICHE DE FABRICATION - AMENAGEMENT INTERIEUR PLACARD")
+        lines.append("=" * 80)
+        lines.append(f"  Date : {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        lines.append("")
+        lines.append("  DIMENSIONS GLOBALES")
+        lines.append(f"    Hauteur   : {config['hauteur']} mm")
+        lines.append(f"    Largeur   : {config['largeur']} mm")
+        lines.append(f"    Profondeur: {config['profondeur']} mm")
+        lines.append("")
+        lines.append("-" * 80)
+        lines.append("  LISTE DES PANNEAUX")
+        lines.append("-" * 80)
+        lines.append(f"  {'No':<4} {'Designation':<35} {'Long.':<8} {'Larg.':<8} "
+                     f"{'Ep.':<5} {'Qte':<4} {'Chant':<20} {'Notes'}")
+        lines.append("-" * 80)
+
+        for i, p in enumerate(self.pieces, 1):
+            lines.append(
+                f"  {i:<4} {p.nom:<35} {p.longueur:<8.0f} {p.largeur:<8.0f} "
+                f"{p.epaisseur:<5.0f} {p.quantite:<4} {p.chant_desc:<20} {p.notes}"
+            )
+
+        lines.append("")
+        surface_totale = sum(
+            p.longueur * p.largeur * p.quantite / 1e6 for p in self.pieces
+        )
+        lines.append(f"  Surface totale panneaux : {surface_totale:.2f} m2")
+        lines.append("")
+
+        if self.quincaillerie:
+            lines.append("-" * 80)
+            lines.append("  QUINCAILLERIE")
+            lines.append("-" * 80)
+            for q in self.quincaillerie:
+                lines.append(f"    {q['nom']:<40} x{q['quantite']:<4} {q['description']}")
+            lines.append("")
+
+        lines.append("-" * 80)
+        lines.append("  RESUME MATERIAUX")
+        lines.append("-" * 80)
+
+        materiaux = {}
+        for p in self.pieces:
+            key = (p.epaisseur, p.couleur_fab, p.materiau)
+            if key not in materiaux:
+                materiaux[key] = {"surface": 0, "pieces": []}
+            materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
+            materiaux[key]["pieces"].append(p)
+
+        for (ep, coul, mat), info in materiaux.items():
+            lines.append(f"    {mat} {ep:.0f}mm {coul}: {info['surface']:.2f} m2 "
+                         f"({len(info['pieces'])} pieces)")
+
+        lines.append("")
+        lines.append("=" * 80)
+        return "\n".join(lines)
+
+
+# =========================================================================
+#  CALCULS GEOMETRIQUES
+# =========================================================================
+
+def calculer_largeurs_compartiments(config: dict) -> list[float]:
+    """Calcule la largeur utile de chaque compartiment en mm.
+
+    Repartit la largeur totale du placard entre les compartiments en
+    tenant compte de l'epaisseur des separations, selon le mode de
+    largeur specifie dans la configuration (``egal``, ``proportions``,
+    ``dimensions`` ou ``mixte``).
+
+    Args:
+        config: Dictionnaire de configuration complet contenant au minimum
+            les cles ``largeur``, ``separations``, ``panneau_separation``,
+            ``mode_largeur``, ``largeurs_compartiments`` et ``compartiments``.
+
+    Returns:
+        Liste des largeurs utiles en mm, une valeur par compartiment.
+
+    Raises:
+        ValueError: Si le mode de largeur est inconnu.
+    """
+    largeur_totale = config["largeur"]
+    nb_separations = len(config["separations"])
+    ep_sep = config["panneau_separation"]["epaisseur"]
+
+    largeur_separations = nb_separations * ep_sep
+    largeur_disponible = largeur_totale - largeur_separations
+
+    mode = config["mode_largeur"]
+
+    if mode == "egal":
+        nb = len(config["compartiments"])
+        larg = largeur_disponible / nb
+        return [larg] * nb
+
+    elif mode == "proportions":
+        props_str = config["largeurs_compartiments"]
+        parts = props_str.split(",")
+        fractions = []
+        for part in parts:
+            part = part.strip()
+            if "/" in part:
+                num, den = part.split("/")
+                fractions.append(float(num) / float(den))
+            else:
+                fractions.append(float(part))
+        total_frac = sum(fractions)
+        return [largeur_disponible * f / total_frac for f in fractions]
+
+    elif mode == "dimensions":
+        dims = config["largeurs_compartiments"]
+        total_dims = sum(dims)
+        if abs(total_dims - largeur_disponible) > 1:
+            ratio = largeur_disponible / total_dims
+            return [d * ratio for d in dims]
+        return list(map(float, dims))
+
+    elif mode == "mixte":
+        dims = config["largeurs_compartiments"]
+        largeur_fixee = sum(d for d in dims if d is not None)
+        nb_auto = sum(1 for d in dims if d is None)
+        largeur_restante = largeur_disponible - largeur_fixee
+        larg_auto = largeur_restante / nb_auto if nb_auto > 0 else 0
+        return [float(d) if d is not None else larg_auto for d in dims]
+
+    else:
+        raise ValueError(f"Mode largeur inconnu: {mode}")
+
+
+def calculer_dimensions_rayon(config: dict, compartiment_idx: int,
+                               largeur_compartiment: float) -> tuple[float, float]:
+    """Calcule les dimensions d'un rayon pour un compartiment donne.
+
+    Deduit les encombrements des cremailleres, panneaux mur, chants
+    et retraits pour obtenir les dimensions nettes du rayon.
+
+    Args:
+        config: Dictionnaire de configuration complet du placard.
+        compartiment_idx: Indice du compartiment (base 0).
+        largeur_compartiment: Largeur utile brute du compartiment en mm
+            (telle que retournee par ``calculer_largeurs_compartiments``).
+
+    Returns:
+        Tuple ``(profondeur_rayon, largeur_rayon)`` en mm.
+    """
+    comp = config["compartiments"][compartiment_idx]
+    profondeur = config["profondeur"]
+    chant_ep = config["panneau_rayon"]["chant_epaisseur"]
+    retrait_av = config["panneau_rayon"].get("retrait_avant", 0)
+    retrait_ar = config["panneau_rayon"].get("retrait_arriere", 0)
+
+    prof_rayon = profondeur - chant_ep - retrait_av - retrait_ar
+    larg_rayon = largeur_compartiment
+
+    saillie = config["crem_encastree"].get("saillie", 0)
+
+    # Cote gauche
+    crem_g = comp.get("type_crem_gauche")
+    panneau_mur_g = comp.get("panneau_mur_gauche", False)
+    if panneau_mur_g:
+        larg_rayon -= (config["panneau_mur"]["epaisseur"]
+                       + saillie + config["crem_encastree"]["jeu_rayon"])
+    elif crem_g == "encastree":
+        larg_rayon -= (saillie + config["crem_encastree"]["jeu_rayon"])
+    elif crem_g == "applique":
+        larg_rayon -= (config["crem_applique"]["epaisseur_saillie"]
+                       + config["crem_applique"]["jeu_rayon"])
+
+    # Cote droit
+    crem_d = comp.get("type_crem_droite")
+    panneau_mur_d = comp.get("panneau_mur_droite", False)
+    if panneau_mur_d:
+        larg_rayon -= (config["panneau_mur"]["epaisseur"]
+                       + saillie + config["crem_encastree"]["jeu_rayon"])
+    elif crem_d == "encastree":
+        larg_rayon -= (saillie + config["crem_encastree"]["jeu_rayon"])
+    elif crem_d == "applique":
+        larg_rayon -= (config["crem_applique"]["epaisseur_saillie"]
+                       + config["crem_applique"]["jeu_rayon"])
+
+    return prof_rayon, larg_rayon
+
+
+# =========================================================================
+#  GEOMETRIE 2D (VUE DE FACE) POUR VIEWER ET PDF
+# =========================================================================
+
+class Rect:
+    """Rectangle 2D pour le dessin en vue de face.
+
+    Represente un element du placard dans le plan XZ (vue de face) :
+    X correspond a la largeur (gauche vers droite) et Y correspond
+    a la hauteur (sol vers plafond).
+
+    Attributes:
+        x: Position horizontale du coin inferieur gauche en mm.
+        y: Position verticale du coin inferieur gauche en mm.
+        w: Largeur du rectangle en mm.
+        h: Hauteur du rectangle en mm.
+        couleur: Couleur de remplissage au format hexadecimal (ex. ``"#C8B68C"``).
+        label: Libelle descriptif de l'element (ex. ``"Rayon C1 R2"``).
+        type_elem: Type d'element pour le filtrage et le rendu
+            (ex. ``"rayon"``, ``"separation"``, ``"mur"``).
+    """
+
+    def __init__(self, x: float, y: float, w: float, h: float,
+                 couleur: str = "#C8B68C", label: str = "", type_elem: str = ""):
+        """Initialise un rectangle 2D.
+
+        Args:
+            x: Position horizontale du coin inferieur gauche en mm.
+            y: Position verticale du coin inferieur gauche en mm.
+            w: Largeur du rectangle en mm.
+            h: Hauteur du rectangle en mm.
+            couleur: Couleur de remplissage au format hexadecimal.
+            label: Libelle descriptif de l'element.
+            type_elem: Type d'element (ex. ``"rayon"``, ``"separation"``).
+        """
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.couleur = couleur
+        self.label = label
+        self.type_elem = type_elem
+
+    def __repr__(self):
+        """Retourne une representation textuelle du rectangle.
+
+        Returns:
+            Chaine au format ``"Rect(label: x=..., y=..., w=..., h=...)"``.
+        """
+        return f"Rect({self.label}: x={self.x:.0f}, y={self.y:.0f}, w={self.w:.0f}, h={self.h:.0f})"
+
+
+def rgb_to_hex(rgb: tuple | list) -> str:
+    """Convertit un tuple RGB normalise en couleur hexadecimale.
+
+    Args:
+        rgb: Tuple ou liste de 3 flottants entre 0 et 1 representant
+            les composantes rouge, vert et bleu.
+
+    Returns:
+        Chaine hexadecimale au format ``"#rrggbb"``.
+    """
+    r, g, b = rgb[:3]
+    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+
+
+def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
+    """Genere la geometrie 2D (vue de face) et la fiche de fabrication.
+
+    Parcourt la configuration complete du placard pour produire la liste
+    des rectangles representant chaque element en vue de face (plan XZ)
+    ainsi que la fiche de fabrication correspondante. Les elements generes
+    incluent les murs, le rayon haut, les separations, les cremailleres,
+    les rayons, les tasseaux et les panneaux mur.
+
+    Convention d'axes pour la vue de face :
+        - X = largeur (gauche vers droite)
+        - Z = hauteur (sol vers plafond)
+
+    Args:
+        config: Dictionnaire de configuration complet du placard, tel que
+            produit par ``schema_vers_config``. Doit contenir toutes les cles
+            de dimensions, topologie, panneaux, cremailleres et tasseaux.
+
+    Returns:
+        Tuple ``(rectangles, fiche_fabrication)`` ou :
+            - ``rectangles`` est une liste d'instances ``Rect`` pour le rendu 2D.
+            - ``fiche_fabrication`` est une instance ``FicheFabrication`` contenant
+              la nomenclature des pieces et de la quincaillerie.
+    """
+    rects = []
+    fiche = FicheFabrication()
+
+    H = config["hauteur"]
+    L = config["largeur"]
+    P = config["profondeur"]
+    ep_sep = config["panneau_separation"]["epaisseur"]
+    ep_rayon = config["panneau_rayon"]["epaisseur"]
+    ep_rayon_haut = config["panneau_rayon_haut"]["epaisseur"]
+
+    largeurs = calculer_largeurs_compartiments(config)
+    nb_comp = len(config["compartiments"])
+
+    # --- Murs ---
+    if config.get("afficher_murs", True):
+        mur_ep = config.get("mur_epaisseur", 50)
+        mur_ep2 = mur_ep * 2
+        mur_coul = rgb_to_hex(config.get("mur_couleur_rgb", (0.85, 0.85, 0.82)))
+        # Mur gauche
+        rects.append(Rect(-mur_ep2, 0, mur_ep2, H, mur_coul, "Mur gauche", "mur"))
+        # Mur droit
+        rects.append(Rect(L, 0, mur_ep2, H, mur_coul, "Mur droit", "mur"))
+        # Sol (hachures gris fonce)
+        rects.append(Rect(-mur_ep2, -mur_ep2, L + 2 * mur_ep2, mur_ep2, "#555555", "Sol", "sol"))
+        # Plafond
+        rects.append(Rect(-mur_ep2, H, L + 2 * mur_ep2, mur_ep2, mur_coul, "Plafond", "mur"))
+
+    x_courant = 0.0
+
+    # --- Rayon haut ---
+    if config["rayon_haut"]:
+        z_rayon_haut = H - config["rayon_haut_position"]
+        rh_retrait_av = config["panneau_rayon_haut"].get("retrait_avant", 0)
+        rh_retrait_ar = config["panneau_rayon_haut"].get("retrait_arriere", 0)
+        prof_rh = P - config["panneau_rayon_haut"]["chant_epaisseur"] - rh_retrait_av - rh_retrait_ar
+
+        # Trouver les X des separations toute hauteur pour couper le rayon haut
+        coupures_x = []
+        x_acc = 0.0
+        for sep_idx in range(len(config["separations"])):
+            x_acc += largeurs[sep_idx]
+            if config["separations"][sep_idx]["mode"] == "toute_hauteur":
+                coupures_x.append(x_acc)
+            x_acc += ep_sep
+
+        # Segments du rayon haut (entre les coupures)
+        bords = [0.0] + coupures_x + [L]
+        for seg_idx in range(len(bords) - 1):
+            x_rh = bords[seg_idx]
+            w_rh = bords[seg_idx + 1] - x_rh
+            if w_rh <= 0:
+                continue
+            # Si le bord gauche est une coupure, decaler apres la separation
+            if seg_idx > 0:
+                x_rh += ep_sep
+                w_rh -= ep_sep
+            if w_rh <= 0:
+                continue
+            label = f"Rayon haut {seg_idx+1}" if len(bords) > 2 else "Rayon haut"
+            rects.append(Rect(
+                x_rh, z_rayon_haut, w_rh, ep_rayon_haut,
+                rgb_to_hex(config["panneau_rayon_haut"]["couleur_rgb"]),
+                label, "rayon_haut"
+            ))
+            fiche.ajouter_piece(PieceInfo(
+                label, w_rh, prof_rh, ep_rayon_haut,
+                couleur_fab=config["panneau_rayon_haut"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau_rayon_haut']['chant_epaisseur']}mm",
+                notes="Pose sur tasseaux",
+                sens_fil=config["panneau_rayon_haut"].get("sens_fil", True),
+            ))
+
+    # --- Boucle compartiments ---
+    for comp_idx in range(nb_comp):
+        comp = config["compartiments"][comp_idx]
+        larg_comp = largeurs[comp_idx]
+        x_debut = x_courant
+        x_fin = x_courant + larg_comp
+
+        # --- Panneau mur gauche ---
+        if comp.get("panneau_mur_gauche", False) and comp_idx == 0:
+            pm = config["panneau_mur"]
+            h_pm = H - config["rayon_haut_position"] if config["rayon_haut"] else H
+            rects.append(Rect(
+                0, 0, pm["epaisseur"], h_pm,
+                rgb_to_hex(pm["couleur_rgb"]),
+                "Panneau mur G", "panneau_mur"
+            ))
+            fiche.ajouter_piece(PieceInfo(
+                "Panneau mur gauche", h_pm, P - pm["chant_epaisseur"], pm["epaisseur"],
+                couleur_fab=pm["couleur_fab"],
+                chant_desc=f"Avant {pm['chant_epaisseur']}mm",
+                notes="Fixe au mur, cremailleres encastrees",
+                sens_fil=pm.get("sens_fil", True),
+            ))
+
+        # --- Panneau mur droit ---
+        if comp.get("panneau_mur_droite", False) and comp_idx == nb_comp - 1:
+            pm = config["panneau_mur"]
+            h_pm = H - config["rayon_haut_position"] if config["rayon_haut"] else H
+            rects.append(Rect(
+                L - pm["epaisseur"], 0, pm["epaisseur"], h_pm,
+                rgb_to_hex(pm["couleur_rgb"]),
+                "Panneau mur D", "panneau_mur"
+            ))
+            fiche.ajouter_piece(PieceInfo(
+                "Panneau mur droit", h_pm, P - pm["chant_epaisseur"], pm["epaisseur"],
+                couleur_fab=pm["couleur_fab"],
+                chant_desc=f"Avant {pm['chant_epaisseur']}mm",
+                notes="Fixe au mur, cremailleres encastrees",
+                sens_fil=pm.get("sens_fil", True),
+            ))
+
+        # --- Cremailleres ---
+        if comp["rayons"] > 0:
+            h_sous_rayon = H - config["rayon_haut_position"] if config["rayon_haut"] else H
+
+            # Hauteur crem gauche = hauteur de la separation gauche (ou panneau mur)
+            if comp_idx > 0:
+                sep_g = config["separations"][comp_idx - 1]
+                if sep_g["mode"] == "toute_hauteur":
+                    h_crem_g = H
+                else:
+                    h_crem_g = h_sous_rayon
+            else:
+                h_crem_g = h_sous_rayon
+
+            # Hauteur crem droite = hauteur de la separation droite (ou panneau mur)
+            if comp_idx < nb_comp - 1:
+                sep_d = config["separations"][comp_idx]
+                if sep_d["mode"] == "toute_hauteur":
+                    h_crem_d = H
+                else:
+                    h_crem_d = h_sous_rayon
+            else:
+                h_crem_d = h_sous_rayon
+
+            crem_g = comp.get("type_crem_gauche")
+            panneau_mur_g = comp.get("panneau_mur_gauche", False)
+            ce = config["crem_encastree"]
+            ca = config["crem_applique"]
+
+            # Cremaillere gauche
+            if panneau_mur_g or crem_g == "encastree":
+                if panneau_mur_g:
+                    x_cg = x_debut + config["panneau_mur"]["epaisseur"] - ce["epaisseur"]
+                else:
+                    x_cg = x_debut - ce["epaisseur"] + ce.get("saillie", 0)
+                rects.append(Rect(
+                    x_cg, 0, ce["epaisseur"], h_crem_g,
+                    rgb_to_hex(ce["couleur_rgb"]),
+                    f"Crem enc. G C{comp_idx+1}", "cremaillere_encastree"
+                ))
+                fiche.ajouter_quincaillerie(
+                    f"Cremaillere encastree (C{comp_idx+1} gauche)", 2,
+                    f"L={h_crem_g:.0f}mm"
+                )
+            elif crem_g == "applique":
+                rects.append(Rect(
+                    x_debut, 0, ca["epaisseur_saillie"], h_crem_g,
+                    rgb_to_hex(ca["couleur_rgb"]),
+                    f"Crem app. G C{comp_idx+1}", "cremaillere_applique"
+                ))
+                fiche.ajouter_quincaillerie(
+                    f"Cremaillere applique (C{comp_idx+1} gauche)", 2,
+                    f"L={h_crem_g:.0f}mm"
+                )
+
+            # Cremaillere droite
+            crem_d = comp.get("type_crem_droite")
+            panneau_mur_d = comp.get("panneau_mur_droite", False)
+            if panneau_mur_d or crem_d == "encastree":
+                if panneau_mur_d:
+                    x_cd = L - config["panneau_mur"]["epaisseur"]
+                else:
+                    x_cd = x_fin - ce.get("saillie", 0)
+                rects.append(Rect(
+                    x_cd, 0, ce["epaisseur"], h_crem_d,
+                    rgb_to_hex(ce["couleur_rgb"]),
+                    f"Crem enc. D C{comp_idx+1}", "cremaillere_encastree"
+                ))
+                fiche.ajouter_quincaillerie(
+                    f"Cremaillere encastree (C{comp_idx+1} droite)", 2,
+                    f"L={h_crem_d:.0f}mm"
+                )
+            elif crem_d == "applique":
+                rects.append(Rect(
+                    x_fin - ca["epaisseur_saillie"], 0, ca["epaisseur_saillie"], h_crem_d,
+                    rgb_to_hex(ca["couleur_rgb"]),
+                    f"Crem app. D C{comp_idx+1}", "cremaillere_applique"
+                ))
+                fiche.ajouter_quincaillerie(
+                    f"Cremaillere applique (C{comp_idx+1} droite)", 2,
+                    f"L={h_crem_d:.0f}mm"
+                )
+
+        # --- Rayons ---
+        if comp["rayons"] > 0:
+            prof_rayon, larg_rayon = calculer_dimensions_rayon(config, comp_idx, larg_comp)
+            z_haut_rayons = H
+            if config["rayon_haut"]:
+                z_haut_rayons = H - config["rayon_haut_position"] - ep_rayon_haut
+
+            nb_rayons = comp["rayons"]
+            espace = z_haut_rayons / (nb_rayons + 1)
+
+            # Arrondi au pas des cremailleres si les 2 cotes en ont
+            pas_arrondi = 0
+            _cg = comp.get("type_crem_gauche")
+            _pmg = comp.get("panneau_mur_gauche", False)
+            _cd = comp.get("type_crem_droite")
+            _pmd = comp.get("panneau_mur_droite", False)
+            pas_g = (ce.get("pas", 0) if (_pmg or _cg == "encastree")
+                     else ca.get("pas", 0) if _cg == "applique" else 0)
+            pas_d = (ce.get("pas", 0) if (_pmd or _cd == "encastree")
+                     else ca.get("pas", 0) if _cd == "applique" else 0)
+            if pas_g > 0 and pas_d > 0:
+                pas_arrondi = max(pas_g, pas_d)
+
+            # Offset X du rayon
+            x_rayon = x_debut
+            crem_g = comp.get("type_crem_gauche")
+            panneau_mur_g = comp.get("panneau_mur_gauche", False)
+            saillie = ce.get("saillie", 0)
+            if panneau_mur_g:
+                x_rayon += config["panneau_mur"]["epaisseur"] + saillie + ce["jeu_rayon"]
+            elif crem_g == "encastree":
+                x_rayon += saillie + ce["jeu_rayon"]
+            elif crem_g == "applique":
+                x_rayon += ca["epaisseur_saillie"] + ca["jeu_rayon"]
+
+            for r_idx in range(nb_rayons):
+                z_rayon = espace * (r_idx + 1)
+                if pas_arrondi > 0:
+                    z_rayon = round(z_rayon / pas_arrondi) * pas_arrondi
+                rects.append(Rect(
+                    x_rayon, z_rayon, larg_rayon, ep_rayon,
+                    rgb_to_hex(config["panneau_rayon"]["couleur_rgb"]),
+                    f"Rayon C{comp_idx+1} R{r_idx+1}", "rayon"
+                ))
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Rayon compartiment {comp_idx+1}",
+                larg_rayon, prof_rayon, ep_rayon,
+                couleur_fab=config["panneau_rayon"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau_rayon']['chant_epaisseur']}mm",
+                quantite=nb_rayons,
+                notes="Sur cremailleres",
+                sens_fil=config["panneau_rayon"].get("sens_fil", True),
+            ))
+
+            # --- Taquets de cremailleres ---
+            crem_gauche = comp.get("panneau_mur_gauche", False) or \
+                comp.get("type_crem_gauche") in ("encastree", "applique")
+            crem_droite = comp.get("panneau_mur_droite", False) or \
+                comp.get("type_crem_droite") in ("encastree", "applique")
+            taquets_par_rayon = 0
+            if crem_gauche:
+                taquets_par_rayon += 2
+            if crem_droite:
+                taquets_par_rayon += 2
+            if taquets_par_rayon > 0:
+                fiche.ajouter_quincaillerie(
+                    f"Taquets cremaillere (C{comp_idx+1})",
+                    taquets_par_rayon * nb_rayons,
+                    f"{taquets_par_rayon} par rayon x {nb_rayons} rayons",
+                )
+
+        # --- Tasseaux ---
+        tass = config["tasseau"]
+        longueur_tasseau = P - config["panneau_rayon"]["chant_epaisseur"] - tass["retrait_avant"]
+
+        trh_g = comp.get("tasseau_rayon_haut_gauche", False)
+        trh_d = comp.get("tasseau_rayon_haut_droite", False)
+        tr_g = comp.get("tasseau_rayons_gauche", False)
+        tr_d = comp.get("tasseau_rayons_droite", False)
+
+        nb_tass_g = 0
+        nb_tass_d = 0
+
+        if config["rayon_haut"] and (trh_g or trh_d):
+            z_rh = H - config["rayon_haut_position"]
+            z_tass = z_rh - tass["section_h"]
+
+            if trh_g:
+                x_tg = config["panneau_mur"]["epaisseur"] if (comp_idx == 0 and comp.get("panneau_mur_gauche")) else (0 if comp_idx == 0 else x_debut)
+                rects.append(Rect(
+                    x_tg, z_tass, tass["section_l"], tass["section_h"],
+                    rgb_to_hex(tass["couleur_rgb"]),
+                    f"Tasseau RH G C{comp_idx+1}", "tasseau"
+                ))
+                nb_tass_g += 1
+
+            if trh_d:
+                if comp_idx == nb_comp - 1:
+                    x_td = L - config["panneau_mur"]["epaisseur"] - tass["section_l"] if comp.get("panneau_mur_droite") else L - tass["section_l"]
+                else:
+                    x_td = x_fin - tass["section_l"]
+                rects.append(Rect(
+                    x_td, z_tass, tass["section_l"], tass["section_h"],
+                    rgb_to_hex(tass["couleur_rgb"]),
+                    f"Tasseau RH D C{comp_idx+1}", "tasseau"
+                ))
+                nb_tass_d += 1
+
+        if comp["rayons"] > 0 and (tr_g or tr_d):
+            z_haut_rayons = H - config["rayon_haut_position"] - ep_rayon_haut if config["rayon_haut"] else H
+            nb_rayons = comp["rayons"]
+            espace = z_haut_rayons / (nb_rayons + 1)
+
+            for r_idx in range(nb_rayons):
+                z_r = espace * (r_idx + 1)
+                if pas_arrondi > 0:
+                    z_r = round(z_r / pas_arrondi) * pas_arrondi
+                z_tass_r = z_r - tass["section_h"]
+
+                if tr_g:
+                    x_tg = config["panneau_mur"]["epaisseur"] if (comp_idx == 0 and comp.get("panneau_mur_gauche")) else (0 if comp_idx == 0 else x_debut)
+                    rects.append(Rect(
+                        x_tg, z_tass_r, tass["section_l"], tass["section_h"],
+                        rgb_to_hex(tass["couleur_rgb"]),
+                        f"Tasseau R{r_idx+1} G C{comp_idx+1}", "tasseau"
+                    ))
+                    nb_tass_g += 1
+
+                if tr_d:
+                    if comp_idx == nb_comp - 1:
+                        x_td = L - config["panneau_mur"]["epaisseur"] - tass["section_l"] if comp.get("panneau_mur_droite") else L - tass["section_l"]
+                    else:
+                        x_td = x_fin - tass["section_l"]
+                    rects.append(Rect(
+                        x_td, z_tass_r, tass["section_l"], tass["section_h"],
+                        rgb_to_hex(tass["couleur_rgb"]),
+                        f"Tasseau R{r_idx+1} D C{comp_idx+1}", "tasseau"
+                    ))
+                    nb_tass_d += 1
+
+        if nb_tass_g > 0:
+            support = "mur" if comp_idx == 0 else f"separation {comp_idx}"
+            fiche.ajouter_piece(PieceInfo(
+                f"Tasseau C{comp_idx+1} gauche ({support})",
+                longueur_tasseau, tass["section_l"], tass["section_h"],
+                materiau="Tasseau bois", quantite=nb_tass_g,
+                notes=f"Biseaute en bout, fixe sur {support}"
+            ))
+        if nb_tass_d > 0:
+            support = "mur" if comp_idx == nb_comp - 1 else f"separation {comp_idx+1}"
+            fiche.ajouter_piece(PieceInfo(
+                f"Tasseau C{comp_idx+1} droite ({support})",
+                longueur_tasseau, tass["section_l"], tass["section_h"],
+                materiau="Tasseau bois", quantite=nb_tass_d,
+                notes=f"Biseaute en bout, fixe sur {support}"
+            ))
+
+        # --- Separation apres ce compartiment ---
+        if comp_idx < nb_comp - 1:
+            sep = config["separations"][comp_idx]
+            x_sep = x_fin
+
+            if sep["mode"] == "sous_rayon" and config["rayon_haut"]:
+                h_sep = H - config["rayon_haut_position"]
+            else:
+                h_sep = H
+
+            prof_sep = P - config["panneau_separation"]["chant_epaisseur"]
+
+            rects.append(Rect(
+                x_sep, 0, ep_sep, h_sep,
+                rgb_to_hex(config["panneau_separation"]["couleur_rgb"]),
+                f"Separation {comp_idx+1}", "separation"
+            ))
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Separation {comp_idx+1}",
+                h_sep, prof_sep, ep_sep,
+                couleur_fab=config["panneau_separation"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau_separation']['chant_epaisseur']}mm",
+                notes=f"Mode: {sep['mode']}",
+                sens_fil=config["panneau_separation"].get("sens_fil", True),
+            ))
+
+        x_courant = x_fin
+        if comp_idx < nb_comp - 1:
+            x_courant += ep_sep
+
+    return rects, fiche
