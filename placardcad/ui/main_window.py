@@ -14,7 +14,7 @@ import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
     QAction, QToolBar, QStatusBar, QFileDialog, QMessageBox,
-    QLabel, QTabWidget, QStackedWidget
+    QLabel, QTabWidget, QStackedWidget, QComboBox
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QIcon
@@ -176,6 +176,23 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        # Selecteur de mode Placard / Meuble
+        mode_label = QLabel(" Mode: ")
+        toolbar.addWidget(mode_label)
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["Placard", "Meuble"])
+        self.combo_mode.setToolTip("Choisir le type: Placard ou Meuble")
+        self.combo_mode.currentTextChanged.connect(self._on_mode_change)
+        toolbar.addWidget(self.combo_mode)
+
+        # Bouton template
+        self.action_template = QAction("Inserer modele", self)
+        self.action_template.setToolTip("Inserer un schema exemple dans l'editeur")
+        self.action_template.triggered.connect(self._inserer_template)
+        toolbar.addAction(self.action_template)
+
+        toolbar.addSeparator()
+
         # Regenerer
         self.action_regenerer = QAction("Actualiser vue", self)
         self.action_regenerer.triggered.connect(self._regenerer_vue)
@@ -318,6 +335,9 @@ class MainWindow(QMainWindow):
 
         self.statusbar.showMessage(f"Amenagement: {am['nom']}")
 
+        # Synchroniser le combo mode
+        self._sync_combo_from_schema()
+
         # Regenerer la vue
         self._regenerer_vue()
 
@@ -363,6 +383,57 @@ class MainWindow(QMainWindow):
             params_json=params_json,
         )
         self.statusbar.showMessage("Sauvegarde automatique effectuee.", 3000)
+
+    # =====================================================================
+    #  MODE PLACARD / MEUBLE
+    # =====================================================================
+
+    _TEMPLATE_PLACARD = (
+        "*-----------*-----------*-----------*\n"
+        "|__________|__________|__________|\n"
+        "|__________|__________|__________|\n"
+        "|__________|__________|"
+    )
+
+    _TEMPLATE_MEUBLE = (
+        "#MEUBLE\n"
+        "| PP  | TTT |\n"
+        "| --  |     |\n"
+        "| --  |     |\n"
+        "  600   400"
+    )
+
+    def _on_mode_change(self, mode: str):
+        """Reagit au changement de mode dans le selecteur.
+
+        Met a jour le combo en coherence avec le contenu du schema
+        si l'utilisateur change de mode alors qu'un schema est deja saisi.
+        """
+        schema = self.schema_editor.get_schema().strip()
+        if not schema:
+            # Schema vide → inserer le template
+            self._inserer_template()
+
+    def _inserer_template(self):
+        """Insere un schema modele dans l'editeur selon le mode selectionne."""
+        mode = self.combo_mode.currentText()
+        if mode == "Meuble":
+            self.schema_editor.set_schema(self._TEMPLATE_MEUBLE)
+        else:
+            self.schema_editor.set_schema(self._TEMPLATE_PLACARD)
+        self._regenerer_vue()
+
+    def _sync_combo_from_schema(self):
+        """Synchronise le combo mode avec le contenu actuel du schema."""
+        schema = self.schema_editor.get_schema().strip()
+        if est_schema_meuble(schema):
+            self.combo_mode.blockSignals(True)
+            self.combo_mode.setCurrentText("Meuble")
+            self.combo_mode.blockSignals(False)
+        elif schema:
+            self.combo_mode.blockSignals(True)
+            self.combo_mode.setCurrentText("Placard")
+            self.combo_mode.blockSignals(False)
 
     # =====================================================================
     #  GENERATION VUE
