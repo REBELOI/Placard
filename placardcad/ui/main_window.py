@@ -29,6 +29,8 @@ from .pieces_manuelles_editor import PiecesManualesEditor
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
 from ..placard_builder import generer_geometrie_2d
+from ..meuble_schema_parser import est_schema_meuble, meuble_schema_vers_config
+from ..meuble_builder import generer_geometrie_meuble
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
@@ -369,9 +371,8 @@ class MainWindow(QMainWindow):
     def _regenerer_vue(self):
         """Regenere la vue de face depuis le schema et les parametres courants.
 
-        Parse le schema compact, genere la geometrie 2D et met a jour
-        le viewer. Affiche un message d'erreur dans la barre de statut
-        en cas de schema invalide.
+        Detecte automatiquement le type de schema (placard ou meuble)
+        grace a l'en-tete ``#MEUBLE`` et utilise le parser/builder adapte.
         """
         schema_text = self.schema_editor.get_schema()
         if not schema_text.strip():
@@ -381,14 +382,22 @@ class MainWindow(QMainWindow):
         params = self.params_editor.get_params()
 
         try:
-            config = schema_vers_config(schema_text, params)
-            self._rects, self._fiche = generer_geometrie_2d(config)
+            if est_schema_meuble(schema_text):
+                config = meuble_schema_vers_config(schema_text, params)
+                self._rects, self._fiche = generer_geometrie_meuble(config)
+                type_label = "MEUBLE"
+            else:
+                config = schema_vers_config(schema_text, params)
+                self._rects, self._fiche = generer_geometrie_2d(config)
+                type_label = "PLACARD"
+
             self.viewer.set_geometrie(
                 self._rects,
                 config["largeur"],
                 config["hauteur"]
             )
             self.statusbar.showMessage(
+                f"[{type_label}] "
                 f"{config['nombre_compartiments']} compartiments | "
                 f"{len(self._fiche.pieces)} pieces | "
                 f"{len(self._fiche.quincaillerie)} quincailleries"

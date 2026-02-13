@@ -1,0 +1,615 @@
+"""Constructeur 2D de meubles parametriques.
+
+Genere la geometrie 2D (vue de face) et la fiche de fabrication
+pour un meuble defini par un schema compact et des parametres.
+
+Le meuble est compose de:
+    - Flancs (cotes gauche et droit)
+    - Dessus / dessous
+    - Fond (rainure, vissage ou applique)
+    - Separations verticales
+    - Etageres sur cremailleres
+    - Facades: portes (charnieres CLIP top) et tiroirs (LEGRABOX)
+    - Pieds et plinthes
+"""
+
+from __future__ import annotations
+
+from .placard_builder import Rect, PieceInfo, FicheFabrication
+
+
+# =====================================================================
+#  Constantes LEGRABOX (Blum)
+# =====================================================================
+
+LEGRABOX_HAUTEURS = {
+    "M": 90.5,
+    "K": 128.5,
+    "C": 193.0,
+    "F": 257.0,
+}
+
+LEGRABOX_JEU_LATERAL = 12.75  # mm par cote
+LEGRABOX_EP_PAROI = 12.5      # mm epaisseur paroi laterale
+LEGRABOX_EP_FOND = 8.0        # mm epaisseur fond tiroir
+
+LEGRABOX_LONGUEURS_COULISSES = [
+    270, 300, 350, 400, 450, 500, 550, 600, 650,
+]
+
+# =====================================================================
+#  Constantes charnieres CLIP top (Blum)
+# =====================================================================
+
+CLIP_TOP_DIAMETRE_CUVETTE = 35.0
+CLIP_TOP_PROFONDEUR_CUVETTE = 13.0
+CLIP_TOP_DISTANCE_BORD = 3.0
+
+RECOUVREMENT = {
+    "applique": 16.0,
+    "semi_applique": 8.0,
+    "encloisonnee": 0.0,
+}
+
+
+def _rgb_to_hex(rgb: list | tuple) -> str:
+    """Convertit un triplet RGB (0-1) en couleur hexadecimale."""
+    r, g, b = rgb
+    return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+
+def _nb_charnieres(hauteur_porte: float) -> int:
+    """Calcule le nombre de charnieres selon la hauteur de la porte.
+
+    Args:
+        hauteur_porte: Hauteur de la porte en mm.
+
+    Returns:
+        Nombre de charnieres (2 a 5).
+    """
+    if hauteur_porte <= 1000:
+        return 2
+    elif hauteur_porte <= 1500:
+        return 3
+    elif hauteur_porte <= 2000:
+        return 4
+    return 5
+
+
+def _longueur_coulisse(profondeur_caisson: float,
+                       ep_facade: float) -> int:
+    """Selectionne la longueur de coulisse LEGRABOX standard.
+
+    Args:
+        profondeur_caisson: Profondeur interieure du caisson en mm.
+        ep_facade: Epaisseur de la facade en mm.
+
+    Returns:
+        Longueur de coulisse standard la plus proche (mm).
+    """
+    profondeur_utile = profondeur_caisson - ep_facade - 2
+    best = LEGRABOX_LONGUEURS_COULISSES[0]
+    for lg in LEGRABOX_LONGUEURS_COULISSES:
+        if lg <= profondeur_utile:
+            best = lg
+        else:
+            break
+    return best
+
+
+def calculer_largeurs_meuble(config: dict) -> list[float]:
+    """Calcule les largeurs de chaque compartiment en mm.
+
+    Args:
+        config: Configuration complete du meuble.
+
+    Returns:
+        Liste des largeurs interieures par compartiment.
+    """
+    L = config["largeur"]
+    ep = config["epaisseur"]
+    nb = config["nombre_compartiments"]
+    ep_sep = config["separation"]["epaisseur"]
+
+    # Largeur interieure totale
+    larg_int = L - 2 * ep
+    # Retirer les separations
+    nb_sep = nb - 1
+    larg_dispo = larg_int - nb_sep * ep_sep
+
+    mode = config["mode_largeur"]
+    largeurs_spec = config.get("largeurs_compartiments", [])
+
+    if mode == "dimensions" and largeurs_spec:
+        total_spec = sum(v for v in largeurs_spec if v is not None)
+        if total_spec > 0:
+            ratio = larg_dispo / total_spec
+            return [v * ratio for v in largeurs_spec]
+
+    if mode == "mixte" and largeurs_spec:
+        fixees = [(i, v) for i, v in enumerate(largeurs_spec) if v is not None]
+        total_fixe = sum(v for _, v in fixees)
+        nb_auto = nb - len(fixees)
+        reste = max(0, larg_dispo - total_fixe)
+        larg_auto = reste / nb_auto if nb_auto > 0 else 0
+        result = []
+        for i in range(nb):
+            val = next((v for idx, v in fixees if idx == i), None)
+            result.append(val if val is not None else larg_auto)
+        return result
+
+    # Mode egal
+    return [larg_dispo / nb] * nb
+
+
+def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication]:
+    """Genere la geometrie 2D (vue de face) et la fiche de fabrication d'un meuble.
+
+    Args:
+        config: Configuration complete issue de ``meuble_schema_vers_config``.
+
+    Returns:
+        Tuple (rectangles, fiche_fabrication) ou rectangles est la liste
+        des ``Rect`` pour le dessin 2D et fiche_fabrication la nomenclature.
+    """
+    rects: list[Rect] = []
+    fiche = FicheFabrication()
+
+    L = config["largeur"]
+    H = config["hauteur"]
+    P = config["profondeur"]
+    ep = config["epaisseur"]
+    ep_f = config["epaisseur_facade"]
+    h_plinthe = config["hauteur_plinthe"]
+    assemblage = config["assemblage"]
+    pose = config["pose"]
+    nb_comp = config["nombre_compartiments"]
+    ep_sep = config["separation"]["epaisseur"]
+
+    couleur_struct = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+    couleur_facade = _rgb_to_hex(config["facade"]["couleur_rgb"])
+    couleur_plinthe = "#404040"
+    couleur_etagere = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+    couleur_fond = "#D4C5A9"
+
+    h_corps = H - h_plinthe
+
+    # Dimensions dessus/dessous selon assemblage
+    if assemblage == "dessus_sur":
+        flanc_h = h_corps - 2 * ep
+        flanc_z = h_plinthe + ep
+        dessus_x, dessus_w = 0, L
+        dessous_x, dessous_w = 0, L
+    else:  # dessus_entre
+        flanc_h = h_corps
+        flanc_z = h_plinthe
+        dessus_x, dessus_w = ep, L - 2 * ep
+        dessous_x, dessous_w = ep, L - 2 * ep
+
+    larg_int = L - 2 * ep
+
+    # Recouvrement facade
+    rec = RECOUVREMENT.get(pose, 16.0)
+    jeu_p = config["porte"]
+
+    # =====================================================================
+    #  STRUCTURE
+    # =====================================================================
+
+    # --- Plinthe ---
+    plinthe_cfg = config["plinthe"]
+    if plinthe_cfg["type"] != "aucune":
+        retrait_p = plinthe_cfg["retrait"]
+        rects.append(Rect(
+            retrait_p, 0, L - 2 * retrait_p, h_plinthe,
+            couleur_plinthe, "Plinthe avant", "plinthe"
+        ))
+        fiche.ajouter_piece(PieceInfo(
+            "Plinthe avant",
+            L - 2 * retrait_p, h_plinthe, plinthe_cfg["epaisseur"],
+            couleur_fab=config["panneau"]["couleur_fab"],
+        ))
+        if plinthe_cfg["type"] == "trois_cotes":
+            for cote, nom in [("gauche", "Plinthe gauche"),
+                              ("droite", "Plinthe droite")]:
+                fiche.ajouter_piece(PieceInfo(
+                    nom, P - retrait_p, h_plinthe, plinthe_cfg["epaisseur"],
+                    couleur_fab=config["panneau"]["couleur_fab"],
+                ))
+
+    # Pieds (quincaillerie)
+    nb_pieds_l = 2 if L < 800 else 3
+    nb_pieds_p = 2
+    fiche.ajouter_quincaillerie(
+        "Pieds reglables", nb_pieds_l * nb_pieds_p,
+        f"Grille {nb_pieds_p}x{nb_pieds_l}, h={h_plinthe}mm"
+    )
+
+    # --- Flancs ---
+    rects.append(Rect(0, flanc_z, ep, flanc_h,
+                       couleur_struct, "Cote gauche", "flanc"))
+    rects.append(Rect(L - ep, flanc_z, ep, flanc_h,
+                       couleur_struct, "Cote droit", "flanc"))
+    for nom in ["Cote gauche", "Cote droit"]:
+        fiche.ajouter_piece(PieceInfo(
+            nom, P, flanc_h, ep,
+            couleur_fab=config["panneau"]["couleur_fab"],
+            chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+        ))
+
+    # --- Dessus ---
+    rects.append(Rect(dessus_x, h_plinthe + h_corps - ep, dessus_w, ep,
+                       couleur_struct, "Dessus", "dessus"))
+    fiche.ajouter_piece(PieceInfo(
+        "Dessus", dessus_w, P, ep,
+        couleur_fab=config["panneau"]["couleur_fab"],
+        chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+    ))
+
+    # --- Dessous ---
+    rects.append(Rect(dessous_x, h_plinthe, dessous_w, ep,
+                       couleur_struct, "Dessous", "dessous"))
+    fiche.ajouter_piece(PieceInfo(
+        "Dessous", dessous_w, P, ep,
+        couleur_fab=config["panneau"]["couleur_fab"],
+        chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+    ))
+
+    # --- Fond ---
+    fond_cfg = config["fond"]
+    fond_type = fond_cfg["type"]
+    if fond_type == "rainure":
+        fond_l = L - 2 * ep + 2 * fond_cfg["profondeur_rainure"]
+        fond_h = h_corps - 2 * ep + 2 * fond_cfg["profondeur_rainure"]
+    elif fond_type == "applique":
+        fond_l = L
+        fond_h = h_corps
+    else:  # vissage
+        fond_l = larg_int
+        fond_h = h_corps - 2 * ep
+
+    fiche.ajouter_piece(PieceInfo(
+        "Fond", fond_l, fond_h, fond_cfg["epaisseur"],
+        materiau="Panneau fond",
+        couleur_fab=config["panneau"]["couleur_fab"],
+        notes=f"Assemblage {fond_type}",
+    ))
+
+    # =====================================================================
+    #  SEPARATIONS
+    # =====================================================================
+
+    largeurs = calculer_largeurs_meuble(config)
+    x_cursor = ep  # Position X courante (apres flanc gauche)
+
+    compartiments_geom: list[dict] = []
+    for comp_idx in range(nb_comp):
+        larg_c = largeurs[comp_idx]
+        compartiments_geom.append({
+            "x": x_cursor,
+            "largeur": larg_c,
+        })
+
+        if comp_idx < nb_comp - 1:
+            x_sep = x_cursor + larg_c
+            z_sep = h_plinthe + ep  # sous dessus, sur dessous
+            h_sep = h_corps - 2 * ep
+
+            rects.append(Rect(x_sep, z_sep, ep_sep, h_sep,
+                               couleur_struct,
+                               f"Separation {comp_idx + 1}", "separation"))
+            fiche.ajouter_piece(PieceInfo(
+                f"Separation {comp_idx + 1}",
+                P - config["separation"]["retrait_avant"]
+                  - config["separation"]["retrait_arriere"],
+                h_sep, ep_sep,
+                couleur_fab=config["panneau"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+            ))
+            x_cursor = x_sep + ep_sep
+        else:
+            x_cursor += larg_c
+
+    # =====================================================================
+    #  ETAGERES & CREMAILLERES par compartiment
+    # =====================================================================
+
+    for comp_idx in range(nb_comp):
+        cg = compartiments_geom[comp_idx]
+        comp_data = config["compartiments"][comp_idx]
+        nb_etag = comp_data["etageres"]
+
+        if nb_etag > 0:
+            z_bas_etag = h_plinthe + ep
+            z_haut_etag = h_plinthe + h_corps - ep
+            h_zone = z_haut_etag - z_bas_etag
+            espacement = h_zone / (nb_etag + 1)
+            jeu_lat = config["etagere"]["jeu_lateral"]
+            larg_etag = cg["largeur"] - 2 * jeu_lat
+
+            for e_idx in range(nb_etag):
+                z_e = z_bas_etag + espacement * (e_idx + 1)
+                rects.append(Rect(
+                    cg["x"] + jeu_lat, z_e,
+                    larg_etag, ep,
+                    couleur_etagere,
+                    f"Etagere C{comp_idx+1} E{e_idx+1}", "etagere"
+                ))
+
+            prof_etag = (P - config["etagere"]["retrait_avant"]
+                         - config["fond"]["distance_chant"]
+                         - config["fond"]["epaisseur"])
+            fiche.ajouter_piece(PieceInfo(
+                f"Etagere compartiment {comp_idx+1}",
+                larg_etag, prof_etag, ep,
+                couleur_fab=config["panneau"]["couleur_fab"],
+                chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+                quantite=nb_etag,
+            ))
+
+            # Taquets etagere
+            fiche.ajouter_quincaillerie(
+                f"Taquets etagere (C{comp_idx+1})",
+                4 * nb_etag,
+                f"4 par etagere x {nb_etag}",
+            )
+
+            # Cremailleres (2 par cote du compartiment)
+            crem_cfg = config["cremaillere"]
+            h_crem = h_corps - 2 * ep
+            fiche.ajouter_quincaillerie(
+                f"Cremaillere alu (C{comp_idx+1})",
+                4, f"L={h_crem:.0f}mm, larg={crem_cfg['largeur']}mm"
+            )
+
+    # =====================================================================
+    #  FACADES
+    # =====================================================================
+
+    for comp_idx in range(nb_comp):
+        cg = compartiments_geom[comp_idx]
+        comp_data = config["compartiments"][comp_idx]
+        facade = comp_data["facade"]
+        facade_type = facade["type"]
+
+        # Zone facade disponible
+        z_facade_bas = h_plinthe + jeu_p["jeu_bas"]
+        z_facade_haut = H - jeu_p["jeu_haut"]
+        h_facade_zone = z_facade_haut - z_facade_bas
+
+        if pose == "encloisonnee":
+            z_facade_bas = h_plinthe + ep + jeu_p["jeu_bas"]
+            z_facade_haut = h_plinthe + h_corps - ep - jeu_p["jeu_haut"]
+            h_facade_zone = z_facade_haut - z_facade_bas
+
+        # Position X de la facade
+        if pose == "encloisonnee":
+            x_facade = cg["x"] + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] - 2 * jeu_p["jeu_lateral"]
+        else:
+            # Applique / semi-applique: deborde sur les flancs/separations
+            x_facade = cg["x"] - rec + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] + 2 * rec - 2 * jeu_p["jeu_lateral"]
+            # Ajuster si bord exterieur (flanc)
+            if comp_idx == 0:
+                x_facade = -rec + ep + jeu_p["jeu_lateral"]
+            if comp_idx == nb_comp - 1:
+                w_facade = (cg["x"] + cg["largeur"] + rec - ep
+                            - jeu_p["jeu_lateral"]) - x_facade
+
+        # --- Portes ---
+        if facade_type == "portes":
+            nb_portes = facade["nb_portes"]
+            if nb_portes == 1:
+                rects.append(Rect(
+                    x_facade, z_facade_bas, w_facade, h_facade_zone,
+                    couleur_facade,
+                    f"Porte C{comp_idx+1}", "porte"
+                ))
+                fiche.ajouter_piece(PieceInfo(
+                    f"Porte C{comp_idx+1}",
+                    w_facade, h_facade_zone, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                ))
+                nb_ch = _nb_charnieres(h_facade_zone)
+                fiche.ajouter_quincaillerie(
+                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    nb_ch, f"Porte {h_facade_zone:.0f}mm"
+                )
+            elif nb_portes >= 2:
+                jeu_e = jeu_p["jeu_entre"]
+                w_porte = (w_facade - jeu_e) / 2
+                # Porte gauche
+                rects.append(Rect(
+                    x_facade, z_facade_bas, w_porte, h_facade_zone,
+                    couleur_facade,
+                    f"Porte G C{comp_idx+1}", "porte"
+                ))
+                # Porte droite
+                rects.append(Rect(
+                    x_facade + w_porte + jeu_e, z_facade_bas,
+                    w_porte, h_facade_zone,
+                    couleur_facade,
+                    f"Porte D C{comp_idx+1}", "porte"
+                ))
+                fiche.ajouter_piece(PieceInfo(
+                    f"Porte C{comp_idx+1}",
+                    w_porte, h_facade_zone, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                    quantite=2,
+                ))
+                nb_ch = _nb_charnieres(h_facade_zone)
+                fiche.ajouter_quincaillerie(
+                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    nb_ch * 2, f"2 portes x {nb_ch} charnieres"
+                )
+
+        # --- Tiroirs ---
+        elif facade_type == "tiroirs":
+            nb_tiroirs = facade["nb_tiroirs"]
+            hauteur_legrabox = config["tiroir"]["hauteur"]
+            jeu_entre_t = config["tiroir"]["jeu_entre"]
+            jeu_lat_t = config["tiroir"]["jeu_lateral"]
+
+            h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
+                                * jeu_entre_t) / nb_tiroirs)
+
+            for t_idx in range(nb_tiroirs):
+                z_t = z_facade_bas + t_idx * (h_facade_tiroir + jeu_entre_t)
+                rects.append(Rect(
+                    x_facade, z_t, w_facade, h_facade_tiroir,
+                    couleur_facade,
+                    f"Tiroir C{comp_idx+1} T{t_idx+1}", "tiroir"
+                ))
+
+            # Facade tiroir
+            fiche.ajouter_piece(PieceInfo(
+                f"Facade tiroir C{comp_idx+1}",
+                w_facade, h_facade_tiroir, ep_f,
+                couleur_fab=config["facade"]["couleur_fab"],
+                chant_desc="4 chants",
+                quantite=nb_tiroirs,
+            ))
+
+            # Fond tiroir
+            larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
+            lg_coulisse = _longueur_coulisse(P, ep_f)
+            h_cote = LEGRABOX_HAUTEURS.get(hauteur_legrabox, 90.5)
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Fond tiroir C{comp_idx+1}",
+                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
+                LEGRABOX_EP_FOND,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb_tiroirs,
+            ))
+
+            # Arriere tiroir
+            fiche.ajouter_piece(PieceInfo(
+                f"Arriere tiroir C{comp_idx+1}",
+                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
+                h_cote - LEGRABOX_EP_FOND,
+                LEGRABOX_EP_PAROI,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb_tiroirs,
+            ))
+
+            # Coulisses LEGRABOX
+            fiche.ajouter_quincaillerie(
+                f"Coulisse LEGRABOX (C{comp_idx+1})",
+                nb_tiroirs * 2,
+                f"Paire, L={lg_coulisse}mm, hauteur {hauteur_legrabox}"
+            )
+
+        # --- Mixte (tiroirs + porte) ---
+        elif facade_type == "mixte":
+            nb_tiroirs = facade["nb_tiroirs"]
+            nb_portes = facade["nb_portes"]
+            hauteur_legrabox = config["tiroir"]["hauteur"]
+            h_cote = LEGRABOX_HAUTEURS.get(hauteur_legrabox, 90.5)
+            jeu_entre_t = config["tiroir"]["jeu_entre"]
+
+            # Les tiroirs sont en haut, la porte en bas
+            h_tiroir_facade = h_cote + 2 * jeu_p["jeu_haut"]
+            h_zone_tiroirs = nb_tiroirs * h_tiroir_facade + (nb_tiroirs - 1) * jeu_entre_t
+            h_zone_porte = h_facade_zone - h_zone_tiroirs - jeu_p["jeu_entre"]
+
+            # Tiroirs (en haut)
+            for t_idx in range(nb_tiroirs):
+                z_t = z_facade_haut - h_zone_tiroirs + t_idx * (h_tiroir_facade + jeu_entre_t)
+                rects.append(Rect(
+                    x_facade, z_t, w_facade, h_tiroir_facade,
+                    couleur_facade,
+                    f"Tiroir C{comp_idx+1} T{t_idx+1}", "tiroir"
+                ))
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Facade tiroir C{comp_idx+1}",
+                w_facade, h_tiroir_facade, ep_f,
+                couleur_fab=config["facade"]["couleur_fab"],
+                chant_desc="4 chants",
+                quantite=nb_tiroirs,
+            ))
+
+            larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
+            lg_coulisse = _longueur_coulisse(P, ep_f)
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Fond tiroir C{comp_idx+1}",
+                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
+                LEGRABOX_EP_FOND,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb_tiroirs,
+            ))
+            fiche.ajouter_piece(PieceInfo(
+                f"Arriere tiroir C{comp_idx+1}",
+                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
+                h_cote - LEGRABOX_EP_FOND,
+                LEGRABOX_EP_PAROI,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb_tiroirs,
+            ))
+            fiche.ajouter_quincaillerie(
+                f"Coulisse LEGRABOX (C{comp_idx+1})",
+                nb_tiroirs * 2,
+                f"Paire, L={lg_coulisse}mm, hauteur {hauteur_legrabox}"
+            )
+
+            # Porte (en bas)
+            if h_zone_porte > 0:
+                rects.append(Rect(
+                    x_facade, z_facade_bas, w_facade, h_zone_porte,
+                    couleur_facade,
+                    f"Porte C{comp_idx+1}", "porte"
+                ))
+                fiche.ajouter_piece(PieceInfo(
+                    f"Porte C{comp_idx+1}",
+                    w_facade, h_zone_porte, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                ))
+                nb_ch = _nb_charnieres(h_zone_porte)
+                fiche.ajouter_quincaillerie(
+                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    nb_ch, f"Porte {h_zone_porte:.0f}mm"
+                )
+
+        # --- Niche (pas de facade) ---
+        # Rien a dessiner
+
+    # =====================================================================
+    #  COTATIONS (lignes de cote)
+    # =====================================================================
+
+    # Cotation largeur totale
+    rects.append(Rect(0, -30, L, 2, "#333333", f"{L:.0f}", "cotation"))
+    # Cotation hauteur totale
+    rects.append(Rect(-30, 0, 2, H, "#333333", f"{H:.0f}", "cotation"))
+    # Cotation hauteur plinthe
+    if h_plinthe > 0:
+        rects.append(Rect(-20, 0, 1, h_plinthe, "#666666",
+                          f"{h_plinthe:.0f}", "cotation"))
+
+    # Cotation largeurs compartiments
+    x_cot = ep
+    for comp_idx, larg_c in enumerate(largeurs):
+        rects.append(Rect(x_cot, -20, larg_c, 1, "#666666",
+                          f"{larg_c:.0f}", "cotation"))
+        x_cot += larg_c
+        if comp_idx < nb_comp - 1:
+            x_cot += ep_sep
+
+    # Visserie estimee
+    nb_separations = nb_comp - 1
+    fiche.ajouter_quincaillerie(
+        "Vis de montage structure", (4 + nb_separations) * 8,
+        f"Tourillons + vis confirmation, {4 + nb_separations} panneaux"
+    )
+
+    return rects, fiche
