@@ -189,6 +189,7 @@ class PlacardViewer(QWidget):
 
         # Couleurs de type d'element
         type_pens = {
+            # --- Placard ---
             "mur": (QColor("#D5D5D0"), QColor("#E8E8E4"), 1),
             "sol": (QColor("#444444"), QColor("#555555"), 1),
             "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
@@ -198,13 +199,35 @@ class PlacardViewer(QWidget):
             "cremaillere_applique": (QColor("#CC0000"), QColor("#FF4444"), 0.5),
             "panneau_mur": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "tasseau": (QColor("#8B6914"), QColor("#DAA520"), 1),
+            # --- Meuble ---
+            "flanc": (QColor("#8B7355"), QColor("#D2B48C"), 2),
+            "dessus": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "dessous": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "etagere": (QColor("#8B7355"), QColor("#C8B68C"), 1),
+            "plinthe": (QColor("#333333"), QColor("#505050"), 1),
+            "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
+            "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
         }
 
         # Dessiner les rectangles par ordre de couche
-        ordre = ["sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
+        ordre_placard = ["sol", "mur", "panneau_mur", "separation",
+                         "rayon_haut", "rayon",
+                         "cremaillere_encastree", "cremaillere_applique",
+                         "tasseau"]
+        ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
+                        "separation", "etagere", "porte", "tiroir"]
+
+        # Construire l'ordre complet: placard + meuble + types inconnus
+        ordre_connu = set(ordre_placard + ordre_meuble)
         rects_par_type = {}
         for r in self._rects:
             rects_par_type.setdefault(r.type_elem, []).append(r)
+
+        ordre = ordre_placard + ordre_meuble
+        # Ajouter les types non reconnus a la fin
+        for t in rects_par_type:
+            if t not in ordre_connu and t != "cotation":
+                ordre.append(t)
 
         for type_elem in ordre:
             if type_elem not in rects_par_type:
@@ -410,17 +433,23 @@ class PlacardViewer(QWidget):
 
         painter.setFont(font)
 
-        # --- Cotations hauteurs entre rayons par compartiment ---
+        # --- Cotations hauteurs entre rayons/etageres par compartiment ---
         rayons_par_comp: dict[int, list[float]] = {}
         for r in self._rects:
             if r.type_elem == "rayon" and r.label.startswith("Rayon C"):
                 parts = r.label.split()
                 cn = int(parts[1][1:])
                 rayons_par_comp.setdefault(cn, []).append(r.y)
+            elif r.type_elem == "etagere" and r.label.startswith("Etagere C"):
+                parts = r.label.split()
+                cn = int(parts[1][1:])
+                rayons_par_comp.setdefault(cn, []).append(r.y)
 
         if rayons_par_comp:
-            # Limite haute : dessous du rayon haut ou plafond
+            # Limite haute : dessous du rayon haut, dessus, ou plafond
             rh = next((r for r in self._rects if r.type_elem == "rayon_haut"), None)
+            if rh is None:
+                rh = next((r for r in self._rects if r.type_elem == "dessus"), None)
             z_plafond = rh.y if rh else H
 
             # Bords des compartiments
@@ -429,6 +458,12 @@ class PlacardViewer(QWidget):
                 edges_comp.append(s.x)
                 edges_comp.append(s.x + s.w)
             edges_comp.append(L)
+
+            # Niveau bas: dessus du dessous (meuble) ou sol (placard)
+            dessous_rect = next(
+                (r for r in self._rects if r.type_elem == "dessous"), None
+            )
+            z_plancher = (dessous_rect.y + dessous_rect.h) if dessous_rect else 0.0
 
             coul_vert = QColor(0, 140, 70)
             font_r = QFont()
@@ -446,7 +481,7 @@ class PlacardViewer(QWidget):
                 x_r = edges_comp[ci * 2 + 1]
                 x_mid = (x_l + x_r) / 2
 
-                niveaux = [0.0] + z_sorted + [z_plafond]
+                niveaux = [z_plancher] + z_sorted + [z_plafond]
 
                 painter.setPen(QPen(coul_vert, 1))
 
@@ -508,6 +543,7 @@ class PlacardViewer(QWidget):
         scale, ox, oy = self._get_transform()
 
         type_pens = {
+            # --- Placard ---
             "mur": (QColor("#D5D5D0"), QColor("#E8E8E4"), 1),
             "sol": (QColor("#444444"), QColor("#555555"), 1),
             "separation": (QColor("#8B7355"), QColor("#D2B48C"), 2),
@@ -517,15 +553,32 @@ class PlacardViewer(QWidget):
             "cremaillere_applique": (QColor("#CC0000"), QColor("#FF4444"), 0.5),
             "panneau_mur": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "tasseau": (QColor("#8B6914"), QColor("#DAA520"), 1),
+            # --- Meuble ---
+            "flanc": (QColor("#8B7355"), QColor("#D2B48C"), 2),
+            "dessus": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "dessous": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "etagere": (QColor("#8B7355"), QColor("#C8B68C"), 1),
+            "plinthe": (QColor("#333333"), QColor("#505050"), 1),
+            "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
+            "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
         }
 
-        ordre = [
-            "sol", "mur", "panneau_mur", "separation", "rayon_haut",
-            "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau",
-        ]
+        ordre_placard = ["sol", "mur", "panneau_mur", "separation",
+                         "rayon_haut", "rayon",
+                         "cremaillere_encastree", "cremaillere_applique",
+                         "tasseau"]
+        ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
+                        "separation", "etagere", "porte", "tiroir"]
+
+        ordre_connu = set(ordre_placard + ordre_meuble)
         rects_par_type = {}
         for r in self._rects:
             rects_par_type.setdefault(r.type_elem, []).append(r)
+
+        ordre = ordre_placard + ordre_meuble
+        for t in rects_par_type:
+            if t not in ordre_connu and t != "cotation":
+                ordre.append(t)
 
         for type_elem in ordre:
             if type_elem not in rects_par_type:
