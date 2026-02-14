@@ -326,7 +326,7 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
     for obj in objets:
         label = xml_escape(obj["label"], {'"': '&quot;'})
         lines.append(f'<Object name="{xml_escape(obj["nom"])}">')
-        lines.append('<Properties Count="5">')
+        lines.append('<Properties Count="6">')
 
         # Label
         lines.append('<Property name="Label" type="App::PropertyString">')
@@ -360,10 +360,26 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
             f'Oz="1.000000000000000e+0"/>')
         lines.append('</Property>')
 
+        # Shape (status=1 = Touched → force le recalcul a l'ouverture)
+        lines.append(
+            '<Property name="Shape" type="Part::PropertyPartShape" '
+            'status="1">'
+        )
+        lines.append('</Property>')
+
         lines.append('</Properties>')
         lines.append('</Object>')
 
     lines.append('</ObjectData>')
+
+    # Dependances inter-objets (aucune)
+    lines.append(f'<ObjectDeps Count="{len(objets)}">')
+    for obj in objets:
+        lines.append(
+            f'<ObjectDep Name="{xml_escape(obj["nom"])}" Count="0"/>'
+        )
+    lines.append('</ObjectDeps>')
+
     lines.append('</Document>')
 
     return '\n'.join(lines).encode("utf-8")
