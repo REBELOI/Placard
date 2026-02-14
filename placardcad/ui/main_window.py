@@ -406,9 +406,10 @@ class MainWindow(QMainWindow):
     def _on_mode_change(self, mode: str):
         """Reagit au changement de mode dans le selecteur.
 
-        Met a jour le combo en coherence avec le contenu du schema
-        si l'utilisateur change de mode alors qu'un schema est deja saisi.
+        Met a jour les onglets de parametres et insere un template
+        si le schema est vide.
         """
+        self.params_editor.set_mode(mode)
         schema = self.schema_editor.get_schema().strip()
         if not schema:
             # Schema vide → inserer le template
@@ -424,16 +425,18 @@ class MainWindow(QMainWindow):
         self._regenerer_vue()
 
     def _sync_combo_from_schema(self):
-        """Synchronise le combo mode avec le contenu actuel du schema."""
+        """Synchronise le combo mode et les onglets parametres avec le schema."""
         schema = self.schema_editor.get_schema().strip()
         if est_schema_meuble(schema):
             self.combo_mode.blockSignals(True)
             self.combo_mode.setCurrentText("Meuble")
             self.combo_mode.blockSignals(False)
+            self.params_editor.set_mode("Meuble")
         elif schema:
             self.combo_mode.blockSignals(True)
             self.combo_mode.setCurrentText("Placard")
             self.combo_mode.blockSignals(False)
+            self.params_editor.set_mode("Placard")
 
     # =====================================================================
     #  GENERATION VUE

@@ -1,6 +1,7 @@
 """
 Editeur de parametres generaux d'un amenagement.
 Formulaire avec onglets pour les differentes categories de parametres.
+Support de deux modes (Placard / Meuble) avec onglets specifiques.
 Support d'une configuration type globale (preset) sauvegardee en base.
 """
 
@@ -9,12 +10,13 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox,
     QLineEdit, QLabel, QGroupBox, QScrollArea,
-    QPushButton, QInputDialog, QMessageBox, QMenu
+    QPushButton, QInputDialog, QMessageBox, QMenu,
+    QComboBox,
 )
 from PyQt5.QtCore import pyqtSignal
 
 # Cles regroupees dans une config type (tout sauf dimensions)
-CLES_CONFIG_TYPE = [
+CLES_CONFIG_TYPE_PLACARD = [
     "panneau_separation",
     "panneau_rayon",
     "panneau_rayon_haut",
@@ -22,6 +24,18 @@ CLES_CONFIG_TYPE = [
     "crem_encastree",
     "crem_applique",
     "tasseau",
+]
+
+CLES_CONFIG_TYPE_MEUBLE = [
+    "panneau",
+    "facade",
+    "fond",
+    "plinthe",
+    "tiroir",
+    "porte",
+    "etagere",
+    "separation",
+    "cremaillere",
 ]
 
 
@@ -36,6 +50,7 @@ class ParamsEditor(QWidget):
         self._params = {}
         self._widgets = {}
         self._blocked = False
+        self._mode = "Placard"
         self._init_ui()
 
     def set_db(self, db):
@@ -48,18 +63,18 @@ class ParamsEditor(QWidget):
 
         # Barre du haut : titre + boutons config type
         top_bar = QHBoxLayout()
-        label = QLabel("Parametres")
-        label.setStyleSheet("font-weight: bold; padding: 4px;")
-        top_bar.addWidget(label)
+        self._label_titre = QLabel("Parametres — Placard")
+        self._label_titre.setStyleSheet("font-weight: bold; padding: 4px;")
+        top_bar.addWidget(self._label_titre)
         top_bar.addStretch()
 
         btn_sauver = QPushButton("Sauver config type...")
-        btn_sauver.setToolTip("Sauvegarder panneaux + cremailleres + tasseaux comme config reutilisable")
+        btn_sauver.setToolTip("Sauvegarder la configuration comme preset reutilisable")
         btn_sauver.clicked.connect(self._sauver_preset)
         top_bar.addWidget(btn_sauver)
 
         btn_charger = QPushButton("Charger config type...")
-        btn_charger.setToolTip("Charger une config type sauvegardee (panneaux, cremailleres, tasseaux)")
+        btn_charger.setToolTip("Charger une config type sauvegardee")
         btn_charger.clicked.connect(self._charger_preset)
         top_bar.addWidget(btn_charger)
 
@@ -68,11 +83,52 @@ class ParamsEditor(QWidget):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
-        self.tabs.addTab(self._creer_onglet_dimensions(), "Dimensions")
-        self.tabs.addTab(self._creer_onglet_panneaux(), "Panneaux")
-        self.tabs.addTab(self._creer_onglet_cremailleres(), "Cremailleres")
-        self.tabs.addTab(self._creer_onglet_tasseaux(), "Tasseaux")
-        self.tabs.addTab(self._creer_onglet_debit(), "Debit")
+        self._creer_onglets_placard()
+
+    # =================================================================
+    #  MODE : basculer entre Placard et Meuble
+    # =================================================================
+
+    def set_mode(self, mode: str):
+        """Change le mode d'affichage (Placard ou Meuble).
+
+        Reconstruit les onglets avec les parametres specifiques au mode.
+
+        Args:
+            mode: 'Placard' ou 'Meuble'.
+        """
+        if mode == self._mode:
+            return
+        self._mode = mode
+        # Sauver les params courants avant de reconstruire
+        self._lire_widgets_vers_params()
+        # Vider onglets et widgets
+        while self.tabs.count() > 0:
+            w = self.tabs.widget(0)
+            self.tabs.removeTab(0)
+            w.deleteLater()
+        self._widgets.clear()
+        # Reconstruire
+        if mode == "Meuble":
+            self._creer_onglets_meuble()
+            self._label_titre.setText("Parametres — Meuble")
+        else:
+            self._creer_onglets_placard()
+            self._label_titre.setText("Parametres — Placard")
+        # Re-peupler les widgets depuis les params
+        self._blocked = True
+        try:
+            self._ecrire_params_vers_widgets()
+        finally:
+            self._blocked = False
+
+    def get_mode(self) -> str:
+        """Retourne le mode courant ('Placard' ou 'Meuble')."""
+        return self._mode
+
+    # =================================================================
+    #  WIDGETS DE BASE
+    # =================================================================
 
     def _creer_spin(self, key: str, minimum: int = 0, maximum: int = 10000,
                     suffix: str = " mm") -> QSpinBox:
@@ -105,7 +161,26 @@ class ParamsEditor(QWidget):
         self._widgets[key] = edit
         return edit
 
-    def _creer_onglet_dimensions(self) -> QWidget:
+    def _creer_combo(self, key: str, options: list[str]) -> QComboBox:
+        combo = QComboBox()
+        combo.addItems(options)
+        combo.currentTextChanged.connect(self._on_value_changed)
+        self._widgets[key] = combo
+        return combo
+
+    # =================================================================
+    #  ONGLETS PLACARD
+    # =================================================================
+
+    def _creer_onglets_placard(self):
+        """Cree les onglets specifiques au mode Placard."""
+        self.tabs.addTab(self._creer_onglet_dimensions_placard(), "Dimensions")
+        self.tabs.addTab(self._creer_onglet_panneaux(), "Panneaux")
+        self.tabs.addTab(self._creer_onglet_cremailleres(), "Cremailleres")
+        self.tabs.addTab(self._creer_onglet_tasseaux(), "Tasseaux")
+        self.tabs.addTab(self._creer_onglet_debit(), "Debit")
+
+    def _creer_onglet_dimensions_placard(self) -> QWidget:
         widget = QWidget()
         form = QFormLayout(widget)
         form.addRow("Hauteur:", self._creer_spin("hauteur", 500, 5000))
@@ -188,6 +263,161 @@ class ParamsEditor(QWidget):
         form.addRow("Biseau longueur:", self._creer_spin("tasseau.biseau_longueur", 0, 50))
         return widget
 
+    # =================================================================
+    #  ONGLETS MEUBLE
+    # =================================================================
+
+    def _creer_onglets_meuble(self):
+        """Cree les onglets specifiques au mode Meuble."""
+        self.tabs.addTab(self._creer_onglet_dimensions_meuble(), "Dimensions")
+        self.tabs.addTab(self._creer_onglet_structure_meuble(), "Structure")
+        self.tabs.addTab(self._creer_onglet_facades_meuble(), "Facades")
+        self.tabs.addTab(self._creer_onglet_interieur_meuble(), "Interieur")
+        self.tabs.addTab(self._creer_onglet_debit(), "Debit")
+
+    def _creer_onglet_dimensions_meuble(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        form.addRow("Hauteur:", self._creer_spin("hauteur", 200, 3000))
+        form.addRow("Largeur:", self._creer_spin("largeur", 200, 5000))
+        form.addRow("Profondeur:", self._creer_spin("profondeur", 200, 1000))
+        form.addRow("Epaisseur panneaux:", self._creer_spin("epaisseur", 10, 50))
+        form.addRow("Epaisseur facades:", self._creer_spin("epaisseur_facade", 10, 50))
+        form.addRow("Hauteur plinthe:", self._creer_spin("hauteur_plinthe", 0, 300))
+        return widget
+
+    def _creer_onglet_structure_meuble(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        # Assemblage
+        group_ass = QGroupBox("Assemblage")
+        form_ass = QFormLayout(group_ass)
+        form_ass.addRow("Type:", self._creer_combo(
+            "assemblage", ["dessus_entre", "dessus_sur"]))
+        form_ass.addRow("Pose facades:", self._creer_combo(
+            "pose", ["applique", "semi_applique", "encloisonnee"]))
+        layout.addWidget(group_ass)
+
+        # Panneau structure
+        group_pan = QGroupBox("Panneau structure")
+        form_pan = QFormLayout(group_pan)
+        form_pan.addRow("Couleur fab.:", self._creer_text("panneau.couleur_fab"))
+        form_pan.addRow("Epaisseur chant:", self._creer_dspin(
+            "panneau.chant_epaisseur", 0, 5))
+        form_pan.addRow("Couleur chant:", self._creer_text("panneau.chant_couleur_fab"))
+        layout.addWidget(group_pan)
+
+        # Facade
+        group_fac = QGroupBox("Facade")
+        form_fac = QFormLayout(group_fac)
+        form_fac.addRow("Couleur fab.:", self._creer_text("facade.couleur_fab"))
+        layout.addWidget(group_fac)
+
+        # Fond
+        group_fond = QGroupBox("Fond")
+        form_fond = QFormLayout(group_fond)
+        form_fond.addRow("Type:", self._creer_combo(
+            "fond.type", ["rainure", "vissage", "applique"]))
+        form_fond.addRow("Epaisseur:", self._creer_spin("fond.epaisseur", 2, 20))
+        form_fond.addRow("Profondeur rainure:", self._creer_spin(
+            "fond.profondeur_rainure", 2, 20))
+        form_fond.addRow("Distance chant:", self._creer_spin(
+            "fond.distance_chant", 0, 50))
+        layout.addWidget(group_fond)
+
+        # Plinthe
+        group_plinthe = QGroupBox("Plinthe")
+        form_plinthe = QFormLayout(group_plinthe)
+        form_plinthe.addRow("Type:", self._creer_combo(
+            "plinthe.type", ["avant", "trois_cotes", "aucune"]))
+        form_plinthe.addRow("Retrait:", self._creer_spin("plinthe.retrait", 0, 100))
+        form_plinthe.addRow("Epaisseur:", self._creer_spin("plinthe.epaisseur", 6, 50))
+        layout.addWidget(group_plinthe)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
+    def _creer_onglet_facades_meuble(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        # Portes
+        group_porte = QGroupBox("Portes (charnieres CLIP top)")
+        form_porte = QFormLayout(group_porte)
+        form_porte.addRow("Jeu haut:", self._creer_spin("porte.jeu_haut", 0, 20))
+        form_porte.addRow("Jeu bas:", self._creer_spin("porte.jeu_bas", 0, 20))
+        form_porte.addRow("Jeu lateral:", self._creer_spin("porte.jeu_lateral", 0, 20))
+        form_porte.addRow("Jeu entre portes:", self._creer_spin("porte.jeu_entre", 0, 20))
+        layout.addWidget(group_porte)
+
+        # Tiroirs
+        group_tiroir = QGroupBox("Tiroirs (LEGRABOX Blum)")
+        form_tiroir = QFormLayout(group_tiroir)
+        form_tiroir.addRow("Hauteur coulisse:", self._creer_combo(
+            "tiroir.hauteur", ["M", "K", "C", "F"]))
+        form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20))
+        form_tiroir.addRow("Jeu entre tiroirs:", self._creer_spin(
+            "tiroir.jeu_entre", 0, 20))
+
+        # Info hauteurs LEGRABOX
+        info = QLabel("M=90.5  K=128.5  C=193  F=257 mm")
+        info.setStyleSheet("color: #666; font-size: 10px; padding: 4px;")
+        form_tiroir.addRow("", info)
+        layout.addWidget(group_tiroir)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
+    def _creer_onglet_interieur_meuble(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        # Etageres
+        group_etag = QGroupBox("Etageres")
+        form_etag = QFormLayout(group_etag)
+        form_etag.addRow("Jeu lateral:", self._creer_spin("etagere.jeu_lateral", 0, 10))
+        form_etag.addRow("Retrait avant:", self._creer_spin(
+            "etagere.retrait_avant", 0, 100))
+        layout.addWidget(group_etag)
+
+        # Separations
+        group_sep = QGroupBox("Separations")
+        form_sep = QFormLayout(group_sep)
+        form_sep.addRow("Epaisseur:", self._creer_spin("separation.epaisseur", 10, 50))
+        form_sep.addRow("Retrait avant:", self._creer_spin(
+            "separation.retrait_avant", 0, 100))
+        form_sep.addRow("Retrait arriere:", self._creer_spin(
+            "separation.retrait_arriere", 0, 100))
+        layout.addWidget(group_sep)
+
+        # Cremailleres alu
+        group_crem = QGroupBox("Cremailleres aluminium")
+        form_crem = QFormLayout(group_crem)
+        form_crem.addRow("Largeur:", self._creer_spin("cremaillere.largeur", 5, 50))
+        form_crem.addRow("Profondeur:", self._creer_spin("cremaillere.profondeur", 2, 20))
+        form_crem.addRow("Distance avant:", self._creer_spin(
+            "cremaillere.distance_avant", 10, 100))
+        form_crem.addRow("Distance arriere:", self._creer_spin(
+            "cremaillere.distance_arriere", 10, 100))
+        layout.addWidget(group_crem)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
+    # =================================================================
+    #  ONGLET PARTAGE : DEBIT
+    # =================================================================
+
     def _creer_onglet_debit(self) -> QWidget:
         widget = QWidget()
         form = QFormLayout(widget)
@@ -200,19 +430,34 @@ class ParamsEditor(QWidget):
                                                        "Respecter le sens du fil"))
         return widget
 
-    # --- Preset global ---
+    # =================================================================
+    #  PRESET GLOBAL
+    # =================================================================
+
+    def _get_cles_config_type(self) -> list[str]:
+        """Retourne les cles de config type selon le mode courant."""
+        if self._mode == "Meuble":
+            return CLES_CONFIG_TYPE_MEUBLE
+        return CLES_CONFIG_TYPE_PLACARD
 
     def _extraire_config_type(self) -> dict:
-        """Extrait les parametres panneaux + cremailleres + tasseaux (sans dimensions)."""
+        """Extrait les parametres de config type (sans dimensions)."""
         self._lire_widgets_vers_params()
-        return {cle: dict(self._params[cle]) for cle in CLES_CONFIG_TYPE
-                if cle in self._params}
+        cles = self._get_cles_config_type()
+        result = {}
+        for cle in cles:
+            if cle in self._params:
+                val = self._params[cle]
+                result[cle] = dict(val) if isinstance(val, dict) else val
+        return result
 
     def _appliquer_config_type(self, config_type: dict):
         """Applique une config type sur les parametres courants (sans toucher aux dimensions)."""
-        for cle in CLES_CONFIG_TYPE:
+        cles = self._get_cles_config_type()
+        for cle in cles:
             if cle in config_type:
-                self._params[cle] = dict(config_type[cle])
+                val = config_type[cle]
+                self._params[cle] = dict(val) if isinstance(val, dict) else val
         self._blocked = True
         try:
             self._ecrire_params_vers_widgets()
@@ -221,7 +466,7 @@ class ParamsEditor(QWidget):
         self.params_modifies.emit(self._params)
 
     def _sauver_preset(self):
-        """Sauvegarde la config panneaux/cremailleres/tasseaux comme preset global."""
+        """Sauvegarde la config comme preset global."""
         if not self.db:
             QMessageBox.warning(self, "Config type", "Base de donnees non disponible.")
             return
@@ -230,7 +475,8 @@ class ParamsEditor(QWidget):
         if not config_type:
             return
 
-        configs = self.db.lister_configurations("globale")
+        categorie = "globale" if self._mode == "Placard" else "meuble"
+        configs = self.db.lister_configurations(categorie)
 
         menu = QMenu(self)
         action_new = menu.addAction("Nouvelle configuration...")
@@ -252,16 +498,16 @@ class ParamsEditor(QWidget):
 
         if op == "nouveau":
             nom, ok = QInputDialog.getText(
-                self, "Sauver configuration type",
-                "Nom de la configuration\n(panneaux + cremailleres + tasseaux) :"
+                self, f"Sauver configuration type ({self._mode})",
+                "Nom de la configuration :"
             )
             if not ok or not nom:
                 return
-            self.db.sauver_configuration(nom, "globale", config_type)
+            self.db.sauver_configuration(nom, categorie, config_type)
             QMessageBox.information(
                 self, "Configuration sauvegardee",
                 f"Configuration '{nom}' sauvegardee.\n"
-                f"Reutilisable sur tous vos projets."
+                f"Reutilisable sur tous vos projets ({self._mode})."
             )
         elif op == "ecraser":
             cfg = self.db.get_configuration(config_id)
@@ -285,7 +531,8 @@ class ParamsEditor(QWidget):
             QMessageBox.warning(self, "Config type", "Base de donnees non disponible.")
             return
 
-        configs = self.db.lister_configurations("globale")
+        categorie = "globale" if self._mode == "Placard" else "meuble"
+        configs = self.db.lister_configurations(categorie)
         if not configs:
             QMessageBox.information(
                 self, "Config type",
@@ -328,7 +575,9 @@ class ParamsEditor(QWidget):
 
         self._appliquer_config_type(cfg["params"])
 
-    # --- Valeurs ---
+    # =================================================================
+    #  VALEURS
+    # =================================================================
 
     def _on_value_changed(self, *args):
         if self._blocked:
@@ -356,7 +605,11 @@ class ParamsEditor(QWidget):
             value = self._get_nested(self._params, key)
             if value is None:
                 continue
-            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            if isinstance(widget, QComboBox):
+                idx = widget.findText(str(value))
+                if idx >= 0:
+                    widget.setCurrentIndex(idx)
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.setValue(value)
             elif isinstance(widget, QLineEdit):
                 widget.setText(str(value))
@@ -366,7 +619,9 @@ class ParamsEditor(QWidget):
     def _lire_widgets_vers_params(self):
         """Lit les widgets et met a jour les params."""
         for key, widget in self._widgets.items():
-            if isinstance(widget, QSpinBox):
+            if isinstance(widget, QComboBox):
+                value = widget.currentText()
+            elif isinstance(widget, QSpinBox):
                 value = widget.value()
             elif isinstance(widget, QDoubleSpinBox):
                 value = widget.value()
