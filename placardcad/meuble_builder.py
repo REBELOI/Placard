@@ -1130,6 +1130,9 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
     # --- Separations ---
     largeurs = calculer_largeurs_meuble(config)
     x_cursor = ep
+    sep_retrait_av = config["separation"].get("retrait_avant", 0)
+    sep_retrait_ar = config["separation"].get("retrait_arriere", 0)
+    sep_prof = P - sep_retrait_av - sep_retrait_ar
 
     compartiments_geom: list[dict] = []
     for comp_idx in range(nb_comp):
@@ -1138,8 +1141,7 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
 
         if comp_idx < nb_comp - 1:
             x_sep = x_cursor + larg_c
-            # Separation de la face avant (Y=0) jusqu'au fond
-            rects.append(Rect(x_sep, 0, ep_sep, fond_y,
+            rects.append(Rect(x_sep, sep_retrait_av, ep_sep, sep_prof,
                                couleur_struct,
                                f"Separation {comp_idx + 1}", "separation"))
             x_cursor = x_sep + ep_sep
