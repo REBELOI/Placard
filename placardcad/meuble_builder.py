@@ -54,6 +54,61 @@ RECOUVREMENT = {
     "encloisonnee": 0.0,    # 71B979, jeu de 2mm
 }
 
+CLIP_TOP_REFS = {
+    "applique": "71B959",
+    "semi_applique": "71B969",
+    "encloisonnee": "71B979",
+}
+
+
+def _get_recouvrement_facade(facade: dict, pose_globale: str) -> tuple[float, float]:
+    """Retourne (rec_gauche, rec_droite) pour une facade.
+
+    Si le type de charniere est specifie dans la facade, l'utilise.
+    Sinon, utilise la pose globale du meuble.
+
+    Args:
+        facade: Dictionnaire facade avec charniere optionnel.
+        pose_globale: Pose globale du meuble (applique, semi_applique, encloisonnee).
+
+    Returns:
+        Tuple (recouvrement_gauche, recouvrement_droite) en mm.
+    """
+    ch = facade.get("charniere")
+    ch_g = facade.get("charniere_g")
+    ch_d = facade.get("charniere_d")
+
+    if ch:
+        rec = RECOUVREMENT.get(ch, RECOUVREMENT.get(pose_globale, 16.0))
+        return rec, rec
+    elif ch_g or ch_d:
+        rec_g = RECOUVREMENT.get(ch_g or pose_globale, 16.0)
+        rec_d = RECOUVREMENT.get(ch_d or pose_globale, 16.0)
+        return rec_g, rec_d
+    else:
+        rec = RECOUVREMENT.get(pose_globale, 16.0)
+        return rec, rec
+
+
+def _get_ref_charniere(facade: dict, pose_globale: str, cote: str = "g") -> str:
+    """Retourne la reference Blum de la charniere pour une facade.
+
+    Args:
+        facade: Dictionnaire facade.
+        pose_globale: Pose globale du meuble.
+        cote: 'g' pour gauche, 'd' pour droite.
+
+    Returns:
+        Reference Blum (ex: '71B959').
+    """
+    ch = facade.get("charniere")
+    if ch:
+        return CLIP_TOP_REFS.get(ch, CLIP_TOP_REFS.get(pose_globale, "71B959"))
+    ch_side = facade.get(f"charniere_{cote}")
+    if ch_side:
+        return CLIP_TOP_REFS.get(ch_side, CLIP_TOP_REFS.get(pose_globale, "71B959"))
+    return CLIP_TOP_REFS.get(pose_globale, "71B959")
+
 
 def _rgb_to_hex(rgb: list | tuple) -> str:
     """Convertit un triplet RGB (0-1) en couleur hexadecimale."""
@@ -396,6 +451,7 @@ def _render_facade_groupes(
             h_zone_porte = gi["h_zone"]
             nb_portes = gi["nombre"]
             ouverture = gi.get("ouverture", "gauche")
+            pose_globale = config["pose"]
 
             if nb_portes >= 2:
                 jeu_e = jeu_p["jeu_entre"]
@@ -409,7 +465,6 @@ def _render_facade_groupes(
                     w_porte, h_zone_porte,
                     couleur_facade, f"Porte D C{comp_idx+1}", "porte"
                 ))
-                # Ouverture et percages : gauche > | < droite
                 _ajouter_porte_details(
                     rects, x_facade, z_current,
                     w_porte, h_zone_porte, "gauche")
@@ -424,9 +479,25 @@ def _render_facade_groupes(
                     quantite=2,
                 ))
                 nb_ch = _nb_charnieres(h_zone_porte)
+                ref_g = _get_ref_charniere(g, pose_globale, "g")
+                ref_d = _get_ref_charniere(g, pose_globale, "d")
+                if ref_g == ref_d:
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_g} (C{comp_idx+1})",
+                        nb_ch * 2, f"2 portes x {nb_ch} charnieres"
+                    )
+                else:
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_g} G (C{comp_idx+1})",
+                        nb_ch, f"Porte gauche"
+                    )
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_d} D (C{comp_idx+1})",
+                        nb_ch, f"Porte droite"
+                    )
                 fiche.ajouter_quincaillerie(
-                    f"Charnieres CLIP top (C{comp_idx+1})",
-                    nb_ch * 2, f"2 portes x {nb_ch} charnieres"
+                    f"Embases 174710ZE (C{comp_idx+1})",
+                    nb_ch * 2, f"Pour charnieres CLIP top"
                 )
             else:
                 rects.append(Rect(
@@ -443,9 +514,14 @@ def _render_facade_groupes(
                     chant_desc="4 chants",
                 ))
                 nb_ch = _nb_charnieres(h_zone_porte)
+                ref_ch = _get_ref_charniere(g, pose_globale)
                 fiche.ajouter_quincaillerie(
-                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    f"Charnieres CLIP top {ref_ch} (C{comp_idx+1})",
                     nb_ch, f"Porte {h_zone_porte:.0f}mm"
+                )
+                fiche.ajouter_quincaillerie(
+                    f"Embases 174710ZE (C{comp_idx+1})",
+                    nb_ch, f"Pour charnieres {ref_ch}"
                 )
 
             z_current += h_zone_porte
@@ -542,8 +618,7 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
 
     larg_int = L - 2 * ep
 
-    # Recouvrement facade
-    rec = RECOUVREMENT.get(pose, 16.0)
+    # Recouvrement facade (global, sera surcharge par facade si charniere specifiee)
     jeu_p = config["porte"]
 
     # =====================================================================
@@ -726,29 +801,29 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
         facade = comp_data["facade"]
         facade_type = facade["type"]
 
+        # Recouvrement par facade (charniere specifique ou pose globale)
+        rec_g, rec_d = _get_recouvrement_facade(facade, pose)
+        is_encl = (rec_g == 0 and rec_d == 0)
+
         # Zone facade disponible
         z_facade_bas = h_plinthe + jeu_p["jeu_bas"]
         z_facade_haut = H - jeu_p["jeu_haut"]
-        h_facade_zone = z_facade_haut - z_facade_bas
-
-        if pose == "encloisonnee":
+        if is_encl:
             z_facade_bas = h_plinthe + ep + jeu_p["jeu_bas"]
             z_facade_haut = h_plinthe + h_corps - ep - jeu_p["jeu_haut"]
-            h_facade_zone = z_facade_haut - z_facade_bas
+        h_facade_zone = z_facade_haut - z_facade_bas
 
         # Position X de la facade
-        if pose == "encloisonnee":
+        if is_encl:
             x_facade = cg["x"] + jeu_p["jeu_lateral"]
             w_facade = cg["largeur"] - 2 * jeu_p["jeu_lateral"]
         else:
-            # Applique / semi-applique: deborde sur les flancs/separations
-            x_facade = cg["x"] - rec + jeu_p["jeu_lateral"]
-            w_facade = cg["largeur"] + 2 * rec - 2 * jeu_p["jeu_lateral"]
-            # Ajuster si bord exterieur (flanc)
+            x_facade = cg["x"] - rec_g + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] + rec_g + rec_d - 2 * jeu_p["jeu_lateral"]
             if comp_idx == 0:
-                x_facade = -rec + ep + jeu_p["jeu_lateral"]
+                x_facade = -rec_g + ep + jeu_p["jeu_lateral"]
             if comp_idx == nb_comp - 1:
-                w_facade = (cg["x"] + cg["largeur"] + rec
+                w_facade = (cg["x"] + cg["largeur"] + rec_d
                             - jeu_p["jeu_lateral"]) - x_facade
 
         # Determiner si on utilise le rendu par groupes
@@ -790,9 +865,14 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     chant_desc="4 chants",
                 ))
                 nb_ch = _nb_charnieres(h_facade_zone)
+                ref_ch = _get_ref_charniere(facade, pose)
                 fiche.ajouter_quincaillerie(
-                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    f"Charnieres CLIP top {ref_ch} (C{comp_idx+1})",
                     nb_ch, f"Porte {h_facade_zone:.0f}mm"
+                )
+                fiche.ajouter_quincaillerie(
+                    f"Embases 174710ZE (C{comp_idx+1})",
+                    nb_ch, f"Pour charnieres {ref_ch}"
                 )
             elif nb_portes >= 2:
                 jeu_e = jeu_p["jeu_entre"]
@@ -825,10 +905,30 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     quantite=2,
                 ))
                 nb_ch = _nb_charnieres(h_facade_zone)
-                fiche.ajouter_quincaillerie(
-                    f"Charnieres CLIP top (C{comp_idx+1})",
-                    nb_ch * 2, f"2 portes x {nb_ch} charnieres"
-                )
+                ref_ch_g = _get_ref_charniere(facade, pose, "g")
+                ref_ch_d = _get_ref_charniere(facade, pose, "d")
+                if ref_ch_g == ref_ch_d:
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_ch_g} (C{comp_idx+1})",
+                        nb_ch * 2, f"2 portes x {nb_ch} charnieres"
+                    )
+                    fiche.ajouter_quincaillerie(
+                        f"Embases 174710ZE (C{comp_idx+1})",
+                        nb_ch * 2, f"Pour charnieres {ref_ch_g}"
+                    )
+                else:
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_ch_g} G (C{comp_idx+1})",
+                        nb_ch, f"Porte gauche"
+                    )
+                    fiche.ajouter_quincaillerie(
+                        f"Charnieres CLIP top {ref_ch_d} D (C{comp_idx+1})",
+                        nb_ch, f"Porte droite"
+                    )
+                    fiche.ajouter_quincaillerie(
+                        f"Embases 174710ZE (C{comp_idx+1})",
+                        nb_ch * 2, f"Pour charnieres"
+                    )
 
         # --- Tiroirs generiques T (groupe unique, hauteur=None) ---
         elif facade_type == "tiroirs":
@@ -1092,7 +1192,6 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
 
     # --- Facades (en avant du caisson, y negatif) ---
     pose = config["pose"]
-    rec = RECOUVREMENT.get(pose, 16.0)
     jeu_p = config["porte"]
 
     for comp_idx in range(nb_comp):
@@ -1104,17 +1203,20 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
         if facade_type == "niche":
             continue
 
-        # Position X de la facade (meme logique que vue de face)
-        if pose == "encloisonnee":
+        # Position X de la facade (per-facade recouvrement)
+        rec_g, rec_d = _get_recouvrement_facade(facade, pose)
+        is_encl = (rec_g == 0 and rec_d == 0)
+
+        if is_encl:
             x_facade = cg["x"] + jeu_p["jeu_lateral"]
             w_facade = cg["largeur"] - 2 * jeu_p["jeu_lateral"]
         else:
-            x_facade = cg["x"] - rec + jeu_p["jeu_lateral"]
-            w_facade = cg["largeur"] + 2 * rec - 2 * jeu_p["jeu_lateral"]
+            x_facade = cg["x"] - rec_g + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] + rec_g + rec_d - 2 * jeu_p["jeu_lateral"]
             if comp_idx == 0:
-                x_facade = -rec + ep + jeu_p["jeu_lateral"]
+                x_facade = -rec_g + ep + jeu_p["jeu_lateral"]
             if comp_idx == nb_comp - 1:
-                w_facade = (cg["x"] + cg["largeur"] + rec
+                w_facade = (cg["x"] + cg["largeur"] + rec_d
                             - jeu_p["jeu_lateral"]) - x_facade
 
         # Facade positionnee devant le caisson

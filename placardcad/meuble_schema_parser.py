@@ -25,6 +25,20 @@ Hauteurs LEGRABOX:
     - ``C`` = 193 mm (grand)
     - ``F`` = 257 mm (extra-large)
 
+Types de charnieres (prefixe/suffixe cote ferrage):
+    - ``A`` = Applique (recouvrement 16mm, ref. 71B959)
+    - ``S`` = Semi-applique (recouvrement 8mm, ref. 71B969)
+    - ``E`` = Encloisonnee (jeu 2mm, ref. 71B979)
+
+La lettre se place du cote du ferrage::
+
+    APG  -> porte gauche en applique (charnieres a gauche)
+    PDS  -> porte droite en semi-applique (charnieres a droite)
+    EPG  -> porte gauche encloisonnee
+    APPA -> 2 portes en applique
+    EPPE -> 2 portes encloisonnees
+    APPS -> applique a gauche, semi-applique a droite
+
 L'ordre des groupes avec ``+`` est du bas vers le haut::
 
     P+K    -> 1 porte en bas, 1 tiroir K en haut
@@ -33,6 +47,8 @@ L'ordre des groupes avec ``+`` est du bas vers le haut::
 """
 
 import re
+
+CHARNIERE_MAP = {"A": "applique", "S": "semi_applique", "E": "encloisonnee"}
 
 
 def est_schema_meuble(schema_text: str) -> bool:
@@ -126,7 +142,40 @@ def _parse_facade(zone: str) -> dict:
                 "groupes": [{"type": "tiroir", "hauteur": None,
                              "nombre": nb}]}
 
-    # Portes: P, PG, PD, PP, PPP, 2P, 3P, etc.
+    # Portes avec type de charniere: APG, SPG, EPG, PDA, PDS, PDE, APPA, etc.
+    # Double portes avec charnieres: [ASE]PP[ASE]
+    m_pp_ch = re.match(r'^([ASE])PP([ASE])$', zone)
+    if m_pp_ch:
+        ch_g = CHARNIERE_MAP[m_pp_ch.group(1)]
+        ch_d = CHARNIERE_MAP[m_pp_ch.group(2)]
+        return {"type": "portes", "nb_portes": 2, "nb_tiroirs": 0,
+                "ouverture": "double",
+                "charniere_g": ch_g, "charniere_d": ch_d,
+                "groupes": [{"type": "porte", "nombre": 2,
+                             "ouverture": "double",
+                             "charniere_g": ch_g, "charniere_d": ch_d}]}
+
+    # Porte gauche avec charniere: [ASE]PG ou [ASE]P
+    m_pg_ch = re.match(r'^([ASE])PG?$', zone)
+    if m_pg_ch:
+        ch = CHARNIERE_MAP[m_pg_ch.group(1)]
+        return {"type": "portes", "nb_portes": 1, "nb_tiroirs": 0,
+                "ouverture": "gauche",
+                "charniere": ch,
+                "groupes": [{"type": "porte", "nombre": 1,
+                             "ouverture": "gauche", "charniere": ch}]}
+
+    # Porte droite avec charniere: PD[ASE]
+    m_pd_ch = re.match(r'^PD([ASE])$', zone)
+    if m_pd_ch:
+        ch = CHARNIERE_MAP[m_pd_ch.group(1)]
+        return {"type": "portes", "nb_portes": 1, "nb_tiroirs": 0,
+                "ouverture": "droite",
+                "charniere": ch,
+                "groupes": [{"type": "porte", "nombre": 1,
+                             "ouverture": "droite", "charniere": ch}]}
+
+    # Portes sans charniere explicite: P, PG, PD, PP, PPP, 2P, 3P, etc.
     if re.match(r'^P{2,}$', zone):
         nb = len(zone)
         return {"type": "portes", "nb_portes": nb, "nb_tiroirs": 0,

@@ -14,6 +14,10 @@ from placardcad.meuble_builder import (
     _nb_charnieres,
     _positions_charnieres,
     _longueur_coulisse,
+    _get_recouvrement_facade,
+    _get_ref_charniere,
+    RECOUVREMENT,
+    CLIP_TOP_REFS,
 )
 
 
@@ -528,3 +532,244 @@ class TestCoulisses:
 
     def test_coulisse_courte(self):
         assert _longueur_coulisse(350, 19) == 300
+
+
+# =====================================================================
+#  Type de charniere (syntaxe parser + recouvrement builder)
+# =====================================================================
+
+class TestCharniereParser:
+    """Tests du parser pour la syntaxe type de charniere."""
+
+    def test_APG_applique_gauche(self):
+        r = _parse_facade("APG")
+        assert r["ouverture"] == "gauche"
+        assert r["charniere"] == "applique"
+        assert r["groupes"][0]["charniere"] == "applique"
+
+    def test_SPG_semi_applique_gauche(self):
+        r = _parse_facade("SPG")
+        assert r["ouverture"] == "gauche"
+        assert r["charniere"] == "semi_applique"
+
+    def test_EPG_encloisonnee_gauche(self):
+        r = _parse_facade("EPG")
+        assert r["ouverture"] == "gauche"
+        assert r["charniere"] == "encloisonnee"
+
+    def test_PDA_applique_droite(self):
+        r = _parse_facade("PDA")
+        assert r["ouverture"] == "droite"
+        assert r["charniere"] == "applique"
+
+    def test_PDS_semi_applique_droite(self):
+        r = _parse_facade("PDS")
+        assert r["ouverture"] == "droite"
+        assert r["charniere"] == "semi_applique"
+
+    def test_PDE_encloisonnee_droite(self):
+        r = _parse_facade("PDE")
+        assert r["ouverture"] == "droite"
+        assert r["charniere"] == "encloisonnee"
+
+    def test_APPA_double_applique(self):
+        r = _parse_facade("APPA")
+        assert r["ouverture"] == "double"
+        assert r["charniere_g"] == "applique"
+        assert r["charniere_d"] == "applique"
+
+    def test_SPPS_double_semi_applique(self):
+        r = _parse_facade("SPPS")
+        assert r["ouverture"] == "double"
+        assert r["charniere_g"] == "semi_applique"
+        assert r["charniere_d"] == "semi_applique"
+
+    def test_EPPE_double_encloisonnee(self):
+        r = _parse_facade("EPPE")
+        assert r["ouverture"] == "double"
+        assert r["charniere_g"] == "encloisonnee"
+        assert r["charniere_d"] == "encloisonnee"
+
+    def test_APPS_mixte_double(self):
+        r = _parse_facade("APPS")
+        assert r["ouverture"] == "double"
+        assert r["charniere_g"] == "applique"
+        assert r["charniere_d"] == "semi_applique"
+
+    def test_AP_applique_sans_G_defaut_gauche(self):
+        r = _parse_facade("AP")
+        assert r["ouverture"] == "gauche"
+        assert r["charniere"] == "applique"
+
+    def test_PG_sans_charniere(self):
+        """PG sans prefixe: pas de charniere explicite."""
+        r = _parse_facade("PG")
+        assert r["ouverture"] == "gauche"
+        assert "charniere" not in r
+
+    def test_PP_sans_charniere(self):
+        """PP sans prefixe/suffixe: pas de charniere explicite."""
+        r = _parse_facade("PP")
+        assert r["ouverture"] == "double"
+        assert "charniere_g" not in r
+
+    def test_combo_APG_plus_2F(self):
+        """Combinaison avec + : porte avec charniere + tiroirs."""
+        r = _parse_facade("2F+APG")
+        assert r["type"] == "mixte"
+        grp_porte = [g for g in r["groupes"] if g["type"] == "porte"][0]
+        assert grp_porte["charniere"] == "applique"
+
+
+class TestCharniereRecouvrement:
+    """Tests du calcul de recouvrement selon le type de charniere."""
+
+    def test_recouvrement_applique(self):
+        facade = {"charniere": "applique"}
+        rg, rd = _get_recouvrement_facade(facade, "applique")
+        assert rg == 16.0
+        assert rd == 16.0
+
+    def test_recouvrement_semi_applique(self):
+        facade = {"charniere": "semi_applique"}
+        rg, rd = _get_recouvrement_facade(facade, "applique")
+        assert rg == 8.0
+        assert rd == 8.0
+
+    def test_recouvrement_encloisonnee(self):
+        facade = {"charniere": "encloisonnee"}
+        rg, rd = _get_recouvrement_facade(facade, "applique")
+        assert rg == 0.0
+        assert rd == 0.0
+
+    def test_recouvrement_double_mixte(self):
+        facade = {"charniere_g": "applique", "charniere_d": "semi_applique"}
+        rg, rd = _get_recouvrement_facade(facade, "applique")
+        assert rg == 16.0
+        assert rd == 8.0
+
+    def test_recouvrement_defaut_pose_globale(self):
+        """Sans charniere explicite, utilise la pose globale."""
+        facade = {}
+        rg, rd = _get_recouvrement_facade(facade, "semi_applique")
+        assert rg == 8.0
+        assert rd == 8.0
+
+    def test_ref_charniere_applique(self):
+        facade = {"charniere": "applique"}
+        assert _get_ref_charniere(facade, "applique") == "71B959"
+
+    def test_ref_charniere_semi_applique(self):
+        facade = {"charniere": "semi_applique"}
+        assert _get_ref_charniere(facade, "applique") == "71B969"
+
+    def test_ref_charniere_encloisonnee(self):
+        facade = {"charniere": "encloisonnee"}
+        assert _get_ref_charniere(facade, "applique") == "71B979"
+
+    def test_ref_double_mixte(self):
+        facade = {"charniere_g": "applique", "charniere_d": "encloisonnee"}
+        assert _get_ref_charniere(facade, "applique", "g") == "71B959"
+        assert _get_ref_charniere(facade, "applique", "d") == "71B979"
+
+
+class TestCharniereBuilder:
+    """Tests d'integration: le type de charniere affecte la geometrie."""
+
+    def _config_avec_facade(self, facade_str, pose="applique"):
+        schema = f"#MEUBLE\n| {facade_str} |\n"
+        config = meuble_schema_vers_config(schema)
+        config["pose"] = pose
+        return config
+
+    def test_APG_largeur_facade_applique(self):
+        """APG doit donner le meme recouvrement qu'une pose applique."""
+        config = self._config_avec_facade("APG")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        assert len(portes) == 1
+        # Largeur = larg_int + 2*16 - 2*jeu_lat
+        larg_int = config["largeur"] - 2 * config["epaisseur"]
+        expected_w = larg_int + 2 * 16.0 - 2 * config["porte"]["jeu_lateral"]
+        assert abs(portes[0].w - expected_w) < 0.1
+
+    def test_SPG_largeur_facade_semi_applique(self):
+        """SPG = recouvrement 8mm des deux cotes."""
+        config = self._config_avec_facade("SPG")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        assert len(portes) == 1
+        larg_int = config["largeur"] - 2 * config["epaisseur"]
+        expected_w = larg_int + 2 * 8.0 - 2 * config["porte"]["jeu_lateral"]
+        assert abs(portes[0].w - expected_w) < 0.1
+
+    def test_EPG_largeur_facade_encloisonnee(self):
+        """EPG = encloisonnee, facade interieure au caisson."""
+        config = self._config_avec_facade("EPG")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        assert len(portes) == 1
+        larg_int = config["largeur"] - 2 * config["epaisseur"]
+        expected_w = larg_int - 2 * config["porte"]["jeu_lateral"]
+        assert abs(portes[0].w - expected_w) < 0.1
+
+    def test_EPG_hauteur_encloisonnee(self):
+        """EPG = encloisonnee, hauteur entre dessus et dessous."""
+        config = self._config_avec_facade("EPG")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        ep = config["epaisseur"]
+        h_plinthe = config["hauteur_plinthe"]
+        h_corps = config["hauteur"] - h_plinthe
+        jeu = config["porte"]
+        expected_h = (h_corps - 2 * ep - jeu["jeu_haut"] - jeu["jeu_bas"])
+        assert abs(portes[0].h - expected_h) < 0.1
+
+    def test_APPS_double_recouvrement_mixte(self):
+        """APPS = applique gauche (16mm) + semi-applique droite (8mm)."""
+        config = self._config_avec_facade("APPS")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        assert len(portes) == 2
+        # Largeur totale facade = larg_int + 16 + 8 - 2*jeu_lat
+        larg_int = config["largeur"] - 2 * config["epaisseur"]
+        expected_total = larg_int + 16.0 + 8.0 - 2 * config["porte"]["jeu_lateral"]
+        jeu_e = config["porte"]["jeu_entre"]
+        expected_per_door = (expected_total - jeu_e) / 2
+        assert abs(portes[0].w - expected_per_door) < 0.1
+        assert abs(portes[1].w - expected_per_door) < 0.1
+
+    def test_quincaillerie_ref_charniere_APG(self):
+        """APG: quincaillerie contient ref 71B959."""
+        config = self._config_avec_facade("APG")
+        _, fiche = generer_geometrie_meuble(config)
+        quinc = fiche.quincaillerie
+        refs = [q["nom"] for q in quinc]
+        assert any("71B959" in r for r in refs)
+        assert any("174710ZE" in r for r in refs)
+
+    def test_quincaillerie_ref_charniere_SPG(self):
+        """SPG: quincaillerie contient ref 71B969."""
+        config = self._config_avec_facade("SPG")
+        _, fiche = generer_geometrie_meuble(config)
+        quinc = fiche.quincaillerie
+        refs = [q["nom"] for q in quinc]
+        assert any("71B969" in r for r in refs)
+
+    def test_quincaillerie_APPS_refs_mixtes(self):
+        """APPS: quincaillerie contient les 2 refs differentes."""
+        config = self._config_avec_facade("APPS")
+        _, fiche = generer_geometrie_meuble(config)
+        quinc = fiche.quincaillerie
+        refs = [q["nom"] for q in quinc]
+        assert any("71B959" in r for r in refs)
+        assert any("71B969" in r for r in refs)
+
+    def test_PG_defaut_utilise_pose_globale(self):
+        """PG sans charniere: utilise la pose globale du meuble."""
+        config = self._config_avec_facade("PG", pose="semi_applique")
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        larg_int = config["largeur"] - 2 * config["epaisseur"]
+        expected_w = larg_int + 2 * 8.0 - 2 * config["porte"]["jeu_lateral"]
+        assert abs(portes[0].w - expected_w) < 0.1
