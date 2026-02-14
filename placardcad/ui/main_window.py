@@ -25,6 +25,7 @@ from .params_editor import ParamsEditor
 from .viewer_3d import PlacardViewer
 from .debit_dialog import DebitDialog
 from .pieces_manuelles_editor import PiecesManualesEditor
+from .floor_plan_editor import FloorPlanEditor
 
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
@@ -130,9 +131,15 @@ class MainWindow(QMainWindow):
         self.params_editor = ParamsEditor(db=self.db)
         self.params_editor.params_modifies.connect(self._on_params_modifies)
 
+        self.floor_plan_editor = FloorPlanEditor()
+        self.floor_plan_editor.placement_modifie.connect(
+            self._on_placement_modifie
+        )
+
         self.tabs_editeurs = QTabWidget()
         self.tabs_editeurs.addTab(self.schema_editor, "Schema")
         self.tabs_editeurs.addTab(self.params_editor, "Parametres")
+        self.tabs_editeurs.addTab(self.floor_plan_editor, "Plan")
         self.stacked_centre.addWidget(self.tabs_editeurs)  # index 0
 
         # Page 1 : Editeur pieces manuelles (tableur)
@@ -296,6 +303,7 @@ class MainWindow(QMainWindow):
         projet = self.db.get_projet(projet_id)
         if projet:
             self.statusbar.showMessage(f"Projet: {projet['nom']}")
+        self.floor_plan_editor.set_projet(projet_id, self.db)
 
     def _on_amenagement_selectionne(self, projet_id: int, amenagement_id: int):
         """Slot appele lorsqu'un amenagement est selectionne dans l'arbre.
@@ -312,6 +320,7 @@ class MainWindow(QMainWindow):
         # Basculer sur les editeurs schema/params
         self.stacked_centre.setCurrentIndex(0)
         self._charger_amenagement(amenagement_id)
+        self.floor_plan_editor.set_projet(projet_id, self.db)
 
     def _on_pieces_manuelles_selectionnees(self, projet_id: int):
         """Affiche l'editeur de pieces manuelles dans le panneau central.
@@ -379,6 +388,8 @@ class MainWindow(QMainWindow):
         """
         self._auto_save_timer.start()
         self._regenerer_vue()
+        if self._current_amenagement_id:
+            self.floor_plan_editor.refresh_meuble(self._current_amenagement_id)
 
     def _on_params_modifies(self, params: dict):
         """Slot appele quand les parametres generaux sont modifies.
@@ -390,6 +401,30 @@ class MainWindow(QMainWindow):
         """
         self._auto_save_timer.start()
         self._regenerer_vue()
+        if self._current_amenagement_id:
+            self.floor_plan_editor.refresh_meuble(self._current_amenagement_id)
+
+    def _on_placement_modifie(self, amenagement_id: int,
+                              x: float, y: float, rotation: float):
+        """Slot appele quand un meuble est deplace/tourne sur le plan.
+
+        Sauvegarde la position dans les params de l'amenagement concerne.
+
+        Args:
+            amenagement_id: Identifiant de l'amenagement deplace.
+            x: Position X en mm.
+            y: Position Y en mm.
+            rotation: Angle de rotation en degres.
+        """
+        am = self.db.get_amenagement(amenagement_id)
+        if not am:
+            return
+        params = json.loads(am.get("params_json", "{}"))
+        params["placement"] = {"x": x, "y": y, "rotation": rotation}
+        self.db.modifier_amenagement(
+            amenagement_id,
+            params_json=json.dumps(params, ensure_ascii=False),
+        )
 
     def _sauvegarder_amenagement(self):
         """Sauvegarde l'amenagement courant en base de donnees.

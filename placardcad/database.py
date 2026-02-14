@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS projets (
     nom             TEXT NOT NULL DEFAULT 'Nouveau projet',
     client          TEXT DEFAULT '',
     adresse         TEXT DEFAULT '',
+    plan_json       TEXT DEFAULT '{}',
     date_creation   TEXT NOT NULL,
     date_modif      TEXT NOT NULL,
     notes           TEXT DEFAULT ''
@@ -192,9 +193,23 @@ class Database:
         Execute le script SQL d'initialisation qui cree les tables
         ``projets``, ``amenagements``, ``configurations`` et
         ``pieces_manuelles`` avec ``CREATE TABLE IF NOT EXISTS``.
+        Migre le schema si necessaire (ajout de colonnes manquantes).
         """
         self.conn.executescript(SQL_INIT)
         self.conn.commit()
+        self._migrate()
+
+    def _migrate(self):
+        """Ajoute les colonnes manquantes dans les bases existantes."""
+        cols = {
+            row[1]
+            for row in self.conn.execute("PRAGMA table_info(projets)").fetchall()
+        }
+        if "plan_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE projets ADD COLUMN plan_json TEXT DEFAULT '{}'"
+            )
+            self.conn.commit()
 
     def close(self):
         """Ferme la connexion a la base de donnees."""
@@ -236,7 +251,7 @@ class Database:
             **kwargs: Champs a mettre a jour parmi ``nom``, ``client``,
                 ``adresse`` et ``notes``.
         """
-        allowed = {"nom", "client", "adresse", "notes"}
+        allowed = {"nom", "client", "adresse", "notes", "plan_json"}
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:
             return

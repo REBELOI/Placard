@@ -570,6 +570,12 @@ def generer_script_meuble_groupe(
     objets = _collecter_objets_3d_meuble(config)
     grp_name = _nom_groupe_freecad(nom_groupe)
 
+    # Placement du meuble sur le plan (position + rotation)
+    placement = config.get("placement", {})
+    place_x = placement.get("x", 0.0)
+    place_y = placement.get("y", 0.0)
+    place_rot = placement.get("rotation", 0.0)
+
     lines = [
         f"# Script PlacardCAD — {nom_groupe}",
         f"# Execute dans FreeCAD: Macro > Executer une macro",
@@ -594,6 +600,9 @@ def generer_script_meuble_groupe(
         "# --- Creer le conteneur (App::Part = deplacable via Placement) ---",
         "grp = doc.addObject('App::Part', GRP_NAME)",
         f"grp.Label = '{nom_groupe.replace(chr(39), chr(39) + chr(39))}'",
+        f"grp.Placement = FreeCAD.Placement(",
+        f"    FreeCAD.Vector({place_x:.2f}, {place_y:.2f}, 0),",
+        f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {place_rot:.2f}))",
         "",
     ]
 
