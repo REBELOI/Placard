@@ -674,6 +674,28 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
                 "transparence": transparence,
             })
 
+    # Plinthes de cotes (non presentes dans les rects 2D face)
+    plinthe_cfg = config.get("plinthe", {})
+    h_plinthe = config.get("hauteur_plinthe", 0)
+    if plinthe_cfg.get("type") == "trois_cotes" and h_plinthe > 0:
+        retrait_p = plinthe_cfg.get("retrait", 30)
+        ep_plinthe = plinthe_cfg.get("epaisseur", 16)
+        couleur_p = COULEURS_3D_MEUBLE.get("plinthe", (0.4, 0.4, 0.4))
+        for nom_p, px in [("Plinthe_gauche", 0.0),
+                          ("Plinthe_droite", L - ep_plinthe)]:
+            objets.append({
+                "nom": _nom_unique(nom_p, noms_utilises),
+                "label": nom_p.replace("_", " "),
+                "length": ep_plinthe,
+                "width": P - retrait_p,
+                "height": h_plinthe,
+                "px": px,
+                "py": retrait_p,
+                "pz": 0,
+                "couleur": couleur_p,
+                "transparence": 0,
+            })
+
     # Sol (contexte transparent)
     sol_couleur = (0.85, 0.85, 0.82)
     mur_ep = 20
