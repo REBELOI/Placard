@@ -344,6 +344,8 @@ class ParamsEditor(QWidget):
             "fond.profondeur_rainure", 2, 20))
         form_fond.addRow("Distance chant:", self._creer_spin(
             "fond.distance_chant", 0, 50))
+        form_fond.addRow("Hauteur (0=pleine):", self._creer_spin(
+            "fond.hauteur", 0, 3000))
         layout.addWidget(group_fond)
 
         # Plinthe

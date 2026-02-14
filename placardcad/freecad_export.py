@@ -757,25 +757,29 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     ep_fond = fond_cfg.get("epaisseur", 3)
     fond_type = fond_cfg.get("type", "rainure")
 
+    hauteur_fond_imposee = fond_cfg.get("hauteur", 0)
     if fond_type == "rainure":
         prof_r = fond_cfg.get("profondeur_rainure", 8)
         fond_px = ep - prof_r
         fond_pw = L - 2 * ep + 2 * prof_r
         fond_py = P - fond_cfg.get("distance_chant", 10) - ep_fond
         fond_pz = h_plinthe + ep - prof_r
-        fond_ph = h_corps - 2 * ep + 2 * prof_r
+        if hauteur_fond_imposee > 0:
+            fond_ph = hauteur_fond_imposee + 2 * prof_r
+        else:
+            fond_ph = h_corps - 2 * ep + 2 * prof_r
     elif fond_type == "applique":
         fond_px = 0.0
         fond_pw = L
         fond_py = P - ep_fond
         fond_pz = h_plinthe + ep
-        fond_ph = h_corps - 2 * ep
+        fond_ph = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps - 2 * ep
     else:  # vissage
         fond_px = ep
         fond_pw = L - 2 * ep
         fond_py = P - ep_fond
         fond_pz = h_plinthe + ep
-        fond_ph = h_corps - 2 * ep
+        fond_ph = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps - 2 * ep
 
     couleur_fond = COULEURS_3D_MEUBLE.get("fond", (0.83, 0.77, 0.66))
     objets.append({
@@ -796,7 +800,11 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     # ----------------------------------------------------------------
     couleur_rainure = (0.42, 0.36, 0.23)
     if fond_type == "rainure":
-        h_rainure_flanc = h_corps - 2 * ep
+        h_int_corps = h_corps - 2 * ep
+        if hauteur_fond_imposee > 0:
+            h_rainure_flanc = hauteur_fond_imposee
+        else:
+            h_rainure_flanc = h_int_corps
         z_rainure_flanc = h_plinthe + ep
         if assemblage == "dessus_sur":
             dessus_x, dessus_w = 0.0, float(L)
@@ -829,22 +837,25 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             "couleur": couleur_rainure,
             "transparence": 40,
         })
-        # Rainure fond dans dessus / traverse arriere
-        rain_dessus_label = ("Rainure fond trav. ar."
-                             if dessus_type_cfg == "traverses"
-                             else "Rainure fond dessus")
-        objets.append({
-            "nom": _nom_unique("Rainure_fond_dessus", noms_utilises),
-            "label": rain_dessus_label,
-            "length": dessus_w,
-            "width": ep_fond,
-            "height": prof_r,
-            "px": dessus_x,
-            "py": fond_py,
-            "pz": h_plinthe + h_corps - ep,
-            "couleur": couleur_rainure,
-            "transparence": 40,
-        })
+        # Rainure fond dans dessus / traverse arriere (seulement si fond pleine hauteur)
+        fond_atteint_dessus = (hauteur_fond_imposee <= 0
+                               or hauteur_fond_imposee >= h_int_corps)
+        if fond_atteint_dessus:
+            rain_dessus_label = ("Rainure fond trav. ar."
+                                 if dessus_type_cfg == "traverses"
+                                 else "Rainure fond dessus")
+            objets.append({
+                "nom": _nom_unique("Rainure_fond_dessus", noms_utilises),
+                "label": rain_dessus_label,
+                "length": dessus_w,
+                "width": ep_fond,
+                "height": prof_r,
+                "px": dessus_x,
+                "py": fond_py,
+                "pz": h_plinthe + h_corps - ep,
+                "couleur": couleur_rainure,
+                "transparence": 40,
+            })
         # Rainure fond dans dessous
         objets.append({
             "nom": _nom_unique("Rainure_fond_dessous", noms_utilises),

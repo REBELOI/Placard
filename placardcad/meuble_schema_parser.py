@@ -367,6 +367,7 @@ def meuble_schema_vers_config(schema_text: str,
             "epaisseur": 3,
             "profondeur_rainure": 8,
             "distance_chant": 10,
+            "hauteur": 0,               # mm - 0 = pleine hauteur, sinon hauteur imposee
         },
 
         # Plinthe

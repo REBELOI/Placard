@@ -720,15 +720,19 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
     # --- Fond ---
     fond_cfg = config["fond"]
     fond_type = fond_cfg["type"]
+    hauteur_fond_imposee = fond_cfg.get("hauteur", 0)
     if fond_type == "rainure":
         fond_l = L - 2 * ep + 2 * fond_cfg["profondeur_rainure"]
-        fond_h = h_corps - 2 * ep + 2 * fond_cfg["profondeur_rainure"]
+        if hauteur_fond_imposee > 0:
+            fond_h = hauteur_fond_imposee + 2 * fond_cfg["profondeur_rainure"]
+        else:
+            fond_h = h_corps - 2 * ep + 2 * fond_cfg["profondeur_rainure"]
     elif fond_type == "applique":
         fond_l = L
-        fond_h = h_corps
+        fond_h = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps
     else:  # vissage
         fond_l = larg_int
-        fond_h = h_corps - 2 * ep
+        fond_h = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps - 2 * ep
 
     fiche.ajouter_piece(PieceInfo(
         "Fond", fond_l, fond_h, fond_cfg["epaisseur"],
@@ -1159,19 +1163,27 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
     # --- Rainures fond (si type rainure) dans flancs, dessus et dessous ---
     if fond_cfg["type"] == "rainure":
         prof_r = fond_cfg["profondeur_rainure"]
+        hauteur_fond_imposee_top = fond_cfg.get("hauteur", 0)
+        H = config["hauteur"]
+        h_plinthe_top = config["hauteur_plinthe"]
+        h_corps_top = H - h_plinthe_top
+        h_int_corps_top = h_corps_top - 2 * ep
         # Flanc gauche
         rects.append(Rect(ep - prof_r, fond_y, prof_r, ep_fond,
                            couleur_rainure, "Rainure fond G", "rainure"))
         # Flanc droit
         rects.append(Rect(L - ep, fond_y, prof_r, ep_fond,
                            couleur_rainure, "Rainure fond D", "rainure"))
-        # Dessus/traverse arriere (bande horizontale a fond_y)
-        if dessus_type == "plein":
-            rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
-                               couleur_rainure, "Rainure fond dessus", "rainure"))
-        else:
-            rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
-                               couleur_rainure, "Rainure fond trav. ar.", "rainure"))
+        # Dessus/traverse arriere (seulement si fond pleine hauteur)
+        fond_atteint_dessus = (hauteur_fond_imposee_top <= 0
+                               or hauteur_fond_imposee_top >= h_int_corps_top)
+        if fond_atteint_dessus:
+            if dessus_type == "plein":
+                rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
+                                   couleur_rainure, "Rainure fond dessus", "rainure"))
+            else:
+                rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
+                                   couleur_rainure, "Rainure fond trav. ar.", "rainure"))
         # Dessous (bande horizontale a fond_y)
         rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
                            couleur_rainure, "Rainure fond dessous", "rainure"))
@@ -1349,20 +1361,24 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     # --- Fond ---
     fond_cfg = config["fond"]
     ep_fond = fond_cfg["epaisseur"]
+    hauteur_fond_imposee = fond_cfg.get("hauteur", 0)
     if fond_cfg["type"] == "rainure":
         fond_x = P - fond_cfg["distance_chant"] - ep_fond
         prof_r = fond_cfg["profondeur_rainure"]
-        # Le fond rentre dans les rainures du dessus et du dessous
-        z_fond_bas = h_plinthe + ep - prof_r
-        h_fond = h_corps - 2 * ep + 2 * prof_r
+        if hauteur_fond_imposee > 0:
+            z_fond_bas = h_plinthe + ep - prof_r
+            h_fond = hauteur_fond_imposee + 2 * prof_r
+        else:
+            z_fond_bas = h_plinthe + ep - prof_r
+            h_fond = h_corps - 2 * ep + 2 * prof_r
     elif fond_cfg["type"] == "applique":
         fond_x = P - ep_fond
         z_fond_bas = h_plinthe + ep
-        h_fond = h_corps - 2 * ep
+        h_fond = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps - 2 * ep
     else:
         fond_x = P - ep_fond
         z_fond_bas = h_plinthe + ep
-        h_fond = h_corps - 2 * ep
+        h_fond = hauteur_fond_imposee if hauteur_fond_imposee > 0 else h_corps - 2 * ep
 
     rects.append(Rect(fond_x, z_fond_bas, ep_fond, h_fond,
                        couleur_fond, "Fond", "fond"))
@@ -1414,12 +1430,17 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     # Rainure fond (si type rainure) dans flanc, dessus et dessous
     if fond_cfg["type"] == "rainure":
         prof_r = fond_cfg["profondeur_rainure"]
+        h_int_corps = h_corps - 2 * ep
+        h_rainure_flanc = (hauteur_fond_imposee
+                           if hauteur_fond_imposee > 0
+                           else h_int_corps)
         # Rainure dans le flanc (bande verticale)
-        rects.append(Rect(fond_x, h_plinthe + ep, prof_r, h_corps - 2 * ep,
+        rects.append(Rect(fond_x, h_plinthe + ep, prof_r, h_rainure_flanc,
                            couleur_rainure, "Rainure fond flanc", "rainure"))
-        # Rainure dans le dessus (entaille depuis la face interieure vers le haut)
-        rects.append(Rect(fond_x, h_plinthe + h_corps - ep, prof_r, prof_r,
-                           couleur_rainure, "Rainure fond dessus", "rainure"))
+        # Rainure dans le dessus (seulement si fond pleine hauteur)
+        if hauteur_fond_imposee <= 0 or hauteur_fond_imposee >= h_int_corps:
+            rects.append(Rect(fond_x, h_plinthe + h_corps - ep, prof_r, prof_r,
+                               couleur_rainure, "Rainure fond dessus", "rainure"))
         # Rainure dans le dessous (entaille depuis la face interieure vers le bas)
         rects.append(Rect(fond_x, h_plinthe + ep - prof_r, prof_r, prof_r,
                            couleur_rainure, "Rainure fond dessous", "rainure"))
