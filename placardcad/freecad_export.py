@@ -584,7 +584,7 @@ def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, flo
     elif type_elem == "plinthe":
         retrait = config.get("plinthe", {}).get("retrait", 30)
         ep_plinthe = config.get("plinthe", {}).get("epaisseur", 16)
-        return ep_plinthe, -retrait
+        return ep_plinthe, retrait
 
     elif type_elem == "cremaillere":
         crem_cfg = config.get("cremaillere", {})
