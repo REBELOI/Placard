@@ -1,8 +1,8 @@
 """Export FreeCAD pour PlacardCAD.
 
-Genere un fichier .FCStd (format natif FreeCAD) contenant le placard en 3D.
-Le fichier FCStd est une archive ZIP contenant Document.xml et GuiDocument.xml
-avec des objets Part::Box parametriques.
+Genere un fichier .FCStd (format natif FreeCAD) contenant le placard ou
+meuble en 3D. Le fichier FCStd est une archive ZIP contenant Document.xml
+et GuiDocument.xml avec des objets Part::Box parametriques.
 
 A l'ouverture dans FreeCAD, selectionner tout (Ctrl+A) puis
 Edit > Refresh (Ctrl+Shift+R) pour recalculer les formes.
@@ -11,6 +11,10 @@ Convention d'axes FreeCAD:
     - X = largeur (gauche vers droite).
     - Y = profondeur (face avant vers mur du fond).
     - Z = hauteur (sol vers plafond).
+
+Fonctions:
+    - exporter_freecad: export placard en .FCStd.
+    - exporter_freecad_meuble: export meuble en .FCStd.
 """
 
 import uuid
@@ -457,6 +461,194 @@ def exporter_freecad(filepath: str, config: dict) -> str:
         Chemin du fichier FCStd genere (identique a filepath).
     """
     objets = _collecter_objets_3d(config)
+
+    doc_xml = _generer_document_xml(objets)
+    gui_xml = _generer_guidocument_xml(objets)
+
+    with zipfile.ZipFile(filepath, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Document.xml", doc_xml)
+        zf.writestr("GuiDocument.xml", gui_xml)
+
+    return filepath
+
+
+# =====================================================================
+#  Export FreeCAD Meuble
+# =====================================================================
+
+COULEURS_3D_MEUBLE = {
+    "flanc": (0.82, 0.71, 0.55),
+    "dessus": (0.82, 0.71, 0.55),
+    "dessous": (0.82, 0.71, 0.55),
+    "separation": (0.82, 0.71, 0.55),
+    "fond": (0.83, 0.77, 0.66),
+    "etagere": (0.82, 0.71, 0.55),
+    "plinthe": (0.4, 0.4, 0.4),
+    "cremaillere": (0.63, 0.63, 0.63),
+    "rainure": (0.5, 0.45, 0.35),
+    "porte": (0.92, 0.92, 0.92),
+    "tiroir": (0.92, 0.92, 0.92),
+}
+
+
+def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, float]:
+    """Calcule la profondeur (Y) et le decalage Y pour un type d'element meuble.
+
+    Pour les meubles parametriques: Y=0 face avant, Y=P mur du fond.
+
+    Args:
+        type_elem: Type de l'element ('flanc', 'dessus', 'dessous',
+            'separation', 'fond', 'etagere', 'plinthe', 'cremaillere',
+            'porte', 'tiroir', 'rainure').
+        config: Configuration complete du meuble.
+
+    Returns:
+        Tuple (profondeur_mm, y_offset_mm).
+    """
+    P = config["profondeur"]
+    ep = config["epaisseur"]
+    ep_f = config["epaisseur_facade"]
+    fond_cfg = config.get("fond", {})
+    ep_fond = fond_cfg.get("epaisseur", 3)
+
+    if type_elem in ("flanc", "dessus", "dessous", "separation"):
+        return P, 0
+
+    elif type_elem == "fond":
+        return ep_fond, P - ep_fond
+
+    elif type_elem == "etagere":
+        retrait_av = config.get("etagere", {}).get("retrait_avant", 20)
+        dist_chant = fond_cfg.get("distance_chant", 10)
+        depth = P - retrait_av - dist_chant - ep_fond
+        return depth, retrait_av
+
+    elif type_elem == "plinthe":
+        retrait = config.get("plinthe", {}).get("retrait", 30)
+        ep_plinthe = config.get("plinthe", {}).get("epaisseur", 16)
+        return ep_plinthe, -retrait
+
+    elif type_elem == "cremaillere":
+        crem_cfg = config.get("cremaillere", {})
+        dist_av = crem_cfg.get("distance_avant", 37)
+        dist_ar = crem_cfg.get("distance_arriere", 37)
+        depth = P - dist_av - dist_ar
+        return depth, dist_av
+
+    elif type_elem == "rainure":
+        # Rainure dans les panneaux: petit volume
+        prof_r = fond_cfg.get("profondeur_rainure", 8)
+        return prof_r, P - ep_fond - prof_r
+
+    elif type_elem in ("porte", "tiroir"):
+        # Facade en avant du caisson
+        return ep_f, -ep_f
+
+    else:
+        return P * 0.5, P * 0.25
+
+
+def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
+    """Collecte tous les objets 3D a partir de la configuration d'un meuble.
+
+    Genere la geometrie 2D de face via le builder meuble, puis convertit
+    chaque rectangle en objet 3D en calculant la profondeur selon le type.
+
+    Args:
+        config: Configuration complete du meuble.
+
+    Returns:
+        Liste de dictionnaires representant les objets 3D.
+    """
+    from .meuble_builder import generer_geometrie_meuble
+
+    rects, _fiche = generer_geometrie_meuble(config)
+
+    H = config["hauteur"]
+    L = config["largeur"]
+    P = config["profondeur"]
+
+    objets = []
+    noms_utilises: set[str] = set()
+
+    # Elements du meuble (hors cotation, ouverture, percage)
+    skip_types = ("cotation", "ouverture", "percage")
+    elements = [r for r in rects if r.type_elem not in skip_types]
+
+    grouped: dict[str, list] = {}
+    for r in elements:
+        grouped.setdefault(r.type_elem, []).append(r)
+
+    ordre = [
+        "plinthe", "flanc", "dessus", "dessous", "separation",
+        "fond", "etagere", "rainure", "cremaillere",
+        "porte", "tiroir",
+    ]
+
+    for type_elem in ordre:
+        if type_elem not in grouped:
+            continue
+
+        group_rects = grouped[type_elem]
+        couleur = COULEURS_3D_MEUBLE.get(type_elem, (0.8, 0.7, 0.55))
+        profondeur, y_offset = _profondeur_element_meuble(type_elem, config)
+
+        if profondeur <= 0:
+            continue
+
+        transparence = 40 if type_elem in ("cremaillere", "rainure") else 0
+        if type_elem in ("porte", "tiroir"):
+            transparence = 20
+
+        for i, r in enumerate(group_rects):
+            nom_base = _nom_freecad(r.label, i, type_elem)
+            nom = _nom_unique(nom_base, noms_utilises)
+            objets.append({
+                "nom": nom,
+                "label": r.label or nom,
+                "length": r.w,
+                "width": profondeur,
+                "height": r.h,
+                "px": r.x,
+                "py": y_offset,
+                "pz": r.y,
+                "couleur": couleur,
+                "transparence": transparence,
+            })
+
+    # Sol (contexte transparent)
+    sol_couleur = (0.85, 0.85, 0.82)
+    mur_ep = 20
+    objets.append({
+        "nom": _nom_unique("Sol", noms_utilises),
+        "label": "Sol",
+        "length": L + 2 * mur_ep,
+        "width": P + mur_ep,
+        "height": mur_ep,
+        "px": -mur_ep,
+        "py": -mur_ep,
+        "pz": -mur_ep,
+        "couleur": sol_couleur,
+        "transparence": 70,
+    })
+
+    return objets
+
+
+def exporter_freecad_meuble(filepath: str, config: dict) -> str:
+    """Exporte un meuble parametrique en fichier FreeCAD natif (.FCStd).
+
+    Le fichier FCStd est une archive ZIP contenant Document.xml (modele
+    parametrique) et GuiDocument.xml (proprietes visuelles).
+
+    Args:
+        filepath: Chemin du fichier .FCStd a generer.
+        config: Configuration complete du meuble.
+
+    Returns:
+        Chemin du fichier FCStd genere.
+    """
+    objets = _collecter_objets_3d_meuble(config)
 
     doc_xml = _generer_document_xml(objets)
     gui_xml = _generer_guidocument_xml(objets)

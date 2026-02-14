@@ -1,17 +1,22 @@
 """Export PDF pour REB & ELOI.
 
-Ce module genere les exports PDF des amenagements de placards.
+Ce module genere les exports PDF des amenagements de placards et meubles.
 
 Fonctions principales:
-    - exporter_pdf: une seule page paysage A4 pour un amenagement.
+    - exporter_pdf: une seule page paysage A4 pour un amenagement placard.
     - exporter_pdf_projet: une page par amenagement pour tout le projet.
     - exporter_pdf_debit: export standalone des plans de debit optimises.
+    - exporter_pdf_meuble: une page paysage A4 pour un meuble parametrique.
 
 Chaque page d'amenagement contient:
     - A gauche: vue de face filaire avec cotations.
     - A droite: fiche de debit + quincaillerie + chants + resume materiaux.
     - Cartouche en haut avec informations projet.
     - References panneaux pour etiquettes (format P{projet}/A{amenagement}/N{piece}).
+
+Chaque page meuble contient:
+    - 3 vues (face, dessus, cote) en zone gauche.
+    - Fiche de debit panneaux + chants + quincaillerie + resume optimisation a droite.
 """
 
 import re
@@ -1525,4 +1530,439 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
     _dessiner_debit_mixte(c, all_pieces, params_debit, projet_info)
 
     c.save()
+    return filepath
+
+
+# =========================================================================
+#  EXPORT PDF MEUBLE
+# =========================================================================
+
+COULEURS_MEUBLE = {
+    "plinthe": (colors.Color(0.4, 0.4, 0.4), colors.Color(0.3, 0.3, 0.3)),
+    "flanc": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "dessus": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "dessous": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "separation": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "fond": (colors.Color(0.83, 0.77, 0.66), colors.Color(0.6, 0.55, 0.45)),
+    "etagere": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "rainure": (colors.Color(0.5, 0.45, 0.35), colors.Color(0.4, 0.35, 0.25)),
+    "cremaillere": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
+    "porte": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
+    "tiroir": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
+    "cotation": (colors.Color(0.3, 0.3, 0.3), colors.Color(0.3, 0.3, 0.3)),
+}
+
+ORDRE_MEUBLE = [
+    "plinthe", "flanc", "dessus", "dessous", "separation",
+    "fond", "etagere", "rainure", "cremaillere",
+    "porte", "tiroir", "ouverture", "percage",
+]
+
+
+def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
+                          bbox_w: float, bbox_h: float,
+                          x_orig: float, y_orig: float,
+                          draw_w: float, draw_h: float,
+                          titre: str = ""):
+    """Dessine une vue meuble generique (face, dessus, cote) sur le canvas PDF.
+
+    Args:
+        c: Canvas ReportLab.
+        rects: Rectangles de la vue.
+        bbox_w: Largeur du bounding box en mm (ex: largeur meuble).
+        bbox_h: Hauteur du bounding box en mm (ex: hauteur meuble).
+        x_orig: Position X du coin bas-gauche de la zone en points PDF.
+        y_orig: Position Y du coin bas-gauche de la zone en points PDF.
+        draw_w: Largeur disponible en points PDF.
+        draw_h: Hauteur disponible en points PDF.
+        titre: Titre optionnel affiche au-dessus de la vue.
+    """
+    if titre:
+        c.setFont("Helvetica-Bold", 6)
+        c.setFillColor(colors.black)
+        c.drawString(x_orig, y_orig + draw_h - 7, titre)
+        draw_h -= 9
+        y_orig_vue = y_orig
+    else:
+        y_orig_vue = y_orig
+
+    if not rects or bbox_w <= 0 or bbox_h <= 0:
+        return
+
+    # Filtrer les rects non-dessinables
+    visible = [r for r in rects if r.type_elem not in ("cotation",)]
+
+    if not visible:
+        return
+
+    # Calcul bounding box reel
+    x_min = min(r.x for r in visible)
+    x_max = max(r.x + r.w for r in visible)
+    y_min = min(r.y for r in visible)
+    y_max = max(r.y + r.h for r in visible)
+
+    bb_w = x_max - x_min
+    bb_h = y_max - y_min
+    if bb_w <= 0 or bb_h <= 0:
+        return
+
+    marge = 4
+    view_w = draw_w - 2 * marge
+    view_h = draw_h - 2 * marge
+
+    scale = min(view_w / bb_w, view_h / bb_h)
+    ox = x_orig + marge + (view_w - bb_w * scale) / 2 - x_min * scale
+    oy = y_orig_vue + marge + (view_h - bb_h * scale) / 2 - y_min * scale
+
+    # Trier par ordre de rendu
+    rects_par_type: dict[str, list] = {}
+    for r in visible:
+        rects_par_type.setdefault(r.type_elem, []).append(r)
+
+    for type_elem in ORDRE_MEUBLE:
+        if type_elem not in rects_par_type:
+            continue
+        fill_color, stroke_color = COULEURS_MEUBLE.get(
+            type_elem, (colors.lightgrey, colors.grey)
+        )
+        c.setStrokeColor(stroke_color)
+        c.setLineWidth(0.3)
+
+        for r in rects_par_type[type_elem]:
+            sx = ox + r.x * scale
+            sy = oy + r.y * scale
+            sw = r.w * scale
+            sh = r.h * scale
+
+            if type_elem == "ouverture":
+                c.setStrokeColor(colors.Color(0.2, 0.2, 0.4))
+                c.setLineWidth(0.4)
+                cy_t = sy + sh / 2
+                p = c.beginPath()
+                if "G" in (r.label or ""):
+                    p.moveTo(sx, sy + sh)
+                    p.lineTo(sx + sw, cy_t)
+                    p.lineTo(sx, sy)
+                else:
+                    p.moveTo(sx + sw, sy + sh)
+                    p.lineTo(sx, cy_t)
+                    p.lineTo(sx + sw, sy)
+                c.drawPath(p, fill=0, stroke=1)
+                continue
+
+            if type_elem == "percage":
+                c.setStrokeColor(colors.Color(0.35, 0.35, 0.55))
+                c.setLineWidth(0.3)
+                c.ellipse(sx, sy, sx + sw, sy + sh, fill=0, stroke=1)
+                continue
+
+            c.setFillColor(fill_color)
+            c.rect(sx, sy, sw, sh, fill=1)
+
+
+def _dessiner_page_meuble(c: canvas.Canvas, config: dict,
+                           rects_face: list[PlacardRect],
+                           rects_dessus: list[PlacardRect],
+                           rects_cote: list[PlacardRect],
+                           fiche: FicheFabrication,
+                           projet_info: dict | None,
+                           amenagement_nom: str | None,
+                           projet_id: int, amenagement_id: int,
+                           params_debit: ParametresDebit | None = None):
+    """Dessine une page complete de meuble en paysage A4.
+
+    Layout:
+        - Cartouche en haut.
+        - Zone gauche: vue de face (grande) en haut, vues dessus + cote en bas.
+        - Zone droite: fiche de debit, quincaillerie, chants, resume optim.
+    """
+    page_w, page_h = landscape(A4)
+    marge = 10 * mm
+
+    if params_debit is None:
+        params_debit = ParametresDebit()
+
+    _attribuer_references(fiche, projet_id, amenagement_id)
+
+    H = config["hauteur"]
+    L = config["largeur"]
+    P = config["profondeur"]
+
+    # =================================================================
+    #  CARTOUCHE
+    # =================================================================
+    y_cartouche = page_h - marge
+    nom_projet = projet_info.get("nom", "Projet") if projet_info else "Projet"
+    client = projet_info.get("client", "") if projet_info else ""
+    adresse = projet_info.get("adresse", "") if projet_info else ""
+
+    titre = f"REB & ELOI - {nom_projet}"
+    if amenagement_nom:
+        titre += f" - {amenagement_nom}"
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(marge, y_cartouche, titre)
+
+    c.setFont("Helvetica", 7)
+    info_parts = []
+    if client:
+        info_parts.append(f"Client: {client}")
+    if adresse:
+        info_parts.append(f"Adresse: {adresse}")
+    info_parts.append(f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    info_parts.append(f"L={L:.0f} x H={H:.0f} x P={P:.0f} mm")
+    c.drawString(marge, y_cartouche - 12, "  |  ".join(info_parts))
+
+    y_sep = y_cartouche - 18
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(0.5)
+    c.line(marge, y_sep, page_w - marge, y_sep)
+
+    # =================================================================
+    #  LAYOUT ZONES
+    # =================================================================
+    zone_gauche_w = (page_w - 3 * marge) * 0.52
+    zone_droite_x = marge + zone_gauche_w + marge
+    zone_droite_w = page_w - zone_droite_x - marge
+    zone_h = y_sep - marge - 2
+
+    # Vue de face : 65% de la hauteur gauche
+    vue_face_h = zone_h * 0.65
+    vue_face_y = marge + zone_h - vue_face_h
+
+    # Vues dessus et cote : 35% restant, cote a cote
+    vue_basse_h = zone_h * 0.35 - 4
+    vue_basse_y = marge
+    vue_dessus_w = zone_gauche_w * 0.55
+    vue_cote_w = zone_gauche_w * 0.45
+
+    # =================================================================
+    #  DESSIN DES 3 VUES
+    # =================================================================
+    _dessiner_vue_meuble(c, rects_face, L, H,
+                          marge, vue_face_y, zone_gauche_w, vue_face_h,
+                          "Vue de face")
+
+    _dessiner_vue_meuble(c, rects_dessus, L, P,
+                          marge, vue_basse_y, vue_dessus_w, vue_basse_h,
+                          "Vue de dessus")
+
+    _dessiner_vue_meuble(c, rects_cote, P, H,
+                          marge + vue_dessus_w, vue_basse_y,
+                          vue_cote_w, vue_basse_h,
+                          "Vue de cote")
+
+    # =================================================================
+    #  FICHE DE DEBIT + QUINCAILLERIE (zone droite)
+    # =================================================================
+    materiaux: dict[tuple, dict] = {}
+    for p in fiche.pieces:
+        key = (p.epaisseur, p.couleur_fab, p.materiau)
+        if key not in materiaux:
+            materiaux[key] = {"surface": 0, "nb": 0}
+        materiaux[key]["surface"] += p.longueur * p.largeur * p.quantite / 1e6
+        materiaux[key]["nb"] += p.quantite
+
+    chants = _calculer_chants(fiche)
+
+    # Optimisation panneaux
+    pieces_debit = pieces_depuis_fiche(fiche, projet_id, amenagement_id)
+    plans_debit: list[PlanDecoupe] = []
+    hors_gabarit: list = []
+    if pieces_debit:
+        plans_debit, hors_gabarit = optimiser_debit(pieces_debit, params_debit)
+
+    # Tailles adaptatives
+    nb_total_lignes = (
+        1 + len(fiche.pieces)
+        + (1 + len(fiche.quincaillerie) if fiche.quincaillerie else 0)
+        + 2
+        + len(chants) + len(materiaux)
+        + 2 + (1 if plans_debit else 0)
+    )
+    row_h = min(10, max(5.5, zone_h / max(nb_total_lignes + 6, 10)))
+    font_size = max(4, min(6, row_h * 0.62))
+
+    y_cursor = y_sep - 2
+
+    # --- Titre Fiche de debit ---
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.black)
+    c.drawString(zone_droite_x, y_cursor, "Fiche de debit")
+    y_cursor -= 10
+
+    # --- Tableau pieces ---
+    p_cols = [
+        ("Ref.", 42),
+        ("Designation", 90),
+        ("L.", 28),
+        ("l.", 28),
+        ("Ep.", 22),
+        ("Qt", 18),
+        ("Chant", 50),
+    ]
+    p_rows = []
+    for p in fiche.pieces:
+        p_rows.append([
+            p.reference or "",
+            p.nom[:22],
+            f"{p.longueur:.0f}",
+            f"{p.largeur:.0f}",
+            f"{p.epaisseur:.0f}",
+            str(p.quantite),
+            (p.chant_desc or "")[:12],
+        ])
+
+    y_cursor = _dessiner_tableau(c, zone_droite_x, zone_droite_w,
+                                  y_cursor, row_h, font_size,
+                                  p_cols, p_rows)
+
+    # --- Surface totale ---
+    y_cursor -= 2
+    surface = sum(p.longueur * p.largeur * p.quantite / 1e6 for p in fiche.pieces)
+    c.setFont("Helvetica-Bold", font_size)
+    c.setFillColor(colors.black)
+    c.drawString(zone_droite_x, y_cursor,
+                 f"Surface totale : {surface:.2f} m2")
+    y_cursor -= 10
+
+    # --- Quincaillerie ---
+    if fiche.quincaillerie and y_cursor > marge + 30:
+        c.setFont("Helvetica-Bold", 7)
+        c.setFillColor(colors.black)
+        c.drawString(zone_droite_x, y_cursor, "Quincaillerie")
+        y_cursor -= 8
+
+        q_cols = [("Designation", 140), ("Qt", 24), ("Description", 114)]
+        q_rows = []
+        for q in fiche.quincaillerie:
+            q_rows.append([
+                q["nom"][:35],
+                str(q["quantite"]),
+                q["description"][:28],
+            ])
+
+        y_cursor = _dessiner_tableau(c, zone_droite_x, zone_droite_w,
+                                      y_cursor, row_h, font_size,
+                                      q_cols, q_rows)
+
+    # --- Chants ---
+    if chants and y_cursor > marge + 25:
+        y_cursor -= 6
+        c.setFont("Helvetica-Bold", 6)
+        c.setFillColor(colors.black)
+        c.drawString(zone_droite_x, y_cursor, "Chants")
+        y_cursor -= 7
+        c.setFont("Helvetica", font_size)
+        for (couleur, ep_chant), longueur_mm in chants.items():
+            if y_cursor < marge + 20:
+                break
+            ml = longueur_mm / 1000
+            c.drawString(zone_droite_x, y_cursor,
+                         f"  {couleur} ep.{ep_chant}mm : {ml:.1f} ml")
+            y_cursor -= 7
+
+    # --- Resume materiaux ---
+    if materiaux and y_cursor > marge + 25:
+        y_cursor -= 6
+        c.setFont("Helvetica-Bold", 6)
+        c.setFillColor(colors.black)
+        c.drawString(zone_droite_x, y_cursor, "Materiaux")
+        y_cursor -= 7
+        c.setFont("Helvetica", font_size)
+        for (ep, coul, mat), info in materiaux.items():
+            if y_cursor < marge + 20:
+                break
+            c.drawString(zone_droite_x, y_cursor,
+                         f"  {coul} {ep:.0f}mm: {info['surface']:.2f}m2 ({info['nb']}p)")
+            y_cursor -= 7
+
+    # --- Resume optimisation panneaux ---
+    if plans_debit and y_cursor > marge + 10:
+        y_cursor -= 6
+        c.setFont("Helvetica-Bold", 6)
+        c.setFillColor(colors.black)
+        c.drawString(zone_droite_x, y_cursor, "Optimisation panneaux")
+        y_cursor -= 8
+
+        groupes_optim: dict[tuple, list[PlanDecoupe]] = {}
+        for plan in plans_debit:
+            key = (plan.epaisseur, plan.couleur)
+            groupes_optim.setdefault(key, []).append(plan)
+
+        c.setFont("Helvetica", font_size)
+        for (ep, coul), plans_g in groupes_optim.items():
+            if y_cursor < marge + 5:
+                break
+            nb_pan = len(plans_g)
+            surf_p = sum(p.surface_pieces for p in plans_g)
+            surf_t = sum(p.surface_panneau for p in plans_g)
+            chute = (1 - surf_p / surf_t) * 100 if surf_t > 0 else 0
+            c.drawString(zone_droite_x, y_cursor,
+                         f"  {coul} {ep:.0f}mm: {nb_pan} panneau(x) "
+                         f"({params_debit.panneau_longueur:.0f}x"
+                         f"{params_debit.panneau_largeur:.0f}), "
+                         f"chute {chute:.0f}%")
+            y_cursor -= 7
+
+        if hors_gabarit and y_cursor > marge + 5:
+            c.setFont("Helvetica", font_size)
+            c.setFillColor(colors.red)
+            c.drawString(zone_droite_x, y_cursor,
+                         f"  {len(hors_gabarit)} piece(s) hors gabarit")
+
+    # --- Note references ---
+    c.setFont("Helvetica-Oblique", 4.5)
+    c.setFillColor(colors.grey)
+    c.drawString(zone_droite_x, marge,
+                 "Ref. P{projet}/A{amenagement}/N{piece}")
+
+
+def exporter_pdf_meuble(filepath: str, config: dict,
+                         rects_face: list[PlacardRect],
+                         rects_dessus: list[PlacardRect],
+                         rects_cote: list[PlacardRect],
+                         fiche: FicheFabrication,
+                         projet_info: dict | None = None,
+                         amenagement_nom: str | None = None,
+                         projet_id: int = 0,
+                         amenagement_id: int = 0,
+                         params_debit: ParametresDebit | None = None) -> str:
+    """Exporte un PDF pour un meuble parametrique avec 3 vues + fiche de debit.
+
+    Le document contient:
+    1. Page principale: 3 vues (face, dessus, cote) + fiche de debit
+       + quincaillerie + chants + resume optimisation panneaux.
+    2. Pages de plans de debit optimises (une par panneau brut).
+
+    Args:
+        filepath: Chemin du fichier PDF a generer.
+        config: Configuration complete du meuble.
+        rects_face: Rectangles de la vue de face.
+        rects_dessus: Rectangles de la vue de dessus.
+        rects_cote: Rectangles de la vue de cote.
+        fiche: Fiche de fabrication (pieces + quincaillerie).
+        projet_info: Informations projet ou None.
+        amenagement_nom: Nom de l'amenagement ou None.
+        projet_id: Identifiant du projet.
+        amenagement_id: Identifiant de l'amenagement.
+        params_debit: Parametres de debit ou None pour les valeurs par defaut.
+
+    Returns:
+        Chemin du fichier PDF genere.
+    """
+    if params_debit is None:
+        params_debit = ParametresDebit()
+
+    c_pdf = canvas.Canvas(filepath, pagesize=landscape(A4))
+
+    _dessiner_page_meuble(c_pdf, config, rects_face, rects_dessus, rects_cote,
+                           fiche, projet_info, amenagement_nom,
+                           projet_id, amenagement_id, params_debit)
+
+    # Pages plans de debit
+    _generer_et_dessiner_debit(c_pdf, fiche, projet_info, amenagement_nom,
+                                projet_id, amenagement_id, params_debit)
+
+    c_pdf.save()
     return filepath
