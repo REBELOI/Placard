@@ -208,6 +208,7 @@ class PlacardViewer(QWidget):
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
             "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
             "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
+            "poignee": (QColor("#707078"), QColor("#A0A0A8"), 1),
             "fond": (QColor("#8B8060"), QColor("#D4C5A9"), 1),
             "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
             "rainure": (QColor("#5A4A2A"), QColor("#6B5B3A"), 1),
@@ -223,7 +224,7 @@ class PlacardViewer(QWidget):
         ordre_meuble = ["plinthe", "flanc", "dessus", "traverse", "dessous",
                         "separation", "fond", "etagere",
                         "rainure", "cremaillere",
-                        "porte", "tiroir",
+                        "porte", "tiroir", "poignee",
                         "ouverture", "percage"]
 
         # Construire l'ordre complet: placard + meuble + types inconnus
@@ -602,6 +603,7 @@ class PlacardViewer(QWidget):
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
             "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
             "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
+            "poignee": (QColor("#707078"), QColor("#A0A0A8"), 1),
             "fond": (QColor("#8B8060"), QColor("#D4C5A9"), 1),
             "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
             "rainure": (QColor("#5A4A2A"), QColor("#6B5B3A"), 1),
@@ -614,7 +616,7 @@ class PlacardViewer(QWidget):
         ordre_meuble = ["plinthe", "flanc", "dessus", "traverse", "dessous",
                         "separation", "fond", "etagere",
                         "rainure", "cremaillere",
-                        "porte", "tiroir"]
+                        "porte", "tiroir", "poignee"]
 
         ordre_connu = set(ordre_placard + ordre_meuble)
         rects_par_type = {}

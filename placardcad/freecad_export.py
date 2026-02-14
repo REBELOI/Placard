@@ -547,6 +547,7 @@ COULEURS_3D_MEUBLE = {
     "rainure": (0.5, 0.45, 0.35),
     "porte": (0.92, 0.92, 0.92),
     "tiroir": (0.92, 0.92, 0.92),
+    "poignee": (0.75, 0.75, 0.78),
 }
 
 
@@ -613,6 +614,11 @@ def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, flo
         # Facade en avant du caisson
         return ep_f, -ep_f
 
+    elif type_elem == "poignee":
+        # Poignee baton: saillie depuis la face avant de la facade
+        saillie = config.get("poignee", {}).get("saillie", 36)
+        return saillie, -ep_f - saillie
+
     else:
         return P * 0.5, P * 0.25
 
@@ -651,7 +657,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     ordre = [
         "plinthe", "flanc", "dessus", "dessous", "separation",
         "fond", "etagere", "rainure", "cremaillere",
-        "porte", "tiroir",
+        "porte", "tiroir", "poignee",
     ]
 
     for type_elem in ordre:

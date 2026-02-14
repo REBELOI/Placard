@@ -29,6 +29,7 @@ CLES_CONFIG_TYPE_PLACARD = [
 CLES_CONFIG_TYPE_MEUBLE = [
     "panneau",
     "facade",
+    "poignee",
     "dessus",
     "dessous",
     "fond",
@@ -393,9 +394,34 @@ class ParamsEditor(QWidget):
         form_tiroir.addRow("", info)
         layout.addWidget(group_tiroir)
 
+        # Poignees
+        group_poignee = QGroupBox("Poignees")
+        form_poignee = QFormLayout(group_poignee)
+        form_poignee.addRow("Modele:", self._creer_combo(
+            "poignee.modele", ["baton_inox", "aucune"]))
+        form_poignee.addRow("Entraxe:", self._creer_combo_entraxe())
+        form_poignee.addRow("Distance haut:", self._creer_spin(
+            "poignee.distance_haut", 10, 200))
+        layout.addWidget(group_poignee)
+
         layout.addStretch()
         scroll.setWidget(container)
         return scroll
+
+    def _creer_combo_entraxe(self) -> QComboBox:
+        """Cree un combo pour l'entraxe des poignees baton inox."""
+        entraxes = [96, 128, 160, 192, 224, 256, 320, 392, 492, 592, 692, 792]
+        combo = QComboBox()
+        for e in entraxes:
+            longueur = e + 58
+            combo.addItem(f"{e} mm (L={longueur} mm)", e)
+        val = self._get_val("poignee.entraxe")
+        idx = combo.findData(val)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.currentIndexChanged.connect(
+            lambda: self._set_val("poignee.entraxe", combo.currentData()))
+        return combo
 
     def _creer_onglet_interieur_meuble(self) -> QWidget:
         scroll = QScrollArea()

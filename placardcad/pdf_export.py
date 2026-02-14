@@ -61,13 +61,14 @@ COULEURS_MEUBLE = {
     "cremaillere": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
     "porte": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
     "tiroir": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
+    "poignee": (colors.Color(0.75, 0.75, 0.78), colors.Color(0.5, 0.5, 0.55)),
     "cotation": (colors.Color(0.3, 0.3, 0.3), colors.Color(0.3, 0.3, 0.3)),
 }
 
 ORDRE_MEUBLE = [
     "plinthe", "flanc", "dessus", "traverse", "dessous", "separation",
     "fond", "etagere", "rainure", "cremaillere",
-    "porte", "tiroir", "ouverture", "percage",
+    "porte", "tiroir", "poignee", "ouverture", "percage",
 ]
 
 
@@ -173,7 +174,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
         "cremaillere_encastree", "cremaillere_applique", "tasseau",
         # Types meuble
         "plinthe", "flanc", "dessus", "traverse", "dessous", "fond", "etagere",
-        "rainure", "cremaillere", "porte", "tiroir",
+        "rainure", "cremaillere", "porte", "tiroir", "poignee",
         "ouverture", "percage",
     ]
     rects_par_type = {}

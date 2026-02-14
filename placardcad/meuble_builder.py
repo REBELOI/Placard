@@ -60,6 +60,64 @@ CLIP_TOP_REFS = {
     "encloisonnee": "71B979",
 }
 
+# =====================================================================
+#  Catalogue poignees baton inox (POI12xxxIN)
+# =====================================================================
+
+POIGNEE_BATON_CATALOGUE = {
+    96:  {"ref": "POI1296IN",  "longueur": 154},
+    128: {"ref": "POI12128IN", "longueur": 186},
+    160: {"ref": "POI12160IN", "longueur": 218},
+    192: {"ref": "POI12192IN", "longueur": 250},
+    224: {"ref": "POI12224IN", "longueur": 282},
+    256: {"ref": "POI12256IN", "longueur": 314},
+    320: {"ref": "POI12320IN", "longueur": 384},
+    392: {"ref": "POI12392IN", "longueur": 456},
+    492: {"ref": "POI12492IN", "longueur": 556},
+    592: {"ref": "POI12592IN", "longueur": 656},
+    692: {"ref": "POI12692IN", "longueur": 756},
+    792: {"ref": "POI12792IN", "longueur": 856},
+}
+
+
+def _ajouter_poignee(
+    rects: list[Rect],
+    config: dict,
+    x_facade: float,
+    z_facade: float,
+    w_facade: float,
+    h_facade: float,
+    label: str,
+) -> None:
+    """Ajoute un rectangle de poignee sur une facade (vue de face).
+
+    La poignee est centree en largeur et placee a distance_haut du haut.
+
+    Args:
+        rects: Liste de Rect a completer.
+        config: Configuration complete du meuble.
+        x_facade: Position X de la facade.
+        z_facade: Position Z basse de la facade.
+        w_facade: Largeur de la facade.
+        h_facade: Hauteur de la facade.
+        label: Libelle de la poignee.
+    """
+    poignee_cfg = config.get("poignee", {})
+    if poignee_cfg.get("modele", "baton_inox") == "aucune":
+        return
+    entraxe = poignee_cfg.get("entraxe", 128)
+    diametre = poignee_cfg.get("diametre", 12)
+    dist_haut = poignee_cfg.get("distance_haut", 50)
+    cat = POIGNEE_BATON_CATALOGUE.get(entraxe)
+    longueur = cat["longueur"] if cat else entraxe + 58
+
+    x_poignee = x_facade + (w_facade - longueur) / 2
+    z_poignee = z_facade + h_facade - dist_haut - diametre / 2
+    rects.append(Rect(
+        x_poignee, z_poignee, longueur, diametre,
+        "#A0A0A0", label, "poignee"
+    ))
+
 
 def _get_recouvrement_facade(facade: dict, pose_globale: str) -> tuple[float, float]:
     """Retourne (rec_gauche, rec_droite) pour une facade.
@@ -384,6 +442,9 @@ def _render_facade_groupes(
                     couleur_facade,
                     f"Tiroir C{comp_idx+1} {h_code}{t_idx+1}", "tiroir"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_t, w_facade, h_t,
+                    f"Poignee tiroir C{comp_idx+1} {h_code}{t_idx+1}")
                 z_t += h_t + jeu_entre_t
 
             # BOM: facades tiroirs (groupees par dimension)
@@ -465,6 +526,15 @@ def _render_facade_groupes(
                     w_porte, h_zone_porte,
                     couleur_facade, f"Porte D C{comp_idx+1}", "porte"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_current,
+                    w_porte, h_zone_porte,
+                    f"Poignee porte G C{comp_idx+1}")
+                _ajouter_poignee(
+                    rects, config,
+                    x_facade + w_porte + jeu_e, z_current,
+                    w_porte, h_zone_porte,
+                    f"Poignee porte D C{comp_idx+1}")
                 _ajouter_porte_details(
                     rects, x_facade, z_current,
                     w_porte, h_zone_porte, "gauche")
@@ -504,6 +574,10 @@ def _render_facade_groupes(
                     x_facade, z_current, w_facade, h_zone_porte,
                     couleur_facade, f"Porte C{comp_idx+1}", "porte"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_current,
+                    w_facade, h_zone_porte,
+                    f"Poignee porte C{comp_idx+1}")
                 _ajouter_porte_details(
                     rects, x_facade, z_current,
                     w_facade, h_zone_porte, ouverture)
@@ -892,6 +966,10 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     couleur_facade,
                     f"Porte C{comp_idx+1}", "porte"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_facade_bas,
+                    w_facade, h_facade_zone,
+                    f"Poignee porte C{comp_idx+1}")
                 _ajouter_porte_details(
                     rects, x_facade, z_facade_bas,
                     w_facade, h_facade_zone, ouverture)
@@ -927,6 +1005,15 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     couleur_facade,
                     f"Porte D C{comp_idx+1}", "porte"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_facade_bas,
+                    w_porte, h_facade_zone,
+                    f"Poignee porte G C{comp_idx+1}")
+                _ajouter_poignee(
+                    rects, config,
+                    x_facade + w_porte + jeu_e, z_facade_bas,
+                    w_porte, h_facade_zone,
+                    f"Poignee porte D C{comp_idx+1}")
                 # Ouverture et percages : gauche > | < droite
                 _ajouter_porte_details(
                     rects, x_facade, z_facade_bas,
@@ -983,6 +1070,10 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     couleur_facade,
                     f"Tiroir C{comp_idx+1} T{t_idx+1}", "tiroir"
                 ))
+                _ajouter_poignee(
+                    rects, config, x_facade, z_t,
+                    w_facade, h_facade_tiroir,
+                    f"Poignee tiroir C{comp_idx+1} T{t_idx+1}")
 
             # Facade tiroir
             fiche.ajouter_piece(PieceInfo(
@@ -1023,6 +1114,28 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                 f"Coulisse LEGRABOX (C{comp_idx+1})",
                 nb_tiroirs * 2,
                 f"Paire, L={lg_coulisse}mm, hauteur {hauteur_legrabox}"
+            )
+
+    # =====================================================================
+    #  POIGNEES (BOM quincaillerie)
+    # =====================================================================
+
+    poignee_cfg = config.get("poignee", {})
+    if poignee_cfg.get("modele", "baton_inox") != "aucune":
+        nb_poignees = sum(1 for r in rects if r.type_elem == "poignee")
+        if nb_poignees > 0:
+            entraxe = poignee_cfg.get("entraxe", 128)
+            cat = POIGNEE_BATON_CATALOGUE.get(entraxe)
+            if cat:
+                ref = cat["ref"]
+                longueur = cat["longueur"]
+            else:
+                ref = f"POI12{entraxe}IN"
+                longueur = entraxe + 58
+            fiche.ajouter_quincaillerie(
+                f"Poignee baton inox {ref}",
+                nb_poignees,
+                f"Entraxe {entraxe}mm, L={longueur}mm"
             )
 
     # =====================================================================

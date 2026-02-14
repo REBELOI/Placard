@@ -432,6 +432,15 @@ def meuble_schema_vers_config(schema_text: str,
             "couleur_rgb": [0.92, 0.92, 0.92],
         },
 
+        # Poignees
+        "poignee": {
+            "modele": "baton_inox",    # modele de poignee
+            "entraxe": 128,            # mm - entraxe de fixation
+            "diametre": 12,            # mm - diametre du baton
+            "saillie": 36,             # mm - saillie depuis la facade
+            "distance_haut": 50,       # mm - distance du haut de la facade
+        },
+
         # Cremailleres
         "cremaillere": {
             "largeur": 16,
