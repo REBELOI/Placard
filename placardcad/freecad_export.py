@@ -530,6 +530,107 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _nom_groupe_freecad(nom: str) -> str:
+    """Convertit un nom d'amenagement en nom valide pour un groupe FreeCAD.
+
+    Remplace les caracteres non alphanumeriques par des underscores.
+
+    Args:
+        nom: Nom de l'amenagement.
+
+    Returns:
+        Nom valide pour un objet FreeCAD.
+    """
+    import re
+    clean = re.sub(r"[^a-zA-Z0-9_]", "_", nom)
+    clean = re.sub(r"_+", "_", clean).strip("_")
+    return clean or "Meuble"
+
+
+def generer_script_meuble_groupe(
+    config: dict,
+    nom_groupe: str,
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> str:
+    """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un groupe.
+
+    Le script est concu pour etre execute dans un document FreeCAD existant.
+    Si le groupe existe deja, il est supprime puis recree. Chaque element
+    du meuble est un Part::Box ajoute au groupe. Le groupe peut ensuite
+    etre deplace dans FreeCAD via sa propriete Placement.
+
+    Args:
+        config: Configuration complete du meuble.
+        nom_groupe: Nom du groupe FreeCAD (issu du nom d'amenagement).
+        offset: Decalage (X, Y, Z) pour positionner le meuble.
+
+    Returns:
+        Code source Python du script FreeCAD.
+    """
+    objets = _collecter_objets_3d_meuble(config)
+    grp_name = _nom_groupe_freecad(nom_groupe)
+
+    lines = [
+        f"# Script PlacardCAD — {nom_groupe}",
+        f"# Execute dans FreeCAD: Macro > Executer une macro",
+        f"# Cree ou met a jour le groupe '{grp_name}' dans le document actif.",
+        "",
+        "import FreeCAD",
+        "import Part",
+        "",
+        "doc = FreeCAD.activeDocument()",
+        "if doc is None:",
+        "    doc = FreeCAD.newDocument('Cuisine')",
+        "",
+        f"GRP_NAME = '{grp_name}'",
+        f"OFFSET = FreeCAD.Vector({offset[0]:.2f}, {offset[1]:.2f}, {offset[2]:.2f})",
+        "",
+        "# --- Supprimer le groupe existant s'il existe ---",
+        "old_grp = doc.getObject(GRP_NAME)",
+        "if old_grp is not None:",
+        "    for child in old_grp.Group:",
+        "        doc.removeObject(child.Name)",
+        "    doc.removeObject(GRP_NAME)",
+        "",
+        "# --- Creer le groupe ---",
+        "grp = doc.addObject('App::DocumentObjectGroup', GRP_NAME)",
+        f"grp.Label = '{nom_groupe.replace(chr(39), chr(39) + chr(39))}'",
+        "",
+    ]
+
+    for obj in objets:
+        nom = obj["nom"]
+        label = obj["label"].replace("'", "\\'")
+        r, g, b = obj["couleur"]
+        px, py, pz = obj["px"], obj["py"], obj["pz"]
+
+        lines.append(f"obj = doc.addObject('Part::Box', '{nom}')")
+        lines.append(f"obj.Label = '{label}'")
+        lines.append(f"obj.Length = {obj['length']:.2f}")
+        lines.append(f"obj.Width = {obj['width']:.2f}")
+        lines.append(f"obj.Height = {obj['height']:.2f}")
+        lines.append(
+            f"obj.Placement = FreeCAD.Placement("
+            f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}) + OFFSET, "
+            f"FreeCAD.Rotation(0, 0, 0, 1))"
+        )
+        lines.append(
+            f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
+        )
+        if obj["transparence"] > 0:
+            lines.append(
+                f"obj.ViewObject.Transparency = {obj['transparence']}"
+            )
+        lines.append("grp.addObject(obj)")
+        lines.append("")
+
+    lines.append("doc.recompute()")
+    lines.append(f"print(f'Groupe {{GRP_NAME}} cree avec {len(objets)} objets.')")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 # =====================================================================
 #  Export FreeCAD Meuble
 # =====================================================================

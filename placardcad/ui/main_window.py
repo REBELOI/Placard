@@ -37,7 +37,10 @@ from ..meuble_builder import (
 )
 from ..pdf_export import exporter_pdf, exporter_pdf_projet, exporter_pdf_meuble
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
-from ..freecad_export import exporter_freecad, exporter_freecad_meuble, generer_script_freecad
+from ..freecad_export import (
+    exporter_freecad, exporter_freecad_meuble,
+    generer_script_freecad, generer_script_meuble_groupe,
+)
 from ..dxf_export import exporter_dxf
 from ..etiquettes_export import exporter_etiquettes
 from ..liste_courses import generer_liste_courses, exporter_liste_courses
@@ -241,6 +244,14 @@ class MainWindow(QMainWindow):
         self.action_export_freecad = QAction("Exporter FreeCAD", self)
         self.action_export_freecad.triggered.connect(self._exporter_freecad)
         toolbar.addAction(self.action_export_freecad)
+
+        # Export Script FreeCAD (meuble dans un groupe)
+        self.action_export_script = QAction("Script FreeCAD", self)
+        self.action_export_script.setToolTip(
+            "Exporter un script Python FreeCAD avec groupe nommé\n"
+            "(pour assembler plusieurs meubles dans un même document)")
+        self.action_export_script.triggered.connect(self._exporter_script_freecad)
+        toolbar.addAction(self.action_export_script)
 
         # Export DXF
         self.action_export_dxf = QAction("Exporter DXF", self)
@@ -955,6 +966,62 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))
+
+    def _exporter_script_freecad(self):
+        """Exporte un script Python FreeCAD avec groupe nomme.
+
+        Le script cree ou met a jour un groupe dans le document FreeCAD actif.
+        Chaque element du meuble est un Part::Box dans le groupe.
+        Si le groupe existe deja, il est supprime et recree.
+        Permet d'assembler plusieurs meubles dans un meme document.
+        """
+        if not self._rects:
+            QMessageBox.warning(self, "Script FreeCAD",
+                                "Aucun amenagement a exporter.")
+            return
+
+        schema_text = self.schema_editor.get_schema()
+        if not est_schema_meuble(schema_text):
+            QMessageBox.warning(self, "Script FreeCAD",
+                                "L'export script avec groupe n'est disponible\n"
+                                "que pour les meubles (#MEUBLE).")
+            return
+
+        # Nom du groupe = nom de l'amenagement
+        nom_groupe = "Meuble"
+        if self._current_amenagement_id and self.db:
+            am = self.db.get_amenagement(self._current_amenagement_id)
+            if am and am.get("nom"):
+                nom_groupe = am["nom"]
+
+        # Proposer le fichier de sortie
+        default_name = nom_groupe.replace(" ", "_") + ".py"
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exporter script FreeCAD",
+            default_name,
+            "Python (*.py);;Tous (*)"
+        )
+        if not filepath:
+            return
+
+        params = self.params_editor.get_params()
+        config = meuble_schema_vers_config(schema_text, params)
+
+        try:
+            script = generer_script_meuble_groupe(config, nom_groupe)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(script)
+
+            self.statusbar.showMessage(f"Script exporte: {filepath}")
+            QMessageBox.information(
+                self, "Script FreeCAD",
+                f"Script exporte:\n{filepath}\n\n"
+                f"Groupe: {nom_groupe}\n\n"
+                "Ouvrir dans FreeCAD: Macro > Executer une macro.\n"
+                "Le groupe sera cree ou mis a jour dans le document actif."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export script", str(e))
 
     def _exporter_etiquettes(self):
         """Exporte les etiquettes de pieces en PDF format A4.
