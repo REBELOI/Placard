@@ -13,9 +13,23 @@ Symboles:
     - ``|`` : flanc (bord) ou separation verticale
     - ``P`` : porte (PP = 2 portes doubles, PG = gauche, PD = droite)
     - ``T`` : tiroir (TT = 2 tiroirs, TTT = 3, etc.)
+    - ``F``, ``K``, ``C``, ``M`` : tiroir avec hauteur LEGRABOX explicite
+    - ``+`` : combinaison de groupes du bas vers le haut (ex: ``2F+K``, ``P+2F``)
     - ``N`` : niche (pas de facade)
     - ``--`` ou ``==`` : etagere dans un compartiment
     - Derniere ligne (chiffres) : largeurs en mm par compartiment
+
+Hauteurs LEGRABOX:
+    - ``M`` = 90.5 mm (mini)
+    - ``K`` = 128.5 mm (standard)
+    - ``C`` = 193 mm (grand)
+    - ``F`` = 257 mm (extra-large)
+
+L'ordre des groupes avec ``+`` est du bas vers le haut::
+
+    P+K    -> 1 porte en bas, 1 tiroir K en haut
+    K+P    -> 1 tiroir K en bas, 1 porte en haut
+    2F+K   -> 2 tiroirs F en bas, 1 tiroir K en haut
 """
 
 import re
@@ -39,7 +53,7 @@ def _parse_facade(zone: str) -> dict:
 
     Args:
         zone: Texte entre separateurs sur la ligne de facade.
-            Ex: 'PP', '3T', 'PG', 'N', '2T+P'.
+            Ex: 'PP', '3T', 'PG', 'N', '2F+K', 'P+2F'.
 
     Returns:
         Dictionnaire avec les cles:
@@ -47,26 +61,60 @@ def _parse_facade(zone: str) -> dict:
             - nb_portes: nombre de portes
             - nb_tiroirs: nombre de tiroirs
             - ouverture: 'gauche', 'droite', 'double' ou None
+            - groupes: liste ordonnee bas->haut de groupes de facade.
+              Chaque groupe: {"type": "tiroir"|"porte", "nombre": int,
+              "hauteur": str|None, "ouverture": str|None}
     """
     zone = zone.strip().upper()
     if not zone or zone == "N":
         return {"type": "niche", "nb_portes": 0, "nb_tiroirs": 0,
-                "ouverture": None}
+                "ouverture": None, "groupes": []}
 
-    # Mixte: combinaison T+P (ex: "2T+P", "3T+PD")
+    # Combinaison avec + : groupes ordonnes du bas vers le haut
     if "+" in zone:
         parts = zone.split("+")
-        result = {"type": "mixte", "nb_portes": 0, "nb_tiroirs": 0,
-                  "ouverture": None}
+        groupes = []
+        total_p = 0
+        total_t = 0
+        ouv = None
         for part in parts:
             sub = _parse_facade(part.strip())
-            result["nb_portes"] += sub["nb_portes"]
-            result["nb_tiroirs"] += sub["nb_tiroirs"]
+            total_p += sub["nb_portes"]
+            total_t += sub["nb_tiroirs"]
             if sub["ouverture"]:
-                result["ouverture"] = sub["ouverture"]
-        return result
+                ouv = sub["ouverture"]
+            groupes.extend(sub["groupes"])
 
-    # Tiroirs: T, TT, TTT, 2T, 3T, etc.
+        if total_p > 0 and total_t > 0:
+            ftype = "mixte"
+        elif total_t > 0:
+            ftype = "tiroirs"
+        else:
+            ftype = "portes"
+
+        return {"type": ftype, "nb_portes": total_p, "nb_tiroirs": total_t,
+                "ouverture": ouv, "groupes": groupes}
+
+    # Tiroirs hauteur LEGRABOX explicite: F, FF, 2F, K, KK, 2K, M, C, etc.
+    m_h_num = re.match(r'^(\d+)([FKCM])$', zone)
+    if m_h_num:
+        nb = int(m_h_num.group(1))
+        hauteur = m_h_num.group(2)
+        return {"type": "tiroirs", "nb_portes": 0, "nb_tiroirs": nb,
+                "ouverture": None,
+                "groupes": [{"type": "tiroir", "hauteur": hauteur,
+                             "nombre": nb}]}
+
+    m_h_rep = re.match(r'^([FKCM])\1*$', zone)
+    if m_h_rep:
+        nb = len(zone)
+        hauteur = m_h_rep.group(1)
+        return {"type": "tiroirs", "nb_portes": 0, "nb_tiroirs": nb,
+                "ouverture": None,
+                "groupes": [{"type": "tiroir", "hauteur": hauteur,
+                             "nombre": nb}]}
+
+    # Tiroirs generiques: T, TT, TTT, 2T, 3T, etc.
     m_tiroir = re.match(r'^(\d*)T+$', zone)
     if m_tiroir:
         if m_tiroir.group(1):
@@ -74,14 +122,17 @@ def _parse_facade(zone: str) -> dict:
         else:
             nb = zone.count("T")
         return {"type": "tiroirs", "nb_portes": 0, "nb_tiroirs": nb,
-                "ouverture": None}
+                "ouverture": None,
+                "groupes": [{"type": "tiroir", "hauteur": None,
+                             "nombre": nb}]}
 
     # Portes: P, PG, PD, PP, PPP, 2P, 3P, etc.
-    # PP ou PPP... = compter les P
     if re.match(r'^P{2,}$', zone):
         nb = len(zone)
         return {"type": "portes", "nb_portes": nb, "nb_tiroirs": 0,
-                "ouverture": "double"}
+                "ouverture": "double",
+                "groupes": [{"type": "porte", "nombre": nb,
+                             "ouverture": "double"}]}
 
     m_porte = re.match(r'^(\d*)P([GD]?)$', zone)
     if m_porte:
@@ -92,11 +143,13 @@ def _parse_facade(zone: str) -> dict:
         if nb >= 2:
             ouv = "double"
         return {"type": "portes", "nb_portes": nb, "nb_tiroirs": 0,
-                "ouverture": ouv}
+                "ouverture": ouv,
+                "groupes": [{"type": "porte", "nombre": nb,
+                             "ouverture": ouv}]}
 
     # Fallback: niche
     return {"type": "niche", "nb_portes": 0, "nb_tiroirs": 0,
-            "ouverture": None}
+            "ouverture": None, "groupes": []}
 
 
 def parser_schema_meuble(schema_text: str) -> dict:

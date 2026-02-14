@@ -82,6 +82,89 @@ class TestParseFacade:
         assert f["nb_tiroirs"] == 2
         assert f["nb_portes"] == 1
 
+    # --- Groupes et hauteurs explicites ---
+
+    def test_groupes_tiroir_T(self):
+        f = _parse_facade("TTT")
+        assert len(f["groupes"]) == 1
+        assert f["groupes"][0]["type"] == "tiroir"
+        assert f["groupes"][0]["hauteur"] is None
+        assert f["groupes"][0]["nombre"] == 3
+
+    def test_groupes_porte(self):
+        f = _parse_facade("PP")
+        assert len(f["groupes"]) == 1
+        assert f["groupes"][0]["type"] == "porte"
+        assert f["groupes"][0]["nombre"] == 2
+
+    def test_hauteur_F_simple(self):
+        f = _parse_facade("F")
+        assert f["type"] == "tiroirs"
+        assert f["nb_tiroirs"] == 1
+        assert f["groupes"][0]["hauteur"] == "F"
+
+    def test_hauteur_FF_repete(self):
+        f = _parse_facade("FF")
+        assert f["nb_tiroirs"] == 2
+        assert f["groupes"][0]["hauteur"] == "F"
+        assert f["groupes"][0]["nombre"] == 2
+
+    def test_hauteur_2F_numerique(self):
+        f = _parse_facade("2F")
+        assert f["nb_tiroirs"] == 2
+        assert f["groupes"][0]["hauteur"] == "F"
+        assert f["groupes"][0]["nombre"] == 2
+
+    def test_hauteur_K(self):
+        f = _parse_facade("K")
+        assert f["groupes"][0]["hauteur"] == "K"
+
+    def test_hauteur_M(self):
+        f = _parse_facade("3M")
+        assert f["nb_tiroirs"] == 3
+        assert f["groupes"][0]["hauteur"] == "M"
+
+    def test_hauteur_C(self):
+        f = _parse_facade("CC")
+        assert f["nb_tiroirs"] == 2
+        assert f["groupes"][0]["hauteur"] == "C"
+
+    def test_multi_hauteur_2F_K(self):
+        """2F+K = 2 tiroirs F en bas + 1 tiroir K en haut."""
+        f = _parse_facade("2F+K")
+        assert f["type"] == "tiroirs"
+        assert f["nb_tiroirs"] == 3
+        assert len(f["groupes"]) == 2
+        # Bas: 2 F
+        assert f["groupes"][0]["hauteur"] == "F"
+        assert f["groupes"][0]["nombre"] == 2
+        # Haut: 1 K
+        assert f["groupes"][1]["hauteur"] == "K"
+        assert f["groupes"][1]["nombre"] == 1
+
+    def test_multi_hauteur_P_2F_K(self):
+        """P+2F+K = porte en bas, 2 F au milieu, 1 K en haut."""
+        f = _parse_facade("P+2F+K")
+        assert f["type"] == "mixte"
+        assert f["nb_portes"] == 1
+        assert f["nb_tiroirs"] == 3
+        assert len(f["groupes"]) == 3
+        assert f["groupes"][0]["type"] == "porte"
+        assert f["groupes"][1]["hauteur"] == "F"
+        assert f["groupes"][2]["hauteur"] == "K"
+
+    def test_multi_hauteur_K_P(self):
+        """K+P = tiroir K en bas, porte en haut."""
+        f = _parse_facade("K+P")
+        assert f["type"] == "mixte"
+        assert f["groupes"][0]["type"] == "tiroir"
+        assert f["groupes"][0]["hauteur"] == "K"
+        assert f["groupes"][1]["type"] == "porte"
+
+    def test_niche_groupes_vides(self):
+        f = _parse_facade("N")
+        assert f["groupes"] == []
+
 
 # =====================================================================
 #  Parser schema meuble
@@ -227,6 +310,72 @@ class TestCharnières:
 
     def test_4_charnieres_grande_porte(self):
         assert _nb_charnieres(1800) == 4
+
+
+class TestMultiHauteurBuilder:
+    """Tests du builder avec tiroirs multi-hauteurs."""
+
+    def test_2F_K_genere_3_tiroirs(self):
+        """Schema 2F+K genere 3 tiroirs avec hauteurs differentes."""
+        schema = "#MEUBLE\n| PP | 2F+K |\n  600   400"
+        config = meuble_schema_vers_config(schema)
+        rects, fiche = generer_geometrie_meuble(config)
+        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        assert len(tiroirs) == 3
+
+    def test_2F_K_fiche_2_groupes_coulisses(self):
+        """2F+K genere 2 groupes de coulisses distincts (F et K)."""
+        schema = "#MEUBLE\n| PP | 2F+K |\n  600   400"
+        config = meuble_schema_vers_config(schema)
+        _, fiche = generer_geometrie_meuble(config)
+        coulisses = [q for q in fiche.quincaillerie
+                     if "legrabox" in q["nom"].lower()]
+        assert len(coulisses) >= 1
+        # Verifier qu'il y a des coulisses F et K
+        noms = " ".join(q["nom"] for q in coulisses)
+        assert "F" in noms
+        assert "K" in noms
+
+    def test_P_K_mixte_groupes(self):
+        """P+K = porte en bas, tiroir K en haut."""
+        schema = "#MEUBLE\n| P+K |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, fiche = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        assert len(portes) >= 1
+        assert len(tiroirs) >= 1
+        # Porte en bas, tiroir en haut
+        z_porte = portes[0].y
+        z_tiroir = tiroirs[0].y
+        assert z_tiroir > z_porte
+
+    def test_K_P_ordre_inverse(self):
+        """K+P = tiroir K en bas, porte en haut."""
+        schema = "#MEUBLE\n| K+P |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        assert len(portes) >= 1
+        assert len(tiroirs) >= 1
+        # Tiroir en bas, porte en haut
+        z_porte = portes[0].y
+        z_tiroir = tiroirs[0].y
+        assert z_tiroir < z_porte
+
+    def test_3F_hauteur_legrabox_F(self):
+        """3F: chaque tiroir a une hauteur basee sur LEGRABOX F."""
+        from placardcad.meuble_builder import LEGRABOX_HAUTEURS
+        schema = "#MEUBLE\n| 3F |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        assert len(tiroirs) == 3
+        # Hauteur facade = h_cote + 2 * jeu_haut
+        h_attendue = LEGRABOX_HAUTEURS["F"] + 2 * config["porte"]["jeu_haut"]
+        for t in tiroirs:
+            assert abs(t.h - h_attendue) < 0.1
 
 
 class TestCoulisses:

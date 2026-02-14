@@ -97,6 +97,194 @@ def _longueur_coulisse(profondeur_caisson: float,
     return best
 
 
+def _render_facade_groupes(
+    rects: list[Rect],
+    fiche: FicheFabrication,
+    config: dict,
+    comp_idx: int,
+    cg: dict,
+    groupes: list[dict],
+    x_facade: float,
+    w_facade: float,
+    z_facade_bas: float,
+    z_facade_haut: float,
+    couleur_facade: str,
+    ep_f: float,
+    jeu_p: dict,
+) -> None:
+    """Rendu d'une facade composee de groupes ordonnes du bas vers le haut.
+
+    Chaque groupe est soit un groupe de tiroirs (avec hauteur LEGRABOX),
+    soit un groupe de portes (qui recoit l'espace restant).
+
+    Args:
+        rects: Liste de Rect a completer.
+        fiche: Fiche de fabrication a completer.
+        config: Configuration complete du meuble.
+        comp_idx: Indice du compartiment.
+        cg: Geometrie du compartiment (x, largeur).
+        groupes: Liste de groupes ordonnes bas->haut.
+        x_facade: Position X de la facade.
+        w_facade: Largeur de la facade.
+        z_facade_bas: Position Z basse de la zone facade.
+        z_facade_haut: Position Z haute de la zone facade.
+        couleur_facade: Couleur de la facade.
+        ep_f: Epaisseur facade.
+        jeu_p: Parametres porte (jeux).
+    """
+    h_facade_zone = z_facade_haut - z_facade_bas
+    jeu_entre_t = config["tiroir"]["jeu_entre"]
+    jeu_entre_g = jeu_p["jeu_entre"]
+    P = config["profondeur"]
+    hauteur_defaut = config["tiroir"]["hauteur"]
+
+    # --- Calculer la hauteur de chaque groupe ---
+    group_infos: list[dict] = []
+    total_fixed = 0.0
+    nb_porte_groups = 0
+
+    for g in groupes:
+        if g["type"] == "tiroir":
+            h_code = g.get("hauteur") or hauteur_defaut
+            h_cote = LEGRABOX_HAUTEURS.get(h_code, 90.5)
+            h_tiroir_facade = h_cote + 2 * jeu_p["jeu_haut"]
+            nb = g["nombre"]
+            h_zone = nb * h_tiroir_facade + max(0, nb - 1) * jeu_entre_t
+            group_infos.append({
+                "type": "tiroir", "hauteur": h_code, "nombre": nb,
+                "h_zone": h_zone, "h_facade": h_tiroir_facade,
+                "h_cote": h_cote,
+            })
+            total_fixed += h_zone
+        elif g["type"] == "porte":
+            group_infos.append({
+                "type": "porte", "nombre": g["nombre"],
+                "ouverture": g.get("ouverture", "gauche"),
+                "h_zone": 0.0,
+            })
+            nb_porte_groups += 1
+
+    # Espace restant pour les portes
+    nb_gaps = max(0, len(groupes) - 1)
+    remaining = h_facade_zone - total_fixed - nb_gaps * jeu_entre_g
+    if nb_porte_groups > 0:
+        h_per_porte = remaining / nb_porte_groups
+        for gi in group_infos:
+            if gi["type"] == "porte":
+                gi["h_zone"] = h_per_porte
+
+    # --- Positionner et dessiner chaque groupe (bas -> haut) ---
+    z_current = z_facade_bas
+
+    for gi_idx, gi in enumerate(group_infos):
+        if gi_idx > 0:
+            z_current += jeu_entre_g
+
+        if gi["type"] == "tiroir":
+            nb = gi["nombre"]
+            h_tiroir_facade = gi["h_facade"]
+            h_code = gi["hauteur"]
+            h_cote = gi["h_cote"]
+
+            for t_idx in range(nb):
+                z_t = z_current + t_idx * (h_tiroir_facade + jeu_entre_t)
+                rects.append(Rect(
+                    x_facade, z_t, w_facade, h_tiroir_facade,
+                    couleur_facade,
+                    f"Tiroir C{comp_idx+1} {h_code}{t_idx+1}", "tiroir"
+                ))
+
+            # BOM: facade tiroir
+            fiche.ajouter_piece(PieceInfo(
+                f"Facade tiroir {h_code} C{comp_idx+1}",
+                w_facade, h_tiroir_facade, ep_f,
+                couleur_fab=config["facade"]["couleur_fab"],
+                chant_desc="4 chants",
+                quantite=nb,
+            ))
+
+            # BOM: fond tiroir
+            larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
+            lg_coulisse = _longueur_coulisse(P, ep_f)
+
+            fiche.ajouter_piece(PieceInfo(
+                f"Fond tiroir {h_code} C{comp_idx+1}",
+                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
+                LEGRABOX_EP_FOND,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb,
+            ))
+
+            # BOM: arriere tiroir
+            fiche.ajouter_piece(PieceInfo(
+                f"Arriere tiroir {h_code} C{comp_idx+1}",
+                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
+                h_cote - LEGRABOX_EP_FOND,
+                LEGRABOX_EP_PAROI,
+                materiau="Panneau fond",
+                couleur_fab=config["panneau"]["couleur_fab"],
+                quantite=nb,
+            ))
+
+            # BOM: coulisses
+            fiche.ajouter_quincaillerie(
+                f"Coulisse LEGRABOX {h_code} (C{comp_idx+1})",
+                nb * 2,
+                f"Paire, L={lg_coulisse}mm, hauteur {h_code}"
+            )
+
+            z_current += gi["h_zone"]
+
+        elif gi["type"] == "porte":
+            h_zone_porte = gi["h_zone"]
+            nb_portes = gi["nombre"]
+            ouverture = gi.get("ouverture", "gauche")
+
+            if nb_portes >= 2:
+                jeu_e = jeu_p["jeu_entre"]
+                w_porte = (w_facade - jeu_e) / 2
+                rects.append(Rect(
+                    x_facade, z_current, w_porte, h_zone_porte,
+                    couleur_facade, f"Porte G C{comp_idx+1}", "porte"
+                ))
+                rects.append(Rect(
+                    x_facade + w_porte + jeu_e, z_current,
+                    w_porte, h_zone_porte,
+                    couleur_facade, f"Porte D C{comp_idx+1}", "porte"
+                ))
+                fiche.ajouter_piece(PieceInfo(
+                    f"Porte C{comp_idx+1}",
+                    w_porte, h_zone_porte, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                    quantite=2,
+                ))
+                nb_ch = _nb_charnieres(h_zone_porte)
+                fiche.ajouter_quincaillerie(
+                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    nb_ch * 2, f"2 portes x {nb_ch} charnieres"
+                )
+            else:
+                rects.append(Rect(
+                    x_facade, z_current, w_facade, h_zone_porte,
+                    couleur_facade, f"Porte C{comp_idx+1}", "porte"
+                ))
+                fiche.ajouter_piece(PieceInfo(
+                    f"Porte C{comp_idx+1}",
+                    w_facade, h_zone_porte, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                ))
+                nb_ch = _nb_charnieres(h_zone_porte)
+                fiche.ajouter_quincaillerie(
+                    f"Charnieres CLIP top (C{comp_idx+1})",
+                    nb_ch, f"Porte {h_zone_porte:.0f}mm"
+                )
+
+            z_current += h_zone_porte
+
+
 def calculer_largeurs_meuble(config: dict) -> list[float]:
     """Calcule les largeurs de chaque compartiment en mm.
 
@@ -397,8 +585,27 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                 w_facade = (cg["x"] + cg["largeur"] + rec
                             - jeu_p["jeu_lateral"]) - x_facade
 
-        # --- Portes ---
-        if facade_type == "portes":
+        # Determiner si on utilise le rendu par groupes
+        groupes = facade.get("groupes", [])
+        use_groupes = (
+            len(groupes) > 1
+            or any(g.get("hauteur") is not None
+                   for g in groupes if g["type"] == "tiroir")
+        )
+
+        if facade_type == "niche":
+            pass  # Rien a dessiner
+
+        elif use_groupes:
+            # Rendu unifie par groupes (multi-hauteurs, mixte, etc.)
+            _render_facade_groupes(
+                rects, fiche, config, comp_idx, cg, groupes,
+                x_facade, w_facade, z_facade_bas, z_facade_haut,
+                couleur_facade, ep_f, jeu_p,
+            )
+
+        # --- Portes (groupe unique, pas de hauteur explicite) ---
+        elif facade_type == "portes":
             nb_portes = facade["nb_portes"]
             if nb_portes == 1:
                 rects.append(Rect(
@@ -446,12 +653,11 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     nb_ch * 2, f"2 portes x {nb_ch} charnieres"
                 )
 
-        # --- Tiroirs ---
+        # --- Tiroirs generiques T (groupe unique, hauteur=None) ---
         elif facade_type == "tiroirs":
             nb_tiroirs = facade["nb_tiroirs"]
             hauteur_legrabox = config["tiroir"]["hauteur"]
             jeu_entre_t = config["tiroir"]["jeu_entre"]
-            jeu_lat_t = config["tiroir"]["jeu_lateral"]
 
             h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
                                 * jeu_entre_t) / nb_tiroirs)
@@ -504,84 +710,6 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                 nb_tiroirs * 2,
                 f"Paire, L={lg_coulisse}mm, hauteur {hauteur_legrabox}"
             )
-
-        # --- Mixte (tiroirs + porte) ---
-        elif facade_type == "mixte":
-            nb_tiroirs = facade["nb_tiroirs"]
-            nb_portes = facade["nb_portes"]
-            hauteur_legrabox = config["tiroir"]["hauteur"]
-            h_cote = LEGRABOX_HAUTEURS.get(hauteur_legrabox, 90.5)
-            jeu_entre_t = config["tiroir"]["jeu_entre"]
-
-            # Les tiroirs sont en haut, la porte en bas
-            h_tiroir_facade = h_cote + 2 * jeu_p["jeu_haut"]
-            h_zone_tiroirs = nb_tiroirs * h_tiroir_facade + (nb_tiroirs - 1) * jeu_entre_t
-            h_zone_porte = h_facade_zone - h_zone_tiroirs - jeu_p["jeu_entre"]
-
-            # Tiroirs (en haut)
-            for t_idx in range(nb_tiroirs):
-                z_t = z_facade_haut - h_zone_tiroirs + t_idx * (h_tiroir_facade + jeu_entre_t)
-                rects.append(Rect(
-                    x_facade, z_t, w_facade, h_tiroir_facade,
-                    couleur_facade,
-                    f"Tiroir C{comp_idx+1} T{t_idx+1}", "tiroir"
-                ))
-
-            fiche.ajouter_piece(PieceInfo(
-                f"Facade tiroir C{comp_idx+1}",
-                w_facade, h_tiroir_facade, ep_f,
-                couleur_fab=config["facade"]["couleur_fab"],
-                chant_desc="4 chants",
-                quantite=nb_tiroirs,
-            ))
-
-            larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
-            lg_coulisse = _longueur_coulisse(P, ep_f)
-
-            fiche.ajouter_piece(PieceInfo(
-                f"Fond tiroir C{comp_idx+1}",
-                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
-                LEGRABOX_EP_FOND,
-                materiau="Panneau fond",
-                couleur_fab=config["panneau"]["couleur_fab"],
-                quantite=nb_tiroirs,
-            ))
-            fiche.ajouter_piece(PieceInfo(
-                f"Arriere tiroir C{comp_idx+1}",
-                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
-                h_cote - LEGRABOX_EP_FOND,
-                LEGRABOX_EP_PAROI,
-                materiau="Panneau fond",
-                couleur_fab=config["panneau"]["couleur_fab"],
-                quantite=nb_tiroirs,
-            ))
-            fiche.ajouter_quincaillerie(
-                f"Coulisse LEGRABOX (C{comp_idx+1})",
-                nb_tiroirs * 2,
-                f"Paire, L={lg_coulisse}mm, hauteur {hauteur_legrabox}"
-            )
-
-            # Porte (en bas)
-            if h_zone_porte > 0:
-                rects.append(Rect(
-                    x_facade, z_facade_bas, w_facade, h_zone_porte,
-                    couleur_facade,
-                    f"Porte C{comp_idx+1}", "porte"
-                ))
-                fiche.ajouter_piece(PieceInfo(
-                    f"Porte C{comp_idx+1}",
-                    w_facade, h_zone_porte, ep_f,
-                    couleur_fab=config["facade"]["couleur_fab"],
-                    chant_desc="4 chants",
-                ))
-                nb_ch = _nb_charnieres(h_zone_porte)
-                fiche.ajouter_quincaillerie(
-                    f"Charnieres CLIP top (C{comp_idx+1})",
-                    nb_ch, f"Porte {h_zone_porte:.0f}mm"
-                )
-
-        # --- Niche (pas de facade) ---
-        # Rien a dessiner
 
     # =====================================================================
     #  COTATIONS (lignes de cote)
@@ -980,37 +1108,86 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     z_facade_haut = H - jeu_p["jeu_haut"]
     h_facade_zone = z_facade_haut - z_facade_bas
 
-    # Chercher le type de facade le plus representatif
-    facade_type = "niche"
-    nb_tiroirs = 0
+    # Chercher la facade la plus representative
+    facade_repr = None
     for comp_data in config["compartiments"]:
         ft = comp_data["facade"]["type"]
         if ft != "niche":
-            facade_type = ft
-            nb_tiroirs = comp_data["facade"].get("nb_tiroirs", 0)
+            facade_repr = comp_data["facade"]
             break
 
-    if facade_type == "portes":
-        rects.append(Rect(
-            -ep_f, z_facade_bas, ep_f, h_facade_zone,
-            couleur_facade, "Porte (coupe)", "porte"
-        ))
-    elif facade_type == "tiroirs" and nb_tiroirs > 0:
-        jeu_entre_t = config["tiroir"]["jeu_entre"]
-        h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
-                            * jeu_entre_t) / nb_tiroirs)
-        for t_idx in range(nb_tiroirs):
-            z_t = z_facade_bas + t_idx * (h_facade_tiroir + jeu_entre_t)
+    if facade_repr is not None:
+        groupes = facade_repr.get("groupes", [])
+        facade_type = facade_repr["type"]
+        use_groupes = (
+            len(groupes) > 1
+            or any(g.get("hauteur") is not None
+                   for g in groupes if g["type"] == "tiroir")
+        )
+
+        if use_groupes:
+            # Rendu par groupes (bas -> haut)
+            jeu_entre_g = jeu_p["jeu_entre"]
+            jeu_entre_t = config["tiroir"]["jeu_entre"]
+            hauteur_defaut = config["tiroir"]["hauteur"]
+            z_cur = z_facade_bas
+
+            for gi_idx, g in enumerate(groupes):
+                if gi_idx > 0:
+                    z_cur += jeu_entre_g
+
+                if g["type"] == "tiroir":
+                    h_code = g.get("hauteur") or hauteur_defaut
+                    h_cote = LEGRABOX_HAUTEURS.get(h_code, 90.5)
+                    h_f = h_cote + 2 * jeu_p["jeu_haut"]
+                    nb = g["nombre"]
+                    for t_idx in range(nb):
+                        z_t = z_cur + t_idx * (h_f + jeu_entre_t)
+                        rects.append(Rect(
+                            -ep_f, z_t, ep_f, h_f,
+                            couleur_facade,
+                            f"Tiroir {h_code}{t_idx+1} (coupe)", "tiroir"
+                        ))
+                    z_cur += nb * h_f + max(0, nb - 1) * jeu_entre_t
+
+                elif g["type"] == "porte":
+                    # Calculer l'espace restant pour les portes
+                    total_t = 0.0
+                    for g2 in groupes:
+                        if g2["type"] == "tiroir":
+                            h2 = g2.get("hauteur") or hauteur_defaut
+                            hc2 = LEGRABOX_HAUTEURS.get(h2, 90.5)
+                            hf2 = hc2 + 2 * jeu_p["jeu_haut"]
+                            n2 = g2["nombre"]
+                            total_t += n2 * hf2 + max(0, n2 - 1) * jeu_entre_t
+                    nb_gaps = max(0, len(groupes) - 1)
+                    h_porte = h_facade_zone - total_t - nb_gaps * jeu_entre_g
+                    rects.append(Rect(
+                        -ep_f, z_cur, ep_f, h_porte,
+                        couleur_facade, "Porte (coupe)", "porte"
+                    ))
+                    z_cur += h_porte
+
+        elif facade_type == "portes":
             rects.append(Rect(
-                -ep_f, z_t, ep_f, h_facade_tiroir,
-                couleur_facade, f"Tiroir T{t_idx+1} (coupe)", "tiroir"
+                -ep_f, z_facade_bas, ep_f, h_facade_zone,
+                couleur_facade, "Porte (coupe)", "porte"
             ))
-    elif facade_type == "mixte":
-        # Simplifie : une facade pleine
-        rects.append(Rect(
-            -ep_f, z_facade_bas, ep_f, h_facade_zone,
-            couleur_facade, "Facade (coupe)", "porte"
-        ))
+
+        elif facade_type == "tiroirs":
+            nb_tiroirs = facade_repr.get("nb_tiroirs", 0)
+            if nb_tiroirs > 0:
+                jeu_entre_t = config["tiroir"]["jeu_entre"]
+                h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
+                                    * jeu_entre_t) / nb_tiroirs)
+                for t_idx in range(nb_tiroirs):
+                    z_t = z_facade_bas + t_idx * (h_facade_tiroir
+                                                  + jeu_entre_t)
+                    rects.append(Rect(
+                        -ep_f, z_t, ep_f, h_facade_tiroir,
+                        couleur_facade,
+                        f"Tiroir T{t_idx+1} (coupe)", "tiroir"
+                    ))
 
     # --- Cotations ---
     rects.append(Rect(0, -50, P, 2, "#333333", f"{P:.0f}", "cotation"))
