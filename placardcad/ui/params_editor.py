@@ -29,6 +29,7 @@ CLES_CONFIG_TYPE_PLACARD = [
 CLES_CONFIG_TYPE_MEUBLE = [
     "panneau",
     "facade",
+    "dessus",
     "fond",
     "plinthe",
     "tiroir",
@@ -315,6 +316,15 @@ class ParamsEditor(QWidget):
         form_fac = QFormLayout(group_fac)
         form_fac.addRow("Couleur fab.:", self._creer_text("facade.couleur_fab"))
         layout.addWidget(group_fac)
+
+        # Dessus
+        group_dessus = QGroupBox("Dessus")
+        form_dessus = QFormLayout(group_dessus)
+        form_dessus.addRow("Type:", self._creer_combo(
+            "dessus.type", ["traverses", "plein"]))
+        form_dessus.addRow("Largeur traverse:", self._creer_spin(
+            "dessus.largeur_traverse", 50, 300))
+        layout.addWidget(group_dessus)
 
         # Fond
         group_fond = QGroupBox("Fond")

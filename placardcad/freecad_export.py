@@ -537,6 +537,7 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
 COULEURS_3D_MEUBLE = {
     "flanc": (0.82, 0.71, 0.55),
     "dessus": (0.82, 0.71, 0.55),
+    "traverse": (0.82, 0.71, 0.55),
     "dessous": (0.82, 0.71, 0.55),
     "separation": (0.82, 0.71, 0.55),
     "fond": (0.83, 0.77, 0.66),
@@ -700,12 +701,54 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             })
 
     # ----------------------------------------------------------------
-    # Fond (panneau arriere, non present dans les rects 2D face)
+    # Traverses (si dessus.type == "traverses", non gere par la boucle)
     # ----------------------------------------------------------------
     ep = config["epaisseur"]
     h_plinthe = config.get("hauteur_plinthe", 0)
     h_corps = H - h_plinthe
     assemblage = config.get("assemblage", "dessus_sur")
+
+    dessus_cfg = config.get("dessus", {})
+    dessus_type_cfg = dessus_cfg.get("type", "traverses")
+    if dessus_type_cfg == "traverses":
+        larg_trav = dessus_cfg.get("largeur_traverse", 100)
+        if assemblage == "dessus_sur":
+            trav_x, trav_w = 0.0, float(L)
+        else:
+            trav_x, trav_w = float(ep), L - 2 * ep
+        z_trav = h_plinthe + h_corps - ep
+        couleur_trav = COULEURS_3D_MEUBLE.get("traverse", (0.82, 0.71, 0.55))
+
+        # Traverse avant (Y=0, face avant)
+        objets.append({
+            "nom": _nom_unique("Traverse_Avant", noms_utilises),
+            "label": "Traverse avant",
+            "length": trav_w,
+            "width": larg_trav,
+            "height": ep,
+            "px": trav_x,
+            "py": 0,
+            "pz": z_trav,
+            "couleur": couleur_trav,
+            "transparence": 0,
+        })
+        # Traverse arriere (Y=P-larg_trav, vers le fond)
+        objets.append({
+            "nom": _nom_unique("Traverse_Arriere", noms_utilises),
+            "label": "Traverse arriere",
+            "length": trav_w,
+            "width": larg_trav,
+            "height": ep,
+            "px": trav_x,
+            "py": P - larg_trav,
+            "pz": z_trav,
+            "couleur": couleur_trav,
+            "transparence": 0,
+        })
+
+    # ----------------------------------------------------------------
+    # Fond (panneau arriere, non present dans les rects 2D face)
+    # ----------------------------------------------------------------
     fond_cfg = config.get("fond", {})
     ep_fond = fond_cfg.get("epaisseur", 3)
     fond_type = fond_cfg.get("type", "rainure")
@@ -782,10 +825,13 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             "couleur": couleur_rainure,
             "transparence": 40,
         })
-        # Rainure fond dans dessus
+        # Rainure fond dans dessus / traverse arriere
+        rain_dessus_label = ("Rainure fond trav. ar."
+                             if dessus_type_cfg == "traverses"
+                             else "Rainure fond dessus")
         objets.append({
             "nom": _nom_unique("Rainure_fond_dessus", noms_utilises),
-            "label": "Rainure fond dessus",
+            "label": rain_dessus_label,
             "length": dessus_w,
             "width": ep_fond,
             "height": prof_r,

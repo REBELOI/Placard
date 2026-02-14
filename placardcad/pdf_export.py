@@ -53,6 +53,7 @@ COULEURS_MEUBLE = {
     "plinthe": (colors.Color(0.4, 0.4, 0.4), colors.Color(0.3, 0.3, 0.3)),
     "flanc": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "dessus": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "traverse": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "dessous": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
     "fond": (colors.Color(0.83, 0.77, 0.66), colors.Color(0.6, 0.55, 0.45)),
     "etagere": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
@@ -64,7 +65,7 @@ COULEURS_MEUBLE = {
 }
 
 ORDRE_MEUBLE = [
-    "plinthe", "flanc", "dessus", "dessous", "separation",
+    "plinthe", "flanc", "dessus", "traverse", "dessous", "separation",
     "fond", "etagere", "rainure", "cremaillere",
     "porte", "tiroir", "ouverture", "percage",
 ]
@@ -171,7 +172,7 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
         "sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon",
         "cremaillere_encastree", "cremaillere_applique", "tasseau",
         # Types meuble
-        "plinthe", "flanc", "dessus", "dessous", "fond", "etagere",
+        "plinthe", "flanc", "dessus", "traverse", "dessous", "fond", "etagere",
         "rainure", "cremaillere", "porte", "tiroir",
         "ouverture", "percage",
     ]
@@ -1862,7 +1863,8 @@ def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
     if etageres and titre and "face" in titre.lower():
         # Trouver les bornes verticales (dessous -> dessus)
         dessous_r = next((r for r in visible if r.type_elem == "dessous"), None)
-        dessus_r = next((r for r in visible if r.type_elem == "dessus"), None)
+        dessus_r = next((r for r in visible
+                         if r.type_elem in ("dessus", "traverse")), None)
         z_bas = dessous_r.y + dessous_r.h if dessous_r else y_min
         z_haut = dessus_r.y if dessus_r else y_max
 

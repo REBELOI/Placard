@@ -202,6 +202,7 @@ class PlacardViewer(QWidget):
             # --- Meuble ---
             "flanc": (QColor("#8B7355"), QColor("#D2B48C"), 2),
             "dessus": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "traverse": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "dessous": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "etagere": (QColor("#8B7355"), QColor("#C8B68C"), 1),
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
@@ -219,7 +220,7 @@ class PlacardViewer(QWidget):
                          "rayon_haut", "rayon",
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
-        ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
+        ordre_meuble = ["plinthe", "flanc", "dessus", "traverse", "dessous",
                         "separation", "fond", "etagere",
                         "rainure", "cremaillere",
                         "porte", "tiroir",
@@ -487,7 +488,8 @@ class PlacardViewer(QWidget):
             # Limite haute : dessous du rayon haut, dessus, ou plafond
             rh = next((r for r in self._rects if r.type_elem == "rayon_haut"), None)
             if rh is None:
-                rh = next((r for r in self._rects if r.type_elem == "dessus"), None)
+                rh = next((r for r in self._rects
+                          if r.type_elem in ("dessus", "traverse")), None)
             z_plafond = rh.y if rh else H
 
             # Bords des compartiments
@@ -594,6 +596,7 @@ class PlacardViewer(QWidget):
             # --- Meuble ---
             "flanc": (QColor("#8B7355"), QColor("#D2B48C"), 2),
             "dessus": (QColor("#8B7355"), QColor("#D2B48C"), 1),
+            "traverse": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "dessous": (QColor("#8B7355"), QColor("#D2B48C"), 1),
             "etagere": (QColor("#8B7355"), QColor("#C8B68C"), 1),
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
@@ -608,7 +611,7 @@ class PlacardViewer(QWidget):
                          "rayon_haut", "rayon",
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
-        ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
+        ordre_meuble = ["plinthe", "flanc", "dessus", "traverse", "dessous",
                         "separation", "fond", "etagere",
                         "rainure", "cremaillere",
                         "porte", "tiroir"]

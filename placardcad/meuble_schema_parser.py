@@ -378,6 +378,12 @@ def meuble_schema_vers_config(schema_text: str,
             "epaisseur": 16,
         },
 
+        # Dessus
+        "dessus": {
+            "type": "traverses",       # "plein" ou "traverses"
+            "largeur_traverse": 100,   # mm (profondeur de chaque traverse)
+        },
+
         # Tiroirs LEGRABOX
         "tiroir": {
             "hauteur": "M",

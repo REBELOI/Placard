@@ -679,13 +679,32 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
         ))
 
     # --- Dessus ---
-    rects.append(Rect(dessus_x, h_plinthe + h_corps - ep, dessus_w, ep,
-                       couleur_struct, "Dessus", "dessus"))
-    fiche.ajouter_piece(PieceInfo(
-        "Dessus", dessus_w, P, ep,
-        couleur_fab=config["panneau"]["couleur_fab"],
-        chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
-    ))
+    dessus_cfg = config.get("dessus", {})
+    dessus_type = dessus_cfg.get("type", "traverses")
+    z_dessus = h_plinthe + h_corps - ep
+
+    if dessus_type == "plein":
+        rects.append(Rect(dessus_x, z_dessus, dessus_w, ep,
+                           couleur_struct, "Dessus", "dessus"))
+        fiche.ajouter_piece(PieceInfo(
+            "Dessus", dessus_w, P, ep,
+            couleur_fab=config["panneau"]["couleur_fab"],
+            chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+        ))
+    else:  # traverses
+        larg_trav = dessus_cfg.get("largeur_traverse", 100)
+        # Traverse avant (visible de face)
+        rects.append(Rect(dessus_x, z_dessus, dessus_w, ep,
+                           couleur_struct, "Traverse avant", "traverse"))
+        fiche.ajouter_piece(PieceInfo(
+            "Traverse avant", dessus_w, larg_trav, ep,
+            couleur_fab=config["panneau"]["couleur_fab"],
+            chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
+        ))
+        fiche.ajouter_piece(PieceInfo(
+            "Traverse arriere", dessus_w, larg_trav, ep,
+            couleur_fab=config["panneau"]["couleur_fab"],
+        ))
 
     # --- Dessous ---
     rects.append(Rect(dessous_x, h_plinthe, dessous_w, ep,
@@ -1063,13 +1082,23 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
     rects.append(Rect(0, 0, ep, P, couleur_struct, "Cote gauche", "flanc"))
     rects.append(Rect(L - ep, 0, ep, P, couleur_struct, "Cote droit", "flanc"))
 
-    # --- Dessus (couvre toute la largeur, profondeur P) ---
+    # --- Dessus ---
+    dessus_cfg = config.get("dessus", {})
+    dessus_type = dessus_cfg.get("type", "traverses")
     if assemblage == "dessus_sur":
         dessus_x, dessus_w = 0, L
     else:
         dessus_x, dessus_w = ep, L - 2 * ep
-    rects.append(Rect(dessus_x, 0, dessus_w, P,
-                       couleur_struct, "Dessus", "dessus"))
+
+    if dessus_type == "plein":
+        rects.append(Rect(dessus_x, 0, dessus_w, P,
+                           couleur_struct, "Dessus", "dessus"))
+    else:  # traverses
+        larg_trav = dessus_cfg.get("largeur_traverse", 100)
+        rects.append(Rect(dessus_x, 0, dessus_w, larg_trav,
+                           couleur_struct, "Traverse avant", "traverse"))
+        rects.append(Rect(dessus_x, P - larg_trav, dessus_w, larg_trav,
+                           couleur_struct, "Traverse arriere", "traverse"))
 
     # --- Fond ---
     fond_cfg = config["fond"]
@@ -1134,9 +1163,13 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
         # Flanc droit
         rects.append(Rect(L - ep, fond_y, prof_r, ep_fond,
                            couleur_rainure, "Rainure fond D", "rainure"))
-        # Dessus (bande horizontale a fond_y)
-        rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
-                           couleur_rainure, "Rainure fond dessus", "rainure"))
+        # Dessus/traverse arriere (bande horizontale a fond_y)
+        if dessus_type == "plein":
+            rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
+                               couleur_rainure, "Rainure fond dessus", "rainure"))
+        else:
+            rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
+                               couleur_rainure, "Rainure fond trav. ar.", "rainure"))
         # Dessous (bande horizontale a fond_y)
         rects.append(Rect(dessus_x, fond_y, dessus_w, ep_fond,
                            couleur_rainure, "Rainure fond dessous", "rainure"))
@@ -1291,8 +1324,19 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
                        couleur_struct, "Cote (flanc)", "flanc"))
 
     # --- Dessus ---
-    rects.append(Rect(0, h_plinthe + h_corps - ep, P, ep,
-                       couleur_struct, "Dessus", "dessus"))
+    dessus_cfg = config.get("dessus", {})
+    dessus_type = dessus_cfg.get("type", "traverses")
+    z_dessus = h_plinthe + h_corps - ep
+
+    if dessus_type == "plein":
+        rects.append(Rect(0, z_dessus, P, ep,
+                           couleur_struct, "Dessus", "dessus"))
+    else:  # traverses
+        larg_trav = dessus_cfg.get("largeur_traverse", 100)
+        rects.append(Rect(0, z_dessus, larg_trav, ep,
+                           couleur_struct, "Traverse avant", "traverse"))
+        rects.append(Rect(P - larg_trav, z_dessus, larg_trav, ep,
+                           couleur_struct, "Traverse arriere", "traverse"))
 
     # --- Dessous ---
     rects.append(Rect(0, h_plinthe, P, ep,
