@@ -618,7 +618,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     Returns:
         Liste de dictionnaires representant les objets 3D.
     """
-    from .meuble_builder import generer_geometrie_meuble
+    from .meuble_builder import generer_geometrie_meuble, calculer_largeurs_meuble
 
     rects, _fiche = generer_geometrie_meuble(config)
 
@@ -698,6 +698,195 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
                 "couleur": couleur_p,
                 "transparence": 0,
             })
+
+    # ----------------------------------------------------------------
+    # Fond (panneau arriere, non present dans les rects 2D face)
+    # ----------------------------------------------------------------
+    ep = config["epaisseur"]
+    h_plinthe = config.get("hauteur_plinthe", 0)
+    h_corps = H - h_plinthe
+    assemblage = config.get("assemblage", "dessus_sur")
+    fond_cfg = config.get("fond", {})
+    ep_fond = fond_cfg.get("epaisseur", 3)
+    fond_type = fond_cfg.get("type", "rainure")
+
+    if fond_type == "rainure":
+        prof_r = fond_cfg.get("profondeur_rainure", 8)
+        fond_px = ep - prof_r
+        fond_pw = L - 2 * ep + 2 * prof_r
+        fond_py = P - fond_cfg.get("distance_chant", 10) - ep_fond
+        fond_pz = h_plinthe + ep - prof_r
+        fond_ph = h_corps - 2 * ep + 2 * prof_r
+    elif fond_type == "applique":
+        fond_px = 0.0
+        fond_pw = L
+        fond_py = P - ep_fond
+        fond_pz = h_plinthe + ep
+        fond_ph = h_corps - 2 * ep
+    else:  # vissage
+        fond_px = ep
+        fond_pw = L - 2 * ep
+        fond_py = P - ep_fond
+        fond_pz = h_plinthe + ep
+        fond_ph = h_corps - 2 * ep
+
+    couleur_fond = COULEURS_3D_MEUBLE.get("fond", (0.83, 0.77, 0.66))
+    objets.append({
+        "nom": _nom_unique("Fond", noms_utilises),
+        "label": "Fond",
+        "length": fond_pw,
+        "width": ep_fond,
+        "height": fond_ph,
+        "px": fond_px,
+        "py": fond_py,
+        "pz": fond_pz,
+        "couleur": couleur_fond,
+        "transparence": 0,
+    })
+
+    # ----------------------------------------------------------------
+    # Rainures fond (entailles dans flancs, dessus et dessous)
+    # ----------------------------------------------------------------
+    couleur_rainure = (0.42, 0.36, 0.23)
+    if fond_type == "rainure":
+        h_rainure_flanc = h_corps - 2 * ep
+        z_rainure_flanc = h_plinthe + ep
+        if assemblage == "dessus_sur":
+            dessus_x, dessus_w = 0.0, float(L)
+        else:
+            dessus_x, dessus_w = float(ep), L - 2 * ep
+
+        # Rainure fond dans flanc gauche
+        objets.append({
+            "nom": _nom_unique("Rainure_fond_flanc_G", noms_utilises),
+            "label": "Rainure fond flanc G",
+            "length": prof_r,
+            "width": ep_fond,
+            "height": h_rainure_flanc,
+            "px": ep - prof_r,
+            "py": fond_py,
+            "pz": z_rainure_flanc,
+            "couleur": couleur_rainure,
+            "transparence": 40,
+        })
+        # Rainure fond dans flanc droit
+        objets.append({
+            "nom": _nom_unique("Rainure_fond_flanc_D", noms_utilises),
+            "label": "Rainure fond flanc D",
+            "length": prof_r,
+            "width": ep_fond,
+            "height": h_rainure_flanc,
+            "px": L - ep,
+            "py": fond_py,
+            "pz": z_rainure_flanc,
+            "couleur": couleur_rainure,
+            "transparence": 40,
+        })
+        # Rainure fond dans dessus
+        objets.append({
+            "nom": _nom_unique("Rainure_fond_dessus", noms_utilises),
+            "label": "Rainure fond dessus",
+            "length": dessus_w,
+            "width": ep_fond,
+            "height": prof_r,
+            "px": dessus_x,
+            "py": fond_py,
+            "pz": h_plinthe + h_corps - ep,
+            "couleur": couleur_rainure,
+            "transparence": 40,
+        })
+        # Rainure fond dans dessous
+        objets.append({
+            "nom": _nom_unique("Rainure_fond_dessous", noms_utilises),
+            "label": "Rainure fond dessous",
+            "length": dessus_w,
+            "width": ep_fond,
+            "height": prof_r,
+            "px": dessus_x,
+            "py": fond_py,
+            "pz": h_plinthe + ep - prof_r,
+            "couleur": couleur_rainure,
+            "transparence": 40,
+        })
+
+    # ----------------------------------------------------------------
+    # Cremailleres et rainures cremailleres dans flancs et separations
+    # ----------------------------------------------------------------
+    crem_cfg = config.get("cremaillere", {})
+    crem_prof = crem_cfg.get("profondeur", 7)
+    crem_larg = crem_cfg.get("largeur", 16)
+    dist_av = crem_cfg.get("distance_avant", 37)
+    dist_ar = crem_cfg.get("distance_arriere", 37)
+    nb_comp = config.get("nombre_compartiments", 1)
+    ep_sep = config.get("separation", {}).get("epaisseur", 18)
+
+    h_crem = h_corps - 2 * ep
+    z_crem = h_plinthe + ep
+    y_crem_av = dist_av
+    y_crem_ar = fond_py - dist_ar - crem_larg
+
+    couleur_crem = (0.63, 0.63, 0.63)
+
+    comp_has_etag = [config["compartiments"][i]["etageres"] > 0
+                     for i in range(nb_comp)]
+    largeurs = calculer_largeurs_meuble(config)
+
+    def _ajouter_paire_crem(x_pos: float, label_prefix: str) -> None:
+        """Ajoute une paire rainure+cremaillere (avant et arriere) a x_pos."""
+        for y_pos, suffixe in [(y_crem_av, "av"), (y_crem_ar, "ar")]:
+            # Rainure (entaille dans le panneau)
+            objets.append({
+                "nom": _nom_unique(
+                    f"Rainure_crem_{suffixe}_{label_prefix}", noms_utilises),
+                "label": f"Rainure crem {suffixe} {label_prefix}",
+                "length": crem_prof,
+                "width": crem_larg,
+                "height": h_crem,
+                "px": x_pos,
+                "py": y_pos,
+                "pz": z_crem,
+                "couleur": couleur_rainure,
+                "transparence": 40,
+            })
+            # Cremaillere (rail metallique dans la rainure)
+            objets.append({
+                "nom": _nom_unique(
+                    f"Cremaillere_{suffixe}_{label_prefix}", noms_utilises),
+                "label": f"Cremaillere {suffixe} {label_prefix}",
+                "length": crem_prof,
+                "width": crem_larg,
+                "height": h_crem,
+                "px": x_pos,
+                "py": y_pos,
+                "pz": z_crem,
+                "couleur": couleur_crem,
+                "transparence": 40,
+            })
+
+    # Cremailleres dans flanc gauche (si compartiment 0 a des etageres)
+    if comp_has_etag[0]:
+        _ajouter_paire_crem(ep - crem_prof, "flanc_G")
+
+    # Cremailleres dans flanc droit (si dernier compartiment a des etageres)
+    if comp_has_etag[-1]:
+        _ajouter_paire_crem(L - ep, "flanc_D")
+
+    # Cremailleres dans les separations
+    x_cursor = ep
+    for comp_idx in range(nb_comp):
+        larg_c = largeurs[comp_idx]
+        if comp_idx < nb_comp - 1:
+            x_sep = x_cursor + larg_c
+            # Face gauche de la separation
+            if comp_has_etag[comp_idx]:
+                _ajouter_paire_crem(x_sep, f"sep{comp_idx+1}_G")
+            # Face droite de la separation
+            if comp_has_etag[comp_idx + 1]:
+                _ajouter_paire_crem(
+                    x_sep + ep_sep - crem_prof, f"sep{comp_idx+1}_D")
+            x_cursor = x_sep + ep_sep
+        else:
+            x_cursor += larg_c
 
     # Sol (contexte transparent)
     sol_couleur = (0.85, 0.85, 0.82)
