@@ -646,8 +646,8 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     objets = []
     noms_utilises: set[str] = set()
 
-    # Elements du meuble (hors cotation, ouverture, percage)
-    skip_types = ("cotation", "ouverture", "percage")
+    # Elements du meuble (hors cotation, ouverture, percage, poignee)
+    skip_types = ("cotation", "ouverture", "percage", "poignee")
     elements = [r for r in rects if r.type_elem not in skip_types]
 
     grouped: dict[str, list] = {}
@@ -657,7 +657,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     ordre = [
         "plinthe", "flanc", "dessus", "dessous", "separation",
         "fond", "etagere", "rainure", "cremaillere",
-        "porte", "tiroir", "poignee",
+        "porte", "tiroir",
     ]
 
     for type_elem in ordre:
@@ -960,6 +960,77 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             x_cursor = x_sep + ep_sep
         else:
             x_cursor += larg_c
+
+    # ----------------------------------------------------------------
+    # Poignees (barre + 2 montants par poignee)
+    # ----------------------------------------------------------------
+    poignee_cfg = config.get("poignee", {})
+    if poignee_cfg.get("modele", "baton_inox") != "aucune":
+        from .meuble_builder import POIGNEE_BATON_CATALOGUE
+        ep_f_p = config["epaisseur_facade"]
+        entraxe_p = int(poignee_cfg.get("entraxe", 128))
+        diametre_p = poignee_cfg.get("diametre", 12)
+        saillie_p = poignee_cfg.get("saillie", 36)
+        cat_p = POIGNEE_BATON_CATALOGUE.get(entraxe_p)
+        longueur_p = cat_p["longueur"] if cat_p else entraxe_p + 58
+        couleur_inox = COULEURS_3D_MEUBLE.get("poignee", (0.75, 0.75, 0.78))
+
+        poignee_rects = [r for r in rects if r.type_elem == "poignee"]
+        for i, r in enumerate(poignee_rects):
+            # r.x = position X du debut de la poignee (vue de face)
+            # r.y = position Z du centre de la poignee (vue de face)
+            px_bar = r.x
+            pz_bar = r.y
+            # Y: barre au front, montants vers la facade
+            py_bar = -ep_f_p - saillie_p
+            profondeur_montant = saillie_p - diametre_p
+            py_montant = -ep_f_p - profondeur_montant
+            # Positions X des deux montants (centres des trous)
+            x_centre = r.x + longueur_p / 2
+            x_montant_g = x_centre - entraxe_p / 2 - diametre_p / 2
+            x_montant_d = x_centre + entraxe_p / 2 - diametre_p / 2
+
+            label_base = r.label or f"Poignee {i+1}"
+
+            # Barre horizontale
+            objets.append({
+                "nom": _nom_unique(f"Poignee_barre_{i}", noms_utilises),
+                "label": f"{label_base} barre",
+                "length": longueur_p,
+                "width": diametre_p,
+                "height": diametre_p,
+                "px": px_bar,
+                "py": py_bar,
+                "pz": pz_bar,
+                "couleur": couleur_inox,
+                "transparence": 0,
+            })
+            # Montant gauche
+            objets.append({
+                "nom": _nom_unique(f"Poignee_montant_G_{i}", noms_utilises),
+                "label": f"{label_base} montant G",
+                "length": diametre_p,
+                "width": profondeur_montant,
+                "height": diametre_p,
+                "px": x_montant_g,
+                "py": py_montant,
+                "pz": pz_bar,
+                "couleur": couleur_inox,
+                "transparence": 0,
+            })
+            # Montant droit
+            objets.append({
+                "nom": _nom_unique(f"Poignee_montant_D_{i}", noms_utilises),
+                "label": f"{label_base} montant D",
+                "length": diametre_p,
+                "width": profondeur_montant,
+                "height": diametre_p,
+                "px": x_montant_d,
+                "py": py_montant,
+                "pz": pz_bar,
+                "couleur": couleur_inox,
+                "transparence": 0,
+            })
 
     # Sol (contexte transparent)
     sol_couleur = (0.85, 0.85, 0.82)
