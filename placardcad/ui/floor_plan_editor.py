@@ -17,7 +17,8 @@ import math
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox,
-    QLabel, QSizePolicy, QMenu, QInputDialog, QMessageBox,
+    QLabel, QSizePolicy, QMenu, QInputDialog, QMessageBox, QDialog,
+    QFormLayout, QDialogButtonBox, QSpinBox,
 )
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt5.QtGui import (
@@ -89,8 +90,11 @@ class FloorPlanEditor(QWidget):
         self._btn_contour.setCheckable(True)
         self._btn_contour.setToolTip(
             "Cliquer pour ajouter des points au contour.\n"
-            "Glisser un point existant pour le deplacer.\n"
-            "Clic droit sur un point pour le supprimer.")
+            "Glisser un point pour le deplacer.\n"
+            "  Shift = angles 90°, Ctrl = angles 45°\n"
+            "Double-clic sur un point = saisir coordonnees.\n"
+            "Double-clic sur une cotation = saisir longueur.\n"
+            "Clic droit sur un point = supprimer.")
         self._btn_contour.toggled.connect(self._toggle_contour_edit)
         toolbar.addWidget(self._btn_contour)
 
@@ -494,8 +498,20 @@ class FloorPlanEditor(QWidget):
 
         mx, my = self._px_to_mm(event.pos().x(), event.pos().y())
 
-        # Drag point de contour
+        # Drag point de contour (avec contraintes d'angle)
         if self._dragging_point and self._selected_point >= 0:
+            n = len(self._contour)
+            if n >= 2:
+                # Point de reference = point precedent
+                ref_idx = (self._selected_point - 1) % n
+                ref_x, ref_y = self._contour[ref_idx]
+                mods = event.modifiers()
+                if mods & Qt.ShiftModifier:
+                    # Contrainte 90° (horizontal / vertical)
+                    mx, my = _snap_to_angles(ref_x, ref_y, mx, my, 4)
+                elif mods & Qt.ControlModifier:
+                    # Contrainte 45°
+                    mx, my = _snap_to_angles(ref_x, ref_y, mx, my, 8)
             self._contour[self._selected_point] = (round(mx), round(my))
             self.update()
             return
@@ -528,9 +544,28 @@ class FloorPlanEditor(QWidget):
             self._update_spins()
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._reset_view()
-            self.update()
+        if event.button() != Qt.LeftButton:
+            return
+
+        # --- Mode edition contour : double-clic sur point ou cotation ---
+        if self._editing_contour and self._contour:
+            mx, my = self._px_to_mm(event.pos().x(), event.pos().y())
+
+            # Double-clic sur un point -> editer coordonnees
+            idx = self._hit_contour_point(mx, my)
+            if idx >= 0:
+                self._edit_point_coords(idx)
+                return
+
+            # Double-clic pres d'un segment -> editer longueur
+            seg_idx = self._hit_segment_midpoint(mx, my)
+            if seg_idx >= 0:
+                self._edit_segment_length(seg_idx)
+                return
+
+        # Sinon : reset vue
+        self._reset_view()
+        self.update()
 
     def contextMenuEvent(self, event):
         """Menu contextuel: supprimer point de contour."""
@@ -598,6 +633,85 @@ class FloorPlanEditor(QWidget):
     # =================================================================
     #  Utilitaires contour
     # =================================================================
+
+    def _hit_segment_midpoint(self, mx_mm: float, my_mm: float) -> int:
+        """Retourne l'index du segment dont le milieu est proche du curseur, ou -1."""
+        n = len(self._contour)
+        if n < 2:
+            return -1
+        scale, _, _ = self._get_transform()
+        seuil = max(15 / scale, 40)  # rayon en mm
+        for i in range(n):
+            ax, ay = self._contour[i]
+            bx, by = self._contour[(i + 1) % n]
+            mid_x = (ax + bx) / 2
+            mid_y = (ay + by) / 2
+            if math.hypot(mx_mm - mid_x, my_mm - mid_y) < seuil:
+                return i
+        return -1
+
+    def _edit_point_coords(self, idx: int):
+        """Ouvre un dialogue pour saisir les coordonnees X,Y d'un point."""
+        cx, cy = self._contour[idx]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Coordonnees du point {idx + 1}")
+        form = QFormLayout(dlg)
+
+        spin_px = QSpinBox()
+        spin_px.setRange(-99999, 99999)
+        spin_px.setSuffix(" mm")
+        spin_px.setValue(int(cx))
+        form.addRow("X :", spin_px)
+
+        spin_py = QSpinBox()
+        spin_py.setRange(-99999, 99999)
+        spin_py.setSuffix(" mm")
+        spin_py.setValue(int(cy))
+        form.addRow("Y :", spin_py)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+
+        if dlg.exec_() == QDialog.Accepted:
+            self._contour[idx] = (spin_px.value(), spin_py.value())
+            self._save_contour()
+            self.update()
+
+    def _edit_segment_length(self, seg_idx: int):
+        """Ouvre un dialogue pour saisir la longueur d'un segment.
+
+        Deplace le point d'arrivee pour atteindre la longueur demandee
+        tout en gardant la meme direction.
+        """
+        n = len(self._contour)
+        ax, ay = self._contour[seg_idx]
+        bx, by = self._contour[(seg_idx + 1) % n]
+        longueur_actuelle = math.hypot(bx - ax, by - ay)
+
+        val, ok = QInputDialog.getInt(
+            self,
+            f"Longueur du segment {seg_idx + 1}",
+            "Nouvelle longueur (mm) :",
+            int(round(longueur_actuelle)),
+            1, 99999,
+        )
+        if not ok:
+            return
+
+        if longueur_actuelle < 1:
+            return
+
+        # Garder la direction, ajuster le point d'arrivee
+        dx = bx - ax
+        dy = by - ay
+        ratio = val / longueur_actuelle
+        new_bx = ax + dx * ratio
+        new_by = ay + dy * ratio
+        self._contour[(seg_idx + 1) % n] = (round(new_bx), round(new_by))
+        self._save_contour()
+        self.update()
 
     def _best_insert_index(self, mx: float, my: float) -> int:
         """Trouve le meilleur index d'insertion pour un nouveau point."""
@@ -680,25 +794,32 @@ class FloorPlanEditor(QWidget):
                         f"({cx}, {cy})"
                     )
 
-            # Cotations des segments du contour
-            if not self._editing_contour:
-                painter.setPen(QColor("#888"))
-                font_cot = QFont()
-                font_cot.setPointSize(7)
-                painter.setFont(font_cot)
-                n = len(self._contour)
-                for i in range(n):
-                    ax, ay = self._contour[i]
-                    bx, by = self._contour[(i + 1) % n]
-                    longueur = math.hypot(bx - ax, by - ay)
-                    if longueur < 50:
-                        continue
-                    mid_px = ox + (ax + bx) / 2 * scale
-                    mid_py = oy + (ay + by) / 2 * scale
-                    painter.drawText(
-                        int(mid_px - 20), int(mid_py - 5),
-                        f"{longueur:.0f}"
-                    )
+            # Cotations des segments du contour (affichees dans les 2 modes)
+            painter.setPen(QColor("#888"))
+            font_cot = QFont()
+            font_cot.setPointSize(7)
+            painter.setFont(font_cot)
+            n = len(self._contour)
+            for i in range(n):
+                ax, ay = self._contour[i]
+                bx, by = self._contour[(i + 1) % n]
+                longueur = math.hypot(bx - ax, by - ay)
+                if longueur < 50:
+                    continue
+                mid_px = ox + (ax + bx) / 2 * scale
+                mid_py = oy + (ay + by) / 2 * scale
+                # Decaler le texte perpendiculairement au segment
+                dx_s, dy_s = bx - ax, by - ay
+                norm = math.hypot(dx_s, dy_s)
+                if norm > 0:
+                    nx, ny = -dy_s / norm, dx_s / norm
+                    offset_px = 12  # pixels de decalage
+                    mid_px += nx * offset_px
+                    mid_py += ny * offset_px
+                painter.drawText(
+                    int(mid_px - 20), int(mid_py - 5),
+                    f"{longueur:.0f}"
+                )
 
         # --- Dessiner les meubles ---
         font_meuble = QFont()
@@ -805,3 +926,33 @@ def _dist_point_segment(px, py, ax, ay, bx, by):
     proj_x = ax + t * dx
     proj_y = ay + t * dy
     return math.hypot(px - proj_x, py - proj_y)
+
+
+def _snap_to_angles(ref_x: float, ref_y: float,
+                    raw_x: float, raw_y: float,
+                    divisions: int) -> tuple[float, float]:
+    """Contraint un point sur les angles reguliers depuis un point de reference.
+
+    Args:
+        ref_x, ref_y: Point de reference (point precedent du contour).
+        raw_x, raw_y: Position brute de la souris.
+        divisions: Nombre de divisions du cercle (4 = 90°, 8 = 45°).
+
+    Returns:
+        (x, y) contraint sur l'angle le plus proche.
+    """
+    dx = raw_x - ref_x
+    dy = raw_y - ref_y
+    dist = math.hypot(dx, dy)
+    if dist < 1:
+        return raw_x, raw_y
+
+    raw_angle = math.atan2(dy, dx)
+    step = 2 * math.pi / divisions
+
+    # Trouver l'angle autorise le plus proche
+    best_angle = round(raw_angle / step) * step
+
+    snapped_x = ref_x + dist * math.cos(best_angle)
+    snapped_y = ref_y + dist * math.sin(best_angle)
+    return snapped_x, snapped_y
