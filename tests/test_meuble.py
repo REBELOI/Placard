@@ -12,6 +12,7 @@ from placardcad.meuble_builder import (
     generer_geometrie_meuble,
     calculer_largeurs_meuble,
     _nb_charnieres,
+    _positions_charnieres,
     _longueur_coulisse,
 )
 
@@ -414,6 +415,110 @@ class TestMultiHauteurBuilder:
         h_min = LEGRABOX_HAUTEURS["K"] + 2 * config["porte"]["jeu_haut"]
         # Le tiroir garde sa hauteur minimale
         assert abs(tiroirs[0].h - h_min) < 0.1
+
+
+class TestOuvertureEtPercage:
+    """Tests des symboles d'ouverture et percages de charnieres."""
+
+    def test_porte_PG_genere_ouverture_G(self):
+        """PG genere un symbole ouverture avec label 'G'."""
+        schema = "#MEUBLE\n| PG |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        ouv = [r for r in rects if r.type_elem == "ouverture"]
+        assert len(ouv) == 1
+        assert ouv[0].label == "G"
+
+    def test_porte_PD_genere_ouverture_D(self):
+        """PD genere un symbole ouverture avec label 'D'."""
+        schema = "#MEUBLE\n| PD |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        ouv = [r for r in rects if r.type_elem == "ouverture"]
+        assert len(ouv) == 1
+        assert ouv[0].label == "D"
+
+    def test_porte_PP_genere_2_ouvertures(self):
+        """PP genere 2 symboles ouverture (G et D)."""
+        schema = "#MEUBLE\n| PP |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        ouv = [r for r in rects if r.type_elem == "ouverture"]
+        assert len(ouv) == 2
+        labels = {r.label for r in ouv}
+        assert labels == {"G", "D"}
+
+    def test_percages_presents_sur_porte(self):
+        """Une porte genere des percages de charnieres."""
+        schema = "#MEUBLE\n| PG |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        percages = [r for r in rects if r.type_elem == "percage"]
+        nb_ch = _nb_charnieres(config["hauteur"]
+                               - config["porte"]["jeu_haut"]
+                               - config["porte"]["jeu_bas"])
+        assert len(percages) == nb_ch
+
+    def test_percages_PP_double(self):
+        """PP genere des percages sur les 2 portes."""
+        schema = "#MEUBLE\n| PP |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        percages = [r for r in rects if r.type_elem == "percage"]
+        nb_ch = _nb_charnieres(config["hauteur"]
+                               - config["porte"]["jeu_haut"]
+                               - config["porte"]["jeu_bas"])
+        assert len(percages) == nb_ch * 2
+
+    def test_percage_PG_cote_gauche(self):
+        """PG: percages positionnes sur le cote gauche de la porte."""
+        schema = "#MEUBLE\n| PG |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        percages = [r for r in rects if r.type_elem == "percage"]
+        assert len(percages) > 0
+        x_porte = portes[0].x
+        # Les percages sont proches du bord gauche
+        for p in percages:
+            cx = p.x + p.w / 2
+            assert cx < x_porte + portes[0].w / 2
+
+    def test_percage_PD_cote_droit(self):
+        """PD: percages positionnes sur le cote droit de la porte."""
+        schema = "#MEUBLE\n| PD |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        portes = [r for r in rects if r.type_elem == "porte"]
+        percages = [r for r in rects if r.type_elem == "percage"]
+        assert len(percages) > 0
+        x_porte = portes[0].x
+        w_porte = portes[0].w
+        for p in percages:
+            cx = p.x + p.w / 2
+            assert cx > x_porte + w_porte / 2
+
+    def test_positions_charnieres_2(self):
+        """2 charnieres : marge en haut et en bas."""
+        pos = _positions_charnieres(600, 2)
+        assert len(pos) == 2
+        assert pos[0] < pos[1]
+
+    def test_positions_charnieres_3(self):
+        """3 charnieres : haut, milieu, bas."""
+        pos = _positions_charnieres(1200, 3)
+        assert len(pos) == 3
+        assert abs(pos[1] - 600) < 1.0
+
+    def test_groupes_porte_avec_ouverture(self):
+        """P+K genere ouverture et percages pour la porte."""
+        schema = "#MEUBLE\n| P+K |\n  600"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        ouv = [r for r in rects if r.type_elem == "ouverture"]
+        percages = [r for r in rects if r.type_elem == "percage"]
+        assert len(ouv) >= 1
+        assert len(percages) >= 1
 
 
 class TestCoulisses:

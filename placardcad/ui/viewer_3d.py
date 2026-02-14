@@ -210,6 +210,8 @@ class PlacardViewer(QWidget):
             "fond": (QColor("#8B8060"), QColor("#D4C5A9"), 1),
             "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
             "rainure": (QColor("#5A4A2A"), QColor("#6B5B3A"), 1),
+            "ouverture": (QColor("#333366"), QColor("#333366"), 0.8),
+            "percage": (QColor("#5A5A8A"), QColor("#5A5A8A"), 0.8),
         }
 
         # Dessiner les rectangles par ordre de couche
@@ -220,7 +222,8 @@ class PlacardViewer(QWidget):
         ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
                         "separation", "fond", "etagere",
                         "rainure", "cremaillere",
-                        "porte", "tiroir"]
+                        "porte", "tiroir",
+                        "ouverture", "percage"]
 
         # Construire l'ordre complet: placard + meuble + types inconnus
         ordre_connu = set(ordre_placard + ordre_meuble)
@@ -246,6 +249,36 @@ class PlacardViewer(QWidget):
                 p2 = self._to_screen(r.x + r.w, r.y, scale, ox, oy)
 
                 rect_screen = QRectF(p1, p2)
+
+                # --- Symbole d'ouverture (triangle > ou <) ---
+                if type_elem == "ouverture":
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(pen_color, pen_width))
+                    cx = rect_screen.center().x()
+                    cy = rect_screen.center().y()
+                    if "G" in r.label:
+                        # PG : charnieres a gauche, triangle >
+                        poly = QPolygonF([
+                            QPointF(rect_screen.left(), rect_screen.top()),
+                            QPointF(rect_screen.right(), cy),
+                            QPointF(rect_screen.left(), rect_screen.bottom()),
+                        ])
+                    else:
+                        # PD : charnieres a droite, triangle <
+                        poly = QPolygonF([
+                            QPointF(rect_screen.right(), rect_screen.top()),
+                            QPointF(rect_screen.left(), cy),
+                            QPointF(rect_screen.right(), rect_screen.bottom()),
+                        ])
+                    painter.drawPolyline(poly)
+                    continue
+
+                # --- Percage charniere (cercle) ---
+                if type_elem == "percage":
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(pen_color, pen_width))
+                    painter.drawEllipse(rect_screen)
+                    continue
 
                 # Remplissage
                 if type_elem == "sol":
@@ -600,6 +633,35 @@ class PlacardViewer(QWidget):
                 p1 = self._to_screen(r.x, r.y + r.h, scale, ox, oy)
                 p2 = self._to_screen(r.x + r.w, r.y, scale, ox, oy)
                 rect_screen = QRectF(p1, p2)
+
+                # --- Symbole d'ouverture (triangle > ou <) ---
+                if type_elem == "ouverture":
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(pen_color, pen_width))
+                    cx = rect_screen.center().x()
+                    cy = rect_screen.center().y()
+                    if "G" in r.label:
+                        poly = QPolygonF([
+                            QPointF(rect_screen.left(), rect_screen.top()),
+                            QPointF(rect_screen.right(), cy),
+                            QPointF(rect_screen.left(), rect_screen.bottom()),
+                        ])
+                    else:
+                        poly = QPolygonF([
+                            QPointF(rect_screen.right(), rect_screen.top()),
+                            QPointF(rect_screen.left(), cy),
+                            QPointF(rect_screen.right(), rect_screen.bottom()),
+                        ])
+                    painter.drawPolyline(poly)
+                    continue
+
+                # --- Percage charniere (cercle) ---
+                if type_elem == "percage":
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(pen_color, pen_width))
+                    painter.drawEllipse(rect_screen)
+                    continue
+
                 if type_elem == "sol":
                     painter.setBrush(QBrush(fill_color, Qt.BDiagPattern))
                 elif type_elem == "mur":

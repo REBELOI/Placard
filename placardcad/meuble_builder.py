@@ -44,6 +44,7 @@ LEGRABOX_LONGUEURS_COULISSES = [
 CLIP_TOP_DIAMETRE_CUVETTE = 35.0
 CLIP_TOP_PROFONDEUR_CUVETTE = 13.0
 CLIP_TOP_DISTANCE_BORD = 3.0
+CLIP_TOP_MARGE_HAUT_BAS = 80.0  # distance min du bord haut/bas de la porte
 
 RECOUVREMENT = {
     "applique": 16.0,
@@ -95,6 +96,72 @@ def _longueur_coulisse(profondeur_caisson: float,
         else:
             break
     return best
+
+
+def _positions_charnieres(h_porte: float, nb: int) -> list[float]:
+    """Calcule les positions verticales des charnieres sur une porte.
+
+    Les positions sont relatives au bas de la porte.
+
+    Args:
+        h_porte: Hauteur de la porte en mm.
+        nb: Nombre de charnieres.
+
+    Returns:
+        Liste des positions Y (depuis le bas) en mm.
+    """
+    marge = CLIP_TOP_MARGE_HAUT_BAS
+    if nb <= 1:
+        return [h_porte / 2]
+    positions = []
+    for i in range(nb):
+        positions.append(marge + i * (h_porte - 2 * marge) / (nb - 1))
+    return positions
+
+
+def _ajouter_porte_details(
+    rects: list[Rect],
+    x_porte: float,
+    z_bas: float,
+    w_porte: float,
+    h_porte: float,
+    ouverture: str,
+) -> None:
+    """Ajoute les symboles d'ouverture et percages de charnieres sur une porte.
+
+    Genere des Rect avec type_elem='ouverture' (triangle d'ouverture)
+    et type_elem='percage' (cercles de percage charniere).
+
+    Args:
+        rects: Liste de Rect a completer.
+        x_porte: Position X de la porte.
+        z_bas: Position Z basse de la porte.
+        w_porte: Largeur de la porte.
+        h_porte: Hauteur de la porte.
+        ouverture: Direction: 'gauche' (PG='>'), 'droite' (PD='<').
+    """
+    if ouverture not in ("gauche", "droite"):
+        return
+
+    # Symbole d'ouverture (triangle > ou <)
+    direction = "G" if ouverture == "gauche" else "D"
+    rects.append(Rect(x_porte, z_bas, w_porte, h_porte,
+                       "#333366", direction, "ouverture"))
+
+    # Percages de charnieres (cercles)
+    nb_ch = _nb_charnieres(h_porte)
+    positions = _positions_charnieres(h_porte, nb_ch)
+    diam = CLIP_TOP_DIAMETRE_CUVETTE
+    offset_x = CLIP_TOP_DISTANCE_BORD + diam / 2
+
+    for z_pos in positions:
+        if ouverture == "gauche":
+            cx = x_porte + offset_x
+        else:
+            cx = x_porte + w_porte - offset_x
+        cy = z_bas + z_pos
+        rects.append(Rect(cx - diam / 2, cy - diam / 2, diam, diam,
+                           "#5A5A8A", "Percage", "percage"))
 
 
 def _render_facade_groupes(
@@ -340,6 +407,13 @@ def _render_facade_groupes(
                     w_porte, h_zone_porte,
                     couleur_facade, f"Porte D C{comp_idx+1}", "porte"
                 ))
+                # Ouverture et percages : gauche > | < droite
+                _ajouter_porte_details(
+                    rects, x_facade, z_current,
+                    w_porte, h_zone_porte, "gauche")
+                _ajouter_porte_details(
+                    rects, x_facade + w_porte + jeu_e, z_current,
+                    w_porte, h_zone_porte, "droite")
                 fiche.ajouter_piece(PieceInfo(
                     f"Porte C{comp_idx+1}",
                     w_porte, h_zone_porte, ep_f,
@@ -357,6 +431,9 @@ def _render_facade_groupes(
                     x_facade, z_current, w_facade, h_zone_porte,
                     couleur_facade, f"Porte C{comp_idx+1}", "porte"
                 ))
+                _ajouter_porte_details(
+                    rects, x_facade, z_current,
+                    w_facade, h_zone_porte, ouverture)
                 fiche.ajouter_piece(PieceInfo(
                     f"Porte C{comp_idx+1}",
                     w_facade, h_zone_porte, ep_f,
@@ -694,12 +771,16 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
         # --- Portes (groupe unique, pas de hauteur explicite) ---
         elif facade_type == "portes":
             nb_portes = facade["nb_portes"]
+            ouverture = facade.get("ouverture", "gauche")
             if nb_portes == 1:
                 rects.append(Rect(
                     x_facade, z_facade_bas, w_facade, h_facade_zone,
                     couleur_facade,
                     f"Porte C{comp_idx+1}", "porte"
                 ))
+                _ajouter_porte_details(
+                    rects, x_facade, z_facade_bas,
+                    w_facade, h_facade_zone, ouverture)
                 fiche.ajouter_piece(PieceInfo(
                     f"Porte C{comp_idx+1}",
                     w_facade, h_facade_zone, ep_f,
@@ -727,6 +808,13 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                     couleur_facade,
                     f"Porte D C{comp_idx+1}", "porte"
                 ))
+                # Ouverture et percages : gauche > | < droite
+                _ajouter_porte_details(
+                    rects, x_facade, z_facade_bas,
+                    w_porte, h_facade_zone, "gauche")
+                _ajouter_porte_details(
+                    rects, x_facade + w_porte + jeu_e, z_facade_bas,
+                    w_porte, h_facade_zone, "droite")
                 fiche.ajouter_piece(PieceInfo(
                     f"Porte C{comp_idx+1}",
                     w_porte, h_facade_zone, ep_f,
