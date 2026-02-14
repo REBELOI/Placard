@@ -684,10 +684,8 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
 
         if comp_idx < nb_comp - 1:
             x_sep = x_cursor + larg_c
-            ret_av = config["separation"]["retrait_avant"]
-            ret_ar = config["separation"]["retrait_arriere"]
-            prof_sep = P - ret_av - ret_ar
-            rects.append(Rect(x_sep, ret_av, ep_sep, prof_sep,
+            # Separation de la face avant (Y=0) jusqu'au fond
+            rects.append(Rect(x_sep, 0, ep_sep, fond_y,
                                couleur_struct,
                                f"Separation {comp_idx + 1}", "separation"))
             x_cursor = x_sep + ep_sep
@@ -703,10 +701,12 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
         if nb_etag > 0:
             jeu_lat = config["etagere"]["jeu_lateral"]
             larg_etag = cg["largeur"] - 2 * jeu_lat
-            prof_etag = (P - config["etagere"]["retrait_avant"]
+            retrait_av = config["etagere"]["retrait_avant"]
+            prof_etag = (P - retrait_av
                          - fond_cfg["distance_chant"] - ep_fond)
+            # Retrait a l'avant : l'etagere commence apres le retrait
             rects.append(Rect(
-                cg["x"] + jeu_lat, 0,
+                cg["x"] + jeu_lat, retrait_av,
                 larg_etag, prof_etag,
                 couleur_etagere,
                 f"Etagere C{comp_idx+1} (x{nb_etag})", "etagere"
