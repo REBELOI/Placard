@@ -692,6 +692,61 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
         else:
             x_cursor += larg_c
 
+    # --- Rainures dans les flancs ---
+    couleur_rainure = "#6B5B3A"
+    crem_cfg = config["cremaillere"]
+    crem_prof = crem_cfg.get("profondeur", 7)
+    crem_larg = crem_cfg["largeur"]
+    crem_dist_av = crem_cfg["distance_avant"]
+    crem_dist_ar = crem_cfg["distance_arriere"]
+
+    # Positions Y des cremailleres (entre face avant et fond)
+    y_crem_av = crem_dist_av
+    y_crem_ar = fond_y - crem_dist_ar - crem_larg
+
+    # Flanc gauche (rainures sur la face interieure droite, x = ep - profondeur)
+    if fond_cfg["type"] == "rainure":
+        prof_r = fond_cfg["profondeur_rainure"]
+        rects.append(Rect(ep - prof_r, fond_y, prof_r, ep_fond,
+                           couleur_rainure, "Rainure fond G", "rainure"))
+    rects.append(Rect(ep - crem_prof, y_crem_av, crem_prof, crem_larg,
+                       couleur_rainure, "Rainure crem av G", "rainure"))
+    rects.append(Rect(ep - crem_prof, y_crem_ar, crem_prof, crem_larg,
+                       couleur_rainure, "Rainure crem ar G", "rainure"))
+
+    # Flanc droit (rainures sur la face interieure gauche, x = L - ep)
+    if fond_cfg["type"] == "rainure":
+        rects.append(Rect(L - ep, fond_y, prof_r, ep_fond,
+                           couleur_rainure, "Rainure fond D", "rainure"))
+    rects.append(Rect(L - ep, y_crem_av, crem_prof, crem_larg,
+                       couleur_rainure, "Rainure crem av D", "rainure"))
+    rects.append(Rect(L - ep, y_crem_ar, crem_prof, crem_larg,
+                       couleur_rainure, "Rainure crem ar D", "rainure"))
+
+    # Rainures cremailleres dans les separations (deux faces)
+    x_cursor_sep = ep
+    for comp_idx in range(nb_comp):
+        larg_c = largeurs[comp_idx]
+        if comp_idx < nb_comp - 1:
+            x_sep = x_cursor_sep + larg_c
+            # Face gauche de la separation
+            rects.append(Rect(x_sep, y_crem_av, crem_prof, crem_larg,
+                               couleur_rainure,
+                               f"Rainure crem av Sep{comp_idx+1} G", "rainure"))
+            rects.append(Rect(x_sep, y_crem_ar, crem_prof, crem_larg,
+                               couleur_rainure,
+                               f"Rainure crem ar Sep{comp_idx+1} G", "rainure"))
+            # Face droite de la separation
+            rects.append(Rect(x_sep + ep_sep - crem_prof, y_crem_av,
+                               crem_prof, crem_larg, couleur_rainure,
+                               f"Rainure crem av Sep{comp_idx+1} D", "rainure"))
+            rects.append(Rect(x_sep + ep_sep - crem_prof, y_crem_ar,
+                               crem_prof, crem_larg, couleur_rainure,
+                               f"Rainure crem ar Sep{comp_idx+1} D", "rainure"))
+            x_cursor_sep = x_sep + ep_sep
+        else:
+            x_cursor_sep += larg_c
+
     # --- Etageres (empreinte en plan, une par compartiment) ---
     for comp_idx in range(nb_comp):
         cg = compartiments_geom[comp_idx]
@@ -852,20 +907,38 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
                 ))
             break  # une seule coupe representative
 
-    # --- Cremailleres (bandes verticales sur les flancs) ---
-    # Positionnees entre la face avant (0) et le fond (fond_x)
+    # --- Rainures dans le flanc (vue en coupe) ---
+    couleur_rainure = "#6B5B3A"
     crem_cfg = config["cremaillere"]
+    crem_prof = crem_cfg.get("profondeur", 7)
     h_crem = h_corps - 2 * ep
     z_crem = h_plinthe + ep
+
+    # Rainure fond (si type rainure)
+    if fond_cfg["type"] == "rainure":
+        prof_r = fond_cfg["profondeur_rainure"]
+        rects.append(Rect(fond_x, z_fond_bas, prof_r, h_fond,
+                           couleur_rainure, "Rainure fond", "rainure"))
+
+    # Rainures cremailleres (entailles dans le flanc)
+    x_crem_av = crem_cfg["distance_avant"]
+    x_crem_ar = fond_x - crem_cfg["distance_arriere"] - crem_cfg["largeur"]
+    rects.append(Rect(x_crem_av, z_crem, crem_prof, h_crem,
+                       couleur_rainure, "Rainure crem avant", "rainure"))
+    rects.append(Rect(x_crem_ar, z_crem, crem_prof, h_crem,
+                       couleur_rainure, "Rainure crem arriere", "rainure"))
+
+    # --- Cremailleres (bandes verticales sur les flancs) ---
+    # Positionnees entre la face avant (0) et le fond (fond_x)
     # Cremaillere avant
     rects.append(Rect(
-        crem_cfg["distance_avant"], z_crem,
+        x_crem_av, z_crem,
         crem_cfg["largeur"], h_crem,
         "#A0A0A0", "Cremaillere avant", "cremaillere"
     ))
     # Cremaillere arriere (reference = panneau de fond)
     rects.append(Rect(
-        fond_x - crem_cfg["distance_arriere"] - crem_cfg["largeur"], z_crem,
+        x_crem_ar, z_crem,
         crem_cfg["largeur"], h_crem,
         "#A0A0A0", "Cremaillere arriere", "cremaillere"
     ))
