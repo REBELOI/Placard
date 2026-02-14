@@ -884,13 +884,19 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     ep_fond = fond_cfg["epaisseur"]
     if fond_cfg["type"] == "rainure":
         fond_x = P - fond_cfg["distance_chant"] - ep_fond
+        prof_r = fond_cfg["profondeur_rainure"]
+        # Le fond rentre dans les rainures du dessus et du dessous
+        z_fond_bas = h_plinthe + ep - prof_r
+        h_fond = h_corps - 2 * ep + 2 * prof_r
     elif fond_cfg["type"] == "applique":
         fond_x = P - ep_fond
+        z_fond_bas = h_plinthe + ep
+        h_fond = h_corps - 2 * ep
     else:
         fond_x = P - ep_fond
+        z_fond_bas = h_plinthe + ep
+        h_fond = h_corps - 2 * ep
 
-    z_fond_bas = h_plinthe + ep
-    h_fond = h_corps - 2 * ep
     rects.append(Rect(fond_x, z_fond_bas, ep_fond, h_fond,
                        couleur_fond, "Fond", "fond"))
 
@@ -932,11 +938,18 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     h_crem = h_corps - 2 * ep
     z_crem = h_plinthe + ep
 
-    # Rainure fond (si type rainure)
+    # Rainure fond (si type rainure) dans flanc, dessus et dessous
     if fond_cfg["type"] == "rainure":
         prof_r = fond_cfg["profondeur_rainure"]
-        rects.append(Rect(fond_x, z_fond_bas, prof_r, h_fond,
-                           couleur_rainure, "Rainure fond", "rainure"))
+        # Rainure dans le flanc (bande verticale)
+        rects.append(Rect(fond_x, h_plinthe + ep, prof_r, h_corps - 2 * ep,
+                           couleur_rainure, "Rainure fond flanc", "rainure"))
+        # Rainure dans le dessus (bande horizontale en haut)
+        rects.append(Rect(fond_x, h_plinthe + h_corps - ep, ep_fond, ep,
+                           couleur_rainure, "Rainure fond dessus", "rainure"))
+        # Rainure dans le dessous (bande horizontale en bas)
+        rects.append(Rect(fond_x, h_plinthe, ep_fond, ep,
+                           couleur_rainure, "Rainure fond dessous", "rainure"))
 
     # Rainures cremailleres (entailles dans le flanc)
     x_crem_av = crem_cfg["distance_avant"]

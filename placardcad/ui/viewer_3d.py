@@ -218,8 +218,9 @@ class PlacardViewer(QWidget):
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
         ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
-                        "rainure", "separation", "etagere", "porte", "tiroir",
-                        "fond", "cremaillere"]
+                        "separation", "fond", "etagere",
+                        "rainure", "cremaillere",
+                        "porte", "tiroir"]
 
         # Construire l'ordre complet: placard + meuble + types inconnus
         ordre_connu = set(ordre_placard + ordre_meuble)
@@ -575,8 +576,9 @@ class PlacardViewer(QWidget):
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
         ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
-                        "rainure", "separation", "etagere", "porte", "tiroir",
-                        "fond", "cremaillere"]
+                        "separation", "fond", "etagere",
+                        "rainure", "cremaillere",
+                        "porte", "tiroir"]
 
         ordre_connu = set(ordre_placard + ordre_meuble)
         rects_par_type = {}
