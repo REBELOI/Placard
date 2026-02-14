@@ -1601,9 +1601,13 @@ def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
                           titre: str = ""):
     """Dessine une vue meuble generique (face, dessus, cote) sur le canvas PDF.
 
+    Trace les elements geometriques, puis ajoute des cotations (dimensions)
+    avec lignes de rappel et fleches pour les cotes totales et les largeurs
+    de compartiments.
+
     Args:
         c: Canvas ReportLab.
-        rects: Rectangles de la vue.
+        rects: Rectangles de la vue (incluant les cotations).
         bbox_w: Largeur du bounding box en mm (ex: largeur meuble).
         bbox_h: Hauteur du bounding box en mm (ex: hauteur meuble).
         x_orig: Position X du coin bas-gauche de la zone en points PDF.
@@ -1626,6 +1630,7 @@ def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
 
     # Filtrer les rects non-dessinables
     visible = [r for r in rects if r.type_elem not in ("cotation",)]
+    cotations = [r for r in rects if r.type_elem == "cotation"]
 
     if not visible:
         return
@@ -1641,13 +1646,18 @@ def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
     if bb_w <= 0 or bb_h <= 0:
         return
 
-    marge = 4
-    view_w = draw_w - 2 * marge
-    view_h = draw_h - 2 * marge
+    # Padding pour les cotations (en points PDF)
+    pad_left = 28 if cotations else 4
+    pad_bottom = 24 if cotations else 4
+    pad_right = 4
+    pad_top = 4
+
+    view_w = draw_w - pad_left - pad_right
+    view_h = draw_h - pad_bottom - pad_top
 
     scale = min(view_w / bb_w, view_h / bb_h)
-    ox = x_orig + marge + (view_w - bb_w * scale) / 2 - x_min * scale
-    oy = y_orig_vue + marge + (view_h - bb_h * scale) / 2 - y_min * scale
+    ox = x_orig + pad_left + (view_w - bb_w * scale) / 2 - x_min * scale
+    oy = y_orig_vue + pad_bottom + (view_h - bb_h * scale) / 2 - y_min * scale
 
     # Trier par ordre de rendu
     rects_par_type: dict[str, list] = {}
@@ -1693,6 +1703,201 @@ def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],
 
             c.setFillColor(fill_color)
             c.rect(sx, sy, sw, sh, fill=1)
+
+    # =================================================================
+    #  COTATIONS
+    # =================================================================
+    if not cotations:
+        return
+
+    fl = 3  # taille fleche en points
+
+    def _fleche_h(tip_x, tip_y, vers_droite):
+        d = 1.0 if vers_droite else -1.0
+        p = c.beginPath()
+        p.moveTo(tip_x, tip_y)
+        p.lineTo(tip_x - d * fl, tip_y - fl * 0.35)
+        p.lineTo(tip_x - d * fl, tip_y + fl * 0.35)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+
+    def _fleche_v(tip_x, tip_y, vers_haut):
+        d = 1.0 if vers_haut else -1.0
+        p = c.beginPath()
+        p.moveTo(tip_x, tip_y)
+        p.lineTo(tip_x - fl * 0.35, tip_y - d * fl)
+        p.lineTo(tip_x + fl * 0.35, tip_y - d * fl)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+
+    # Identifier les cotations horizontales et verticales
+    cots_h = [r for r in cotations if r.w > r.h]
+    cots_v = [r for r in cotations if r.h > r.w]
+
+    # --- Cotation horizontale principale (largeur totale, en bas) ---
+    cot_h_main = max(cots_h, key=lambda r: r.w) if cots_h else None
+    # Sous-cotations horizontales (compartiments)
+    cots_h_sub = [r for r in cots_h if r is not cot_h_main] if cot_h_main else []
+
+    if cot_h_main:
+        c.setFont("Helvetica", 5.5)
+        x_left = ox + cot_h_main.x * scale
+        x_right = ox + (cot_h_main.x + cot_h_main.w) * scale
+        y_meuble_bas = oy + y_min * scale
+
+        # Sous-cotations compartiments (plus proches du meuble)
+        if cots_h_sub:
+            y_cot_sub = y_meuble_bas - 8
+            c.setStrokeColor(colors.Color(0.0, 0.4, 0.8))
+            c.setFillColor(colors.Color(0.0, 0.4, 0.8))
+            c.setLineWidth(0.4)
+
+            for r in cots_h_sub:
+                xl = ox + r.x * scale
+                xr = ox + (r.x + r.w) * scale
+                c.line(xl, y_cot_sub, xr, y_cot_sub)
+                _fleche_h(xl, y_cot_sub, False)
+                _fleche_h(xr, y_cot_sub, True)
+                # Traits de rappel
+                c.setStrokeColor(colors.Color(0.67, 0.83, 1.0))
+                c.setLineWidth(0.2)
+                c.line(xl, y_meuble_bas, xl, y_cot_sub - 2)
+                c.line(xr, y_meuble_bas, xr, y_cot_sub - 2)
+                c.setStrokeColor(colors.Color(0.0, 0.4, 0.8))
+                c.setFillColor(colors.Color(0.0, 0.4, 0.8))
+                c.setLineWidth(0.4)
+                # Texte
+                c.drawCentredString((xl + xr) / 2, y_cot_sub + 1.5,
+                                    r.label)
+            y_cot_main = y_cot_sub - 12
+        else:
+            y_cot_main = y_meuble_bas - 10
+
+        # Cotation principale largeur
+        c.setStrokeColor(colors.black)
+        c.setFillColor(colors.black)
+        c.setLineWidth(0.4)
+        c.line(x_left, y_cot_main, x_right, y_cot_main)
+        _fleche_h(x_left, y_cot_main, False)
+        _fleche_h(x_right, y_cot_main, True)
+        # Traits de rappel
+        y_rappel_top = y_meuble_bas if not cots_h_sub else y_cot_sub - 2
+        c.setStrokeColor(colors.grey)
+        c.setLineWidth(0.2)
+        c.line(x_left, y_rappel_top, x_left, y_cot_main - 2)
+        c.line(x_right, y_rappel_top, x_right, y_cot_main - 2)
+        # Texte
+        c.setFillColor(colors.black)
+        c.drawCentredString((x_left + x_right) / 2, y_cot_main - 7,
+                            f"{cot_h_main.label} mm")
+
+    # --- Cotation verticale principale (hauteur totale, a gauche) ---
+    cot_v_main = max(cots_v, key=lambda r: r.h) if cots_v else None
+    # Sous-cotations verticales (plinthe, etc.)
+    cots_v_sub = [r for r in cots_v if r is not cot_v_main] if cot_v_main else []
+
+    if cot_v_main:
+        c.setFont("Helvetica", 5.5)
+        y_bottom = oy + cot_v_main.y * scale
+        y_top = oy + (cot_v_main.y + cot_v_main.h) * scale
+        x_meuble_gauche = ox + x_min * scale
+
+        # Sous-cotations (plinthe par ex.)
+        if cots_v_sub:
+            x_cot_sub = x_meuble_gauche - 8
+            c.setStrokeColor(colors.Color(0.5, 0.5, 0.5))
+            c.setFillColor(colors.Color(0.5, 0.5, 0.5))
+            c.setLineWidth(0.4)
+
+            for r in cots_v_sub:
+                yb = oy + r.y * scale
+                yt = oy + (r.y + r.h) * scale
+                c.line(x_cot_sub, yb, x_cot_sub, yt)
+                _fleche_v(x_cot_sub, yb, False)
+                _fleche_v(x_cot_sub, yt, True)
+                # Traits de rappel
+                c.setStrokeColor(colors.Color(0.8, 0.8, 0.8))
+                c.setLineWidth(0.2)
+                c.line(x_meuble_gauche, yb, x_cot_sub - 2, yb)
+                c.line(x_meuble_gauche, yt, x_cot_sub - 2, yt)
+                c.setStrokeColor(colors.Color(0.5, 0.5, 0.5))
+                c.setFillColor(colors.Color(0.5, 0.5, 0.5))
+                c.setLineWidth(0.4)
+                # Texte
+                c.saveState()
+                c.translate(x_cot_sub - 4, (yb + yt) / 2)
+                c.rotate(90)
+                c.drawCentredString(0, 0, r.label)
+                c.restoreState()
+            x_cot_main = x_cot_sub - 14
+        else:
+            x_cot_main = x_meuble_gauche - 12
+
+        # Cotation principale hauteur
+        c.setStrokeColor(colors.black)
+        c.setFillColor(colors.black)
+        c.setLineWidth(0.4)
+        c.line(x_cot_main, y_bottom, x_cot_main, y_top)
+        _fleche_v(x_cot_main, y_bottom, False)
+        _fleche_v(x_cot_main, y_top, True)
+        # Traits de rappel
+        x_rappel_right = x_meuble_gauche if not cots_v_sub else x_cot_sub - 2
+        c.setStrokeColor(colors.grey)
+        c.setLineWidth(0.2)
+        c.line(x_rappel_right, y_bottom, x_cot_main - 2, y_bottom)
+        c.line(x_rappel_right, y_top, x_cot_main - 2, y_top)
+        # Texte
+        c.saveState()
+        c.translate(x_cot_main - 6, (y_bottom + y_top) / 2)
+        c.rotate(90)
+        c.setFillColor(colors.black)
+        c.drawCentredString(0, 0, f"{cot_v_main.label} mm")
+        c.restoreState()
+
+    # --- Cotations hauteurs entre etageres (vue de face uniquement) ---
+    etageres = sorted(
+        [r for r in visible if r.type_elem == "etagere"],
+        key=lambda r: r.y
+    )
+    if etageres and titre and "face" in titre.lower():
+        # Trouver les bornes verticales (dessous -> dessus)
+        dessous_r = next((r for r in visible if r.type_elem == "dessous"), None)
+        dessus_r = next((r for r in visible if r.type_elem == "dessus"), None)
+        z_bas = dessous_r.y + dessous_r.h if dessous_r else y_min
+        z_haut = dessus_r.y if dessus_r else y_max
+
+        # Regrouper etageres par compartiment (meme x)
+        etag_par_x: dict[float, list[float]] = {}
+        for e in etageres:
+            x_key = round(e.x, 1)
+            etag_par_x.setdefault(x_key, []).append(e.y)
+
+        coul_vert = colors.Color(0.0, 0.55, 0.27)
+        c.setFont("Helvetica", 4.5)
+
+        for x_key, z_list in sorted(etag_par_x.items()):
+            # Trouver un etagere pour son centre X
+            etag_ref = next(e for e in etageres if round(e.x, 1) == x_key)
+            x_mid_mm = etag_ref.x + etag_ref.w / 2
+            x_cot_pdf = ox + x_mid_mm * scale
+
+            niveaux = sorted(set([z_bas] + z_list + [z_haut]))
+
+            for k in range(len(niveaux) - 1):
+                yb_pdf = oy + niveaux[k] * scale
+                yt_pdf = oy + niveaux[k + 1] * scale
+                h_mm = niveaux[k + 1] - niveaux[k]
+
+                if h_mm < 5:
+                    continue
+
+                c.setStrokeColor(coul_vert)
+                c.setFillColor(coul_vert)
+                c.setLineWidth(0.3)
+                c.line(x_cot_pdf, yb_pdf + 1, x_cot_pdf, yt_pdf - 1)
+
+                mid_y = (yb_pdf + yt_pdf) / 2
+                c.drawCentredString(x_cot_pdf, mid_y - 2, f"{h_mm:.0f}")
 
 
 def _dessiner_page_meuble(c: canvas.Canvas, config: dict,
