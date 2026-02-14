@@ -944,11 +944,11 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
         # Rainure dans le flanc (bande verticale)
         rects.append(Rect(fond_x, h_plinthe + ep, prof_r, h_corps - 2 * ep,
                            couleur_rainure, "Rainure fond flanc", "rainure"))
-        # Rainure dans le dessus (bande horizontale en haut)
-        rects.append(Rect(fond_x, h_plinthe + h_corps - ep, ep_fond, ep,
+        # Rainure dans le dessus (entaille depuis la face interieure vers le haut)
+        rects.append(Rect(fond_x, h_plinthe + h_corps - ep, prof_r, prof_r,
                            couleur_rainure, "Rainure fond dessus", "rainure"))
-        # Rainure dans le dessous (bande horizontale en bas)
-        rects.append(Rect(fond_x, h_plinthe, ep_fond, ep,
+        # Rainure dans le dessous (entaille depuis la face interieure vers le bas)
+        rects.append(Rect(fond_x, h_plinthe + ep - prof_r, prof_r, prof_r,
                            couleur_rainure, "Rainure fond dessous", "rainure"))
 
     # Rainures cremailleres (entailles dans le flanc)
