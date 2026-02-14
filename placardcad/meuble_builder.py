@@ -394,7 +394,7 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
             if comp_idx == 0:
                 x_facade = -rec + ep + jeu_p["jeu_lateral"]
             if comp_idx == nb_comp - 1:
-                w_facade = (cg["x"] + cg["largeur"] + rec - ep
+                w_facade = (cg["x"] + cg["largeur"] + rec
                             - jeu_p["jeu_lateral"]) - x_facade
 
         # --- Portes ---
