@@ -838,19 +838,22 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
             z_haut_etag = h_plinthe + h_corps - ep
             h_zone = z_haut_etag - z_bas_etag
             espacement = h_zone / (nb_etag + 1)
-            prof_etag = (P - config["etagere"]["retrait_avant"]
+            retrait_av = config["etagere"]["retrait_avant"]
+            prof_etag = (P - retrait_av
                          - fond_cfg["distance_chant"] - ep_fond)
 
             for e_idx in range(nb_etag):
                 z_e = z_bas_etag + espacement * (e_idx + 1)
+                # Retrait a l'avant : l'etagere commence apres le retrait
                 rects.append(Rect(
-                    0, z_e, prof_etag, ep,
+                    retrait_av, z_e, prof_etag, ep,
                     couleur_etagere,
                     f"Etagere E{e_idx+1}", "etagere"
                 ))
             break  # une seule coupe representative
 
     # --- Cremailleres (bandes verticales sur les flancs) ---
+    # Positionnees entre la face avant (0) et le fond (fond_x)
     crem_cfg = config["cremaillere"]
     h_crem = h_corps - 2 * ep
     z_crem = h_plinthe + ep
@@ -860,9 +863,9 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
         crem_cfg["largeur"], h_crem,
         "#A0A0A0", "Cremaillere avant", "cremaillere"
     ))
-    # Cremaillere arriere
+    # Cremaillere arriere (reference = panneau de fond)
     rects.append(Rect(
-        P - crem_cfg["distance_arriere"] - crem_cfg["largeur"], z_crem,
+        fond_x - crem_cfg["distance_arriere"] - crem_cfg["largeur"], z_crem,
         crem_cfg["largeur"], h_crem,
         "#A0A0A0", "Cremaillere arriere", "cremaillere"
     ))
