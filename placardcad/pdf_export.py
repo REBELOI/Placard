@@ -49,6 +49,26 @@ COULEURS_TYPE = {
     "tasseau": (colors.Color(0.85, 0.65, 0.13), colors.Color(0.55, 0.41, 0.08)),
 }
 
+COULEURS_MEUBLE = {
+    "plinthe": (colors.Color(0.4, 0.4, 0.4), colors.Color(0.3, 0.3, 0.3)),
+    "flanc": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "dessus": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "dessous": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "fond": (colors.Color(0.83, 0.77, 0.66), colors.Color(0.6, 0.55, 0.45)),
+    "etagere": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
+    "rainure": (colors.Color(0.5, 0.45, 0.35), colors.Color(0.4, 0.35, 0.25)),
+    "cremaillere": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
+    "porte": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
+    "tiroir": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
+    "cotation": (colors.Color(0.3, 0.3, 0.3), colors.Color(0.3, 0.3, 0.3)),
+}
+
+ORDRE_MEUBLE = [
+    "plinthe", "flanc", "dessus", "dessous", "separation",
+    "fond", "etagere", "rainure", "cremaillere",
+    "porte", "tiroir", "ouverture", "percage",
+]
+
 
 # =========================================================================
 #  HELPERS
@@ -146,7 +166,15 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     oy = y_orig + marge + (view_h - total_h * scale) / 2 + padding * scale
 
     # Dessiner les rectangles
-    ordre = ["sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon", "cremaillere_encastree", "cremaillere_applique", "tasseau"]
+    ordre = [
+        # Types placard
+        "sol", "mur", "panneau_mur", "separation", "rayon_haut", "rayon",
+        "cremaillere_encastree", "cremaillere_applique", "tasseau",
+        # Types meuble
+        "plinthe", "flanc", "dessus", "dessous", "fond", "etagere",
+        "rainure", "cremaillere", "porte", "tiroir",
+        "ouverture", "percage",
+    ]
     rects_par_type = {}
     for r in rects:
         rects_par_type.setdefault(r.type_elem, []).append(r)
@@ -154,9 +182,11 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
     for type_elem in ordre:
         if type_elem not in rects_par_type:
             continue
-        fill_color, stroke_color = COULEURS_TYPE.get(
-            type_elem, (colors.lightgrey, colors.grey)
-        )
+        fill_color, stroke_color = COULEURS_TYPE.get(type_elem, (None, None))
+        if fill_color is None:
+            fill_color, stroke_color = COULEURS_MEUBLE.get(
+                type_elem, (colors.lightgrey, colors.grey)
+            )
 
         for r in rects_par_type[type_elem]:
             sx = ox + r.x * scale
@@ -187,6 +217,24 @@ def _dessiner_vue_face(c: canvas.Canvas, rects: list[PlacardRect],
                 c.setStrokeColor(stroke_color)
                 c.setLineWidth(lw)
                 c.rect(sx, sy, sw, sh, fill=0)
+            elif type_elem == "ouverture":
+                c.setStrokeColor(colors.Color(0.2, 0.2, 0.4))
+                c.setLineWidth(0.4)
+                cy_t = sy + sh / 2
+                p = c.beginPath()
+                if "G" in (r.label or ""):
+                    p.moveTo(sx, sy + sh)
+                    p.lineTo(sx + sw, cy_t)
+                    p.lineTo(sx, sy)
+                else:
+                    p.moveTo(sx + sw, sy + sh)
+                    p.lineTo(sx, cy_t)
+                    p.lineTo(sx + sw, sy)
+                c.drawPath(p, fill=0, stroke=1)
+            elif type_elem == "percage":
+                c.setStrokeColor(colors.Color(0.35, 0.35, 0.55))
+                c.setLineWidth(0.3)
+                c.ellipse(sx, sy, sx + sw, sy + sh, fill=0, stroke=1)
             else:
                 c.setFillColor(fill_color)
                 c.rect(sx, sy, sw, sh, fill=1)
@@ -1506,11 +1554,19 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
     for i, am in enumerate(amenagements_data):
         if i > 0:
             c.showPage()
-        _dessiner_page(
-            c, am["rects"], am["config"], am["fiche"],
-            projet_info, am.get("nom"),
-            projet_id, am.get("amenagement_id", 0),
-        )
+        if am.get("is_meuble"):
+            _dessiner_page_meuble(
+                c, am["config"], am["rects"],
+                am.get("rects_dessus", []), am.get("rects_cote", []),
+                am["fiche"], projet_info, am.get("nom"),
+                projet_id, am.get("amenagement_id", 0),
+            )
+        else:
+            _dessiner_page(
+                c, am["rects"], am["config"], am["fiche"],
+                projet_info, am.get("nom"),
+                projet_id, am.get("amenagement_id", 0),
+            )
         # Collecter les pieces de cet amenagement pour le debit global
         am_pieces = pieces_depuis_fiche(
             am["fiche"], projet_id, am.get("amenagement_id", 0)
@@ -1536,27 +1592,6 @@ def exporter_pdf_projet(filepath: str, amenagements_data: list[dict],
 # =========================================================================
 #  EXPORT PDF MEUBLE
 # =========================================================================
-
-COULEURS_MEUBLE = {
-    "plinthe": (colors.Color(0.4, 0.4, 0.4), colors.Color(0.3, 0.3, 0.3)),
-    "flanc": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "dessus": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "dessous": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "separation": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "fond": (colors.Color(0.83, 0.77, 0.66), colors.Color(0.6, 0.55, 0.45)),
-    "etagere": (colors.Color(0.82, 0.71, 0.55), colors.Color(0.55, 0.45, 0.33)),
-    "rainure": (colors.Color(0.5, 0.45, 0.35), colors.Color(0.4, 0.35, 0.25)),
-    "cremaillere": (colors.Color(0.63, 0.63, 0.63), colors.Color(0.44, 0.5, 0.56)),
-    "porte": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
-    "tiroir": (colors.Color(0.92, 0.92, 0.92), colors.Color(0.6, 0.6, 0.6)),
-    "cotation": (colors.Color(0.3, 0.3, 0.3), colors.Color(0.3, 0.3, 0.3)),
-}
-
-ORDRE_MEUBLE = [
-    "plinthe", "flanc", "dessus", "dessous", "separation",
-    "fond", "etagere", "rainure", "cremaillere",
-    "porte", "tiroir", "ouverture", "percage",
-]
 
 
 def _dessiner_vue_meuble(c: canvas.Canvas, rects: list[PlacardRect],

@@ -35,7 +35,7 @@ from ..meuble_schema_parser import est_schema_meuble, meuble_schema_vers_config
 from ..meuble_builder import (
     generer_geometrie_meuble, generer_vue_dessus_meuble, generer_vue_cote_meuble,
 )
-from ..pdf_export import exporter_pdf, exporter_pdf_projet
+from ..pdf_export import exporter_pdf, exporter_pdf_projet, exporter_pdf_meuble
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
 from ..dxf_export import exporter_dxf
@@ -660,7 +660,12 @@ class MainWindow(QMainWindow):
 
         schema_text = self.schema_editor.get_schema()
         params = self.params_editor.get_params()
-        config = schema_vers_config(schema_text, params)
+        is_meuble = est_schema_meuble(schema_text)
+
+        if is_meuble:
+            config = meuble_schema_vers_config(schema_text, params)
+        else:
+            config = schema_vers_config(schema_text, params)
 
         projet_info = None
         if self._current_projet_id:
@@ -677,12 +682,28 @@ class MainWindow(QMainWindow):
             tmp_path = tmp.name
             tmp.close()
 
-            exporter_pdf(tmp_path, self._rects, config, self._fiche, projet_info,
-                         projet_id=self._current_projet_id or 0,
-                         amenagement_id=self._current_amenagement_id or 0,
-                         params_debit=self._get_params_debit(),
-                         all_pieces_projet=all_pieces if all_pieces else None,
-                         pieces_manuelles=pieces_m if pieces_m else None)
+            if is_meuble:
+                rects_dessus = generer_vue_dessus_meuble(config)
+                rects_cote = generer_vue_cote_meuble(config)
+                amenagement_nom = None
+                if self._current_amenagement_id:
+                    am = self.db.get_amenagement(self._current_amenagement_id)
+                    if am:
+                        amenagement_nom = am.get("nom")
+                exporter_pdf_meuble(
+                    tmp_path, config, self._rects, rects_dessus, rects_cote,
+                    self._fiche, projet_info, amenagement_nom,
+                    projet_id=self._current_projet_id or 0,
+                    amenagement_id=self._current_amenagement_id or 0,
+                    params_debit=self._get_params_debit())
+            else:
+                exporter_pdf(tmp_path, self._rects, config, self._fiche,
+                             projet_info,
+                             projet_id=self._current_projet_id or 0,
+                             amenagement_id=self._current_amenagement_id or 0,
+                             params_debit=self._get_params_debit(),
+                             all_pieces_projet=all_pieces if all_pieces else None,
+                             pieces_manuelles=pieces_m if pieces_m else None)
 
             # Ouvrir avec le lecteur PDF du systeme
             if sys.platform == "win32":
@@ -716,7 +737,12 @@ class MainWindow(QMainWindow):
 
         schema_text = self.schema_editor.get_schema()
         params = self.params_editor.get_params()
-        config = schema_vers_config(schema_text, params)
+        is_meuble = est_schema_meuble(schema_text)
+
+        if is_meuble:
+            config = meuble_schema_vers_config(schema_text, params)
+        else:
+            config = schema_vers_config(schema_text, params)
 
         # Infos projet
         projet_info = None
@@ -729,12 +755,28 @@ class MainWindow(QMainWindow):
                     if self._current_projet_id else [])
 
         try:
-            exporter_pdf(filepath, self._rects, config, self._fiche, projet_info,
-                         projet_id=self._current_projet_id or 0,
-                         amenagement_id=self._current_amenagement_id or 0,
-                         params_debit=self._get_params_debit(),
-                         all_pieces_projet=all_pieces if all_pieces else None,
-                         pieces_manuelles=pieces_m if pieces_m else None)
+            if is_meuble:
+                rects_dessus = generer_vue_dessus_meuble(config)
+                rects_cote = generer_vue_cote_meuble(config)
+                amenagement_nom = None
+                if self._current_amenagement_id:
+                    am = self.db.get_amenagement(self._current_amenagement_id)
+                    if am:
+                        amenagement_nom = am.get("nom")
+                exporter_pdf_meuble(
+                    filepath, config, self._rects, rects_dessus, rects_cote,
+                    self._fiche, projet_info, amenagement_nom,
+                    projet_id=self._current_projet_id or 0,
+                    amenagement_id=self._current_amenagement_id or 0,
+                    params_debit=self._get_params_debit())
+            else:
+                exporter_pdf(filepath, self._rects, config, self._fiche,
+                             projet_info,
+                             projet_id=self._current_projet_id or 0,
+                             amenagement_id=self._current_amenagement_id or 0,
+                             params_debit=self._get_params_debit(),
+                             all_pieces_projet=all_pieces if all_pieces else None,
+                             pieces_manuelles=pieces_m if pieces_m else None)
             self.statusbar.showMessage(f"PDF exporte: {filepath}")
             QMessageBox.information(self, "Export PDF",
                                     f"PDF exporte avec succes:\n{filepath}")
@@ -781,15 +823,31 @@ class MainWindow(QMainWindow):
                 params = dict(PARAMS_DEFAUT)
 
             try:
-                config = schema_vers_config(schema_txt, params)
-                rects, fiche = generer_geometrie_2d(config)
-                amenagements_data.append({
-                    "rects": rects,
-                    "config": config,
-                    "fiche": fiche,
-                    "nom": am["nom"],
-                    "amenagement_id": am["id"],
-                })
+                if est_schema_meuble(schema_txt):
+                    config = meuble_schema_vers_config(schema_txt, params)
+                    rects, fiche = generer_geometrie_meuble(config)
+                    rects_dessus = generer_vue_dessus_meuble(config)
+                    rects_cote = generer_vue_cote_meuble(config)
+                    amenagements_data.append({
+                        "rects": rects,
+                        "config": config,
+                        "fiche": fiche,
+                        "nom": am["nom"],
+                        "amenagement_id": am["id"],
+                        "is_meuble": True,
+                        "rects_dessus": rects_dessus,
+                        "rects_cote": rects_cote,
+                    })
+                else:
+                    config = schema_vers_config(schema_txt, params)
+                    rects, fiche = generer_geometrie_2d(config)
+                    amenagements_data.append({
+                        "rects": rects,
+                        "config": config,
+                        "fiche": fiche,
+                        "nom": am["nom"],
+                        "amenagement_id": am["id"],
+                    })
             except Exception as e:
                 erreurs.append(f"{am['nom']}: {e}")
 
