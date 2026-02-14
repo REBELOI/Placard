@@ -6,6 +6,7 @@ Support d'une configuration type globale (preset) sauvegardee en base.
 """
 
 import json
+import sip
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox,
@@ -111,16 +112,16 @@ class ParamsEditor(QWidget):
             self.tabs.removeTab(0)
             w.deleteLater()
         self._widgets.clear()
-        # Reconstruire
-        if mode == "Meuble":
-            self._creer_onglets_meuble()
-            self._label_titre.setText("Parametres — Meuble")
-        else:
-            self._creer_onglets_placard()
-            self._label_titre.setText("Parametres — Placard")
-        # Re-peupler les widgets depuis les params
+        # Bloquer les signaux pendant la reconstruction
         self._blocked = True
         try:
+            if mode == "Meuble":
+                self._creer_onglets_meuble()
+                self._label_titre.setText("Parametres — Meuble")
+            else:
+                self._creer_onglets_placard()
+                self._label_titre.setText("Parametres — Placard")
+            # Re-peupler les widgets depuis les params
             self._ecrire_params_vers_widgets()
         finally:
             self._blocked = False
@@ -634,6 +635,8 @@ class ParamsEditor(QWidget):
     def _ecrire_params_vers_widgets(self):
         """Ecrit les valeurs des params dans les widgets."""
         for key, widget in self._widgets.items():
+            if sip.isdeleted(widget):
+                continue
             value = self._get_nested(self._params, key)
             if value is None:
                 continue
@@ -650,7 +653,9 @@ class ParamsEditor(QWidget):
 
     def _lire_widgets_vers_params(self):
         """Lit les widgets et met a jour les params."""
-        for key, widget in self._widgets.items():
+        for key, widget in list(self._widgets.items()):
+            if sip.isdeleted(widget):
+                continue
             if isinstance(widget, QComboBox):
                 value = widget.currentText()
             elif isinstance(widget, QSpinBox):
