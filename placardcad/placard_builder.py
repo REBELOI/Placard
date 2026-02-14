@@ -791,3 +791,290 @@ def generer_geometrie_2d(config: dict) -> tuple[list[Rect], FicheFabrication]:
             x_courant += ep_sep
 
     return rects, fiche
+
+
+def generer_vue_dessus_placard(config: dict) -> list[Rect]:
+    """Genere la geometrie 2D vue de dessus (plan XY) d'un placard.
+
+    Projection horizontale montrant la largeur (X) et la profondeur (Y).
+    Y=0 correspond a la face avant, Y=P au fond.
+
+    Args:
+        config: Dictionnaire de configuration complet du placard.
+
+    Returns:
+        Liste de ``Rect`` pour le dessin 2D en vue de dessus.
+    """
+    rects: list[Rect] = []
+
+    H = config["hauteur"]
+    L = config["largeur"]
+    P = config["profondeur"]
+    ep_sep = config["panneau_separation"]["epaisseur"]
+    ep_rayon = config["panneau_rayon"]["epaisseur"]
+
+    largeurs = calculer_largeurs_compartiments(config)
+    nb_comp = len(config["compartiments"])
+
+    coul_sep = rgb_to_hex(config["panneau_separation"]["couleur_rgb"])
+    coul_rayon = rgb_to_hex(config["panneau_rayon"]["couleur_rgb"])
+    mur_coul = rgb_to_hex(config.get("mur_couleur_rgb", (0.85, 0.85, 0.82)))
+    mur_ep = config.get("mur_epaisseur", 50)
+
+    # --- Murs ---
+    if config.get("afficher_murs", True):
+        # Mur gauche (vertical, cote gauche)
+        rects.append(Rect(-mur_ep, 0, mur_ep, P, mur_coul, "Mur gauche", "mur"))
+        # Mur droit
+        rects.append(Rect(L, 0, mur_ep, P, mur_coul, "Mur droit", "mur"))
+        # Mur du fond
+        rects.append(Rect(-mur_ep, P, L + 2 * mur_ep, mur_ep, mur_coul, "Mur fond", "mur"))
+
+    # --- Panneau mur gauche ---
+    x_courant = 0.0
+    comp0 = config["compartiments"][0]
+    if comp0.get("panneau_mur_gauche", False):
+        pm = config["panneau_mur"]
+        rects.append(Rect(0, 0, pm["epaisseur"], P - pm["chant_epaisseur"],
+                           rgb_to_hex(pm["couleur_rgb"]),
+                           "Panneau mur G", "panneau_mur"))
+
+    # --- Panneau mur droit ---
+    comp_last = config["compartiments"][-1]
+    if comp_last.get("panneau_mur_droite", False):
+        pm = config["panneau_mur"]
+        rects.append(Rect(L - pm["epaisseur"], 0,
+                           pm["epaisseur"], P - pm["chant_epaisseur"],
+                           rgb_to_hex(pm["couleur_rgb"]),
+                           "Panneau mur D", "panneau_mur"))
+
+    # --- Separations ---
+    x_courant = 0.0
+    for comp_idx in range(nb_comp):
+        larg_comp = largeurs[comp_idx]
+        x_courant += larg_comp
+
+        if comp_idx < nb_comp - 1:
+            prof_sep = P - config["panneau_separation"]["chant_epaisseur"]
+            rects.append(Rect(x_courant, 0, ep_sep, prof_sep,
+                               coul_sep,
+                               f"Separation {comp_idx+1}", "separation"))
+            x_courant += ep_sep
+
+    # --- Rayons (empreinte en plan par compartiment) ---
+    x_courant = 0.0
+    for comp_idx in range(nb_comp):
+        comp = config["compartiments"][comp_idx]
+        larg_comp = largeurs[comp_idx]
+
+        if comp["rayons"] > 0:
+            prof_rayon, larg_rayon = calculer_dimensions_rayon(
+                config, comp_idx, larg_comp)
+
+            x_rayon = x_courant
+            ce = config["crem_encastree"]
+            ca = config["crem_applique"]
+            saillie = ce.get("saillie", 0)
+            crem_g = comp.get("type_crem_gauche")
+            panneau_mur_g = comp.get("panneau_mur_gauche", False)
+            if panneau_mur_g:
+                x_rayon += config["panneau_mur"]["epaisseur"] + saillie + ce["jeu_rayon"]
+            elif crem_g == "encastree":
+                x_rayon += saillie + ce["jeu_rayon"]
+            elif crem_g == "applique":
+                x_rayon += ca["epaisseur_saillie"] + ca["jeu_rayon"]
+
+            retrait_av = config["panneau_rayon"].get("retrait_avant", 0)
+            rects.append(Rect(
+                x_rayon, retrait_av, larg_rayon, prof_rayon,
+                coul_rayon,
+                f"Rayon C{comp_idx+1} (x{comp['rayons']})", "rayon"
+            ))
+
+        x_courant += larg_comp
+        if comp_idx < nb_comp - 1:
+            x_courant += ep_sep
+
+    # --- Cremailleres (points sur les parois) ---
+    x_courant = 0.0
+    ce = config["crem_encastree"]
+    ca = config["crem_applique"]
+    for comp_idx in range(nb_comp):
+        comp = config["compartiments"][comp_idx]
+        larg_comp = largeurs[comp_idx]
+
+        if comp["rayons"] > 0:
+            crem_g = comp.get("type_crem_gauche")
+            panneau_mur_g = comp.get("panneau_mur_gauche", False)
+            crem_d = comp.get("type_crem_droite")
+            panneau_mur_d = comp.get("panneau_mur_droite", False)
+
+            # Cremailleres gauche (2 bandes avant/arriere)
+            if panneau_mur_g or crem_g == "encastree":
+                x_cg = x_courant
+                if panneau_mur_g:
+                    x_cg += config["panneau_mur"]["epaisseur"] - ce["epaisseur"]
+                dist_av = ce.get("distance_avant", 37)
+                dist_ar = ce.get("distance_arriere", 37)
+                rects.append(Rect(x_cg, dist_av, ce["epaisseur"], ce.get("largeur", 16),
+                                   rgb_to_hex(ce["couleur_rgb"]),
+                                   f"Crem G-av C{comp_idx+1}", "cremaillere_encastree"))
+                rects.append(Rect(x_cg, P - dist_ar - ce.get("largeur", 16),
+                                   ce["epaisseur"], ce.get("largeur", 16),
+                                   rgb_to_hex(ce["couleur_rgb"]),
+                                   f"Crem G-ar C{comp_idx+1}", "cremaillere_encastree"))
+            elif crem_g == "applique":
+                rects.append(Rect(x_courant, 0, ca["epaisseur_saillie"], P,
+                                   rgb_to_hex(ca["couleur_rgb"]),
+                                   f"Crem app G C{comp_idx+1}", "cremaillere_applique"))
+
+            # Cremailleres droite
+            x_fin = x_courant + larg_comp
+            if panneau_mur_d or crem_d == "encastree":
+                x_cd = x_fin
+                if panneau_mur_d:
+                    x_cd = L - config["panneau_mur"]["epaisseur"]
+                dist_av = ce.get("distance_avant", 37)
+                dist_ar = ce.get("distance_arriere", 37)
+                rects.append(Rect(x_cd, dist_av, ce["epaisseur"], ce.get("largeur", 16),
+                                   rgb_to_hex(ce["couleur_rgb"]),
+                                   f"Crem D-av C{comp_idx+1}", "cremaillere_encastree"))
+                rects.append(Rect(x_cd, P - dist_ar - ce.get("largeur", 16),
+                                   ce["epaisseur"], ce.get("largeur", 16),
+                                   rgb_to_hex(ce["couleur_rgb"]),
+                                   f"Crem D-ar C{comp_idx+1}", "cremaillere_encastree"))
+            elif crem_d == "applique":
+                rects.append(Rect(x_fin - ca["epaisseur_saillie"], 0,
+                                   ca["epaisseur_saillie"], P,
+                                   rgb_to_hex(ca["couleur_rgb"]),
+                                   f"Crem app D C{comp_idx+1}", "cremaillere_applique"))
+
+        x_courant += larg_comp
+        if comp_idx < nb_comp - 1:
+            x_courant += ep_sep
+
+    # --- Cotations ---
+    rects.append(Rect(0, -50, L, 2, "#333333", f"{L:.0f}", "cotation"))
+    rects.append(Rect(-40, 0, 2, P, "#333333", f"{P:.0f}", "cotation"))
+
+    return rects
+
+
+def generer_vue_cote_placard(config: dict) -> list[Rect]:
+    """Genere la geometrie 2D vue de cote en coupe (plan YZ) d'un placard.
+
+    Coupe longitudinale montrant la profondeur (X) et la hauteur (Y).
+    X=0 correspond a la face avant, X=P au fond.
+
+    Args:
+        config: Dictionnaire de configuration complet du placard.
+
+    Returns:
+        Liste de ``Rect`` pour le dessin 2D en vue de cote (coupe).
+    """
+    rects: list[Rect] = []
+
+    H = config["hauteur"]
+    P = config["profondeur"]
+    ep_sep = config["panneau_separation"]["epaisseur"]
+    ep_rayon = config["panneau_rayon"]["epaisseur"]
+    ep_rayon_haut = config["panneau_rayon_haut"]["epaisseur"]
+
+    nb_comp = len(config["compartiments"])
+    largeurs = calculer_largeurs_compartiments(config)
+
+    mur_coul = rgb_to_hex(config.get("mur_couleur_rgb", (0.85, 0.85, 0.82)))
+    mur_ep = config.get("mur_epaisseur", 50)
+    coul_sep = rgb_to_hex(config["panneau_separation"]["couleur_rgb"])
+    coul_rayon = rgb_to_hex(config["panneau_rayon"]["couleur_rgb"])
+
+    # --- Murs ---
+    if config.get("afficher_murs", True):
+        # Mur du fond
+        rects.append(Rect(P, 0, mur_ep, H, mur_coul, "Mur fond", "mur"))
+        # Sol
+        rects.append(Rect(0, -mur_ep, P + mur_ep, mur_ep, "#555555", "Sol", "sol"))
+        # Plafond
+        rects.append(Rect(0, H, P + mur_ep, mur_ep, mur_coul, "Plafond", "mur"))
+
+    # --- Separation (coupe laterale : P x H) ---
+    # Prend la premiere separation si elle existe
+    if nb_comp > 1:
+        sep0 = config["separations"][0]
+        if sep0["mode"] == "sous_rayon" and config["rayon_haut"]:
+            h_sep = H - config["rayon_haut_position"]
+        else:
+            h_sep = H
+        prof_sep = P - config["panneau_separation"]["chant_epaisseur"]
+        rects.append(Rect(0, 0, prof_sep, h_sep,
+                           coul_sep, "Separation (coupe)", "separation"))
+
+    # --- Rayon haut ---
+    if config["rayon_haut"]:
+        z_rh = H - config["rayon_haut_position"]
+        rh_retrait_av = config["panneau_rayon_haut"].get("retrait_avant", 0)
+        rh_retrait_ar = config["panneau_rayon_haut"].get("retrait_arriere", 0)
+        chant = config["panneau_rayon_haut"]["chant_epaisseur"]
+        prof_rh = P - chant - rh_retrait_av - rh_retrait_ar
+        rects.append(Rect(
+            rh_retrait_av, z_rh, prof_rh, ep_rayon_haut,
+            rgb_to_hex(config["panneau_rayon_haut"]["couleur_rgb"]),
+            "Rayon haut (coupe)", "rayon_haut"
+        ))
+
+    # --- Rayons (premier compartiment qui en a) ---
+    for comp_idx in range(nb_comp):
+        comp = config["compartiments"][comp_idx]
+        if comp["rayons"] > 0:
+            larg_comp = largeurs[comp_idx]
+            prof_rayon, _ = calculer_dimensions_rayon(config, comp_idx, larg_comp)
+            retrait_av = config["panneau_rayon"].get("retrait_avant", 0)
+
+            z_haut_rayons = H
+            if config["rayon_haut"]:
+                z_haut_rayons = H - config["rayon_haut_position"] - ep_rayon_haut
+
+            nb_rayons = comp["rayons"]
+            espace = z_haut_rayons / (nb_rayons + 1)
+
+            for r_idx in range(nb_rayons):
+                z_r = espace * (r_idx + 1)
+                rects.append(Rect(
+                    retrait_av, z_r, prof_rayon, ep_rayon,
+                    coul_rayon,
+                    f"Rayon R{r_idx+1} (coupe)", "rayon"
+                ))
+            break
+
+    # --- Tasseaux (coupe) ---
+    tass = config["tasseau"]
+    if config["rayon_haut"]:
+        z_rh = H - config["rayon_haut_position"]
+        z_tass = z_rh - tass["section_h"]
+        retrait_av = tass["retrait_avant"]
+        longueur_tass = P - config["panneau_rayon"]["chant_epaisseur"] - retrait_av
+        rects.append(Rect(
+            retrait_av, z_tass, longueur_tass, tass["section_h"],
+            rgb_to_hex(tass["couleur_rgb"]),
+            "Tasseau RH (coupe)", "tasseau"
+        ))
+
+    # --- Cremailleres (bandes verticales) ---
+    ce = config["crem_encastree"]
+    comp0 = config["compartiments"][0]
+    if comp0.get("type_crem_gauche") in ("encastree",) or comp0.get("panneau_mur_gauche", False):
+        h_crem = H - (config["rayon_haut_position"] if config["rayon_haut"] else 0)
+        dist_av = ce.get("distance_avant", 37)
+        dist_ar = ce.get("distance_arriere", 37)
+        coul_crem = rgb_to_hex(ce["couleur_rgb"])
+        rects.append(Rect(dist_av, 0, ce.get("largeur", 16), h_crem,
+                           coul_crem, "Crem avant (coupe)", "cremaillere_encastree"))
+        rects.append(Rect(P - dist_ar - ce.get("largeur", 16), 0,
+                           ce.get("largeur", 16), h_crem,
+                           coul_crem, "Crem arriere (coupe)", "cremaillere_encastree"))
+
+    # --- Cotations ---
+    rects.append(Rect(0, -50, P, 2, "#333333", f"{P:.0f}", "cotation"))
+    rects.append(Rect(-40, 0, 2, H, "#333333", f"{H:.0f}", "cotation"))
+
+    return rects

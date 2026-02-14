@@ -28,9 +28,13 @@ from .pieces_manuelles_editor import PiecesManualesEditor
 
 from ..database import Database, PARAMS_DEFAUT
 from ..schema_parser import schema_vers_config
-from ..placard_builder import generer_geometrie_2d
+from ..placard_builder import (
+    generer_geometrie_2d, generer_vue_dessus_placard, generer_vue_cote_placard,
+)
 from ..meuble_schema_parser import est_schema_meuble, meuble_schema_vers_config
-from ..meuble_builder import generer_geometrie_meuble
+from ..meuble_builder import (
+    generer_geometrie_meuble, generer_vue_dessus_meuble, generer_vue_cote_meuble,
+)
 from ..pdf_export import exporter_pdf, exporter_pdf_projet
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
 from ..freecad_export import exporter_freecad
@@ -76,6 +80,7 @@ class MainWindow(QMainWindow):
 
         self._rects = []
         self._fiche = None
+        self._config = None  # config courante pour regeneration de vue
 
         self.setWindowTitle("PlacardCAD - Conception de placards")
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icon_256.png")
@@ -140,9 +145,21 @@ class MainWindow(QMainWindow):
         viewer_layout = QVBoxLayout(viewer_widget)
         viewer_layout.setContentsMargins(0, 0, 0, 0)
 
-        viewer_label = QLabel("Vue de face")
-        viewer_label.setStyleSheet("font-weight: bold; padding: 4px;")
-        viewer_layout.addWidget(viewer_label)
+        # Barre de selection de vue
+        viewer_header = QHBoxLayout()
+        self._viewer_label = QLabel("Vue de face")
+        self._viewer_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        viewer_header.addWidget(self._viewer_label)
+        viewer_header.addStretch()
+        vue_label = QLabel("Vue:")
+        vue_label.setStyleSheet("padding: 4px;")
+        viewer_header.addWidget(vue_label)
+        self.combo_vue = QComboBox()
+        self.combo_vue.addItems(["Face", "Dessus", "Cote (coupe)"])
+        self.combo_vue.setToolTip("Choisir la projection: Face, Dessus ou Cote en coupe")
+        self.combo_vue.currentTextChanged.connect(self._on_vue_change)
+        viewer_header.addWidget(self.combo_vue)
+        viewer_layout.addLayout(viewer_header)
 
         self.viewer = PlacardViewer()
         viewer_layout.addWidget(self.viewer)
@@ -442,8 +459,18 @@ class MainWindow(QMainWindow):
     #  GENERATION VUE
     # =====================================================================
 
+    def _on_vue_change(self, vue: str):
+        """Reagit au changement de vue dans le selecteur.
+
+        Regenere la geometrie pour la projection choisie (face, dessus, cote).
+
+        Args:
+            vue: Texte de la vue selectionnee.
+        """
+        self._appliquer_vue()
+
     def _regenerer_vue(self):
-        """Regenere la vue de face depuis le schema et les parametres courants.
+        """Regenere la vue depuis le schema et les parametres courants.
 
         Detecte automatiquement le type de schema (placard ou meuble)
         grace a l'en-tete ``#MEUBLE`` et utilise le parser/builder adapte.
@@ -451,6 +478,7 @@ class MainWindow(QMainWindow):
         schema_text = self.schema_editor.get_schema()
         if not schema_text.strip():
             self.viewer.clear()
+            self._config = None
             return
 
         params = self.params_editor.get_params()
@@ -459,17 +487,14 @@ class MainWindow(QMainWindow):
             if est_schema_meuble(schema_text):
                 config = meuble_schema_vers_config(schema_text, params)
                 self._rects, self._fiche = generer_geometrie_meuble(config)
+                self._config = config
                 type_label = "MEUBLE"
             else:
                 config = schema_vers_config(schema_text, params)
                 self._rects, self._fiche = generer_geometrie_2d(config)
+                self._config = config
                 type_label = "PLACARD"
 
-            self.viewer.set_geometrie(
-                self._rects,
-                config["largeur"],
-                config["hauteur"]
-            )
             self.statusbar.showMessage(
                 f"[{type_label}] "
                 f"{config['nombre_compartiments']} compartiments | "
@@ -478,7 +503,53 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             self.viewer.clear()
+            self._config = None
             self.statusbar.showMessage(f"Erreur schema: {e}")
+            return
+
+        self._appliquer_vue()
+
+    def _appliquer_vue(self):
+        """Applique la projection selectionnee (face, dessus, cote) au viewer."""
+        if not self._config:
+            self.viewer.clear()
+            return
+
+        config = self._config
+        vue = self.combo_vue.currentText()
+        schema_text = self.schema_editor.get_schema()
+        is_meuble = est_schema_meuble(schema_text)
+
+        try:
+            if vue == "Dessus":
+                if is_meuble:
+                    rects_vue = generer_vue_dessus_meuble(config)
+                else:
+                    rects_vue = generer_vue_dessus_placard(config)
+                self.viewer.set_geometrie(
+                    rects_vue, config["largeur"], config["profondeur"]
+                )
+                self._viewer_label.setText("Vue de dessus")
+
+            elif vue == "Cote (coupe)":
+                if is_meuble:
+                    rects_vue = generer_vue_cote_meuble(config)
+                else:
+                    rects_vue = generer_vue_cote_placard(config)
+                self.viewer.set_geometrie(
+                    rects_vue, config["profondeur"], config["hauteur"]
+                )
+                self._viewer_label.setText("Vue de cote (coupe)")
+
+            else:  # Face
+                self.viewer.set_geometrie(
+                    self._rects, config["largeur"], config["hauteur"]
+                )
+                self._viewer_label.setText("Vue de face")
+
+        except Exception as e:
+            self.viewer.clear()
+            self.statusbar.showMessage(f"Erreur vue {vue}: {e}")
 
     # =====================================================================
     #  EXPORT

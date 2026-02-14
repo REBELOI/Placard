@@ -207,6 +207,8 @@ class PlacardViewer(QWidget):
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
             "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
             "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
+            "fond": (QColor("#8B8060"), QColor("#D4C5A9"), 1),
+            "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
         }
 
         # Dessiner les rectangles par ordre de couche
@@ -215,7 +217,8 @@ class PlacardViewer(QWidget):
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
         ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
-                        "separation", "etagere", "porte", "tiroir"]
+                        "separation", "etagere", "porte", "tiroir",
+                        "fond", "cremaillere"]
 
         # Construire l'ordre complet: placard + meuble + types inconnus
         ordre_connu = set(ordre_placard + ordre_meuble)
@@ -561,6 +564,8 @@ class PlacardViewer(QWidget):
             "plinthe": (QColor("#333333"), QColor("#505050"), 1),
             "porte": (QColor("#5A5A8A"), QColor("#E8E8F0"), 1),
             "tiroir": (QColor("#5A5A8A"), QColor("#DEE0F0"), 1),
+            "fond": (QColor("#8B8060"), QColor("#D4C5A9"), 1),
+            "cremaillere": (QColor("#708090"), QColor("#A0A0A0"), 0.5),
         }
 
         ordre_placard = ["sol", "mur", "panneau_mur", "separation",
@@ -568,7 +573,8 @@ class PlacardViewer(QWidget):
                          "cremaillere_encastree", "cremaillere_applique",
                          "tasseau"]
         ordre_meuble = ["plinthe", "flanc", "dessus", "dessous",
-                        "separation", "etagere", "porte", "tiroir"]
+                        "separation", "etagere", "porte", "tiroir",
+                        "fond", "cremaillere"]
 
         ordre_connu = set(ordre_placard + ordre_meuble)
         rects_par_type = {}

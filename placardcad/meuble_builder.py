@@ -613,3 +613,300 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
     )
 
     return rects, fiche
+
+
+def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
+    """Genere la geometrie 2D vue de dessus (plan XY) d'un meuble.
+
+    Projection horizontale montrant la largeur (X) et la profondeur (Y).
+    Y=0 correspond a la face avant, Y=P au fond.
+
+    Args:
+        config: Configuration complete issue de ``meuble_schema_vers_config``.
+
+    Returns:
+        Liste de ``Rect`` pour le dessin 2D en vue de dessus.
+    """
+    rects: list[Rect] = []
+
+    L = config["largeur"]
+    P = config["profondeur"]
+    ep = config["epaisseur"]
+    ep_f = config["epaisseur_facade"]
+    assemblage = config["assemblage"]
+    nb_comp = config["nombre_compartiments"]
+    ep_sep = config["separation"]["epaisseur"]
+
+    couleur_struct = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+    couleur_facade = _rgb_to_hex(config["facade"]["couleur_rgb"])
+    couleur_fond = "#D4C5A9"
+    couleur_etagere = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+
+    # --- Flancs (vus de dessus : ep x P) ---
+    rects.append(Rect(0, 0, ep, P, couleur_struct, "Cote gauche", "flanc"))
+    rects.append(Rect(L - ep, 0, ep, P, couleur_struct, "Cote droit", "flanc"))
+
+    # --- Dessus (couvre toute la largeur, profondeur P) ---
+    if assemblage == "dessus_sur":
+        dessus_x, dessus_w = 0, L
+    else:
+        dessus_x, dessus_w = ep, L - 2 * ep
+    rects.append(Rect(dessus_x, 0, dessus_w, P,
+                       couleur_struct, "Dessus", "dessus"))
+
+    # --- Fond ---
+    fond_cfg = config["fond"]
+    ep_fond = fond_cfg["epaisseur"]
+    if fond_cfg["type"] == "rainure":
+        fond_y = P - fond_cfg["distance_chant"] - ep_fond
+        fond_x = ep
+        fond_w = L - 2 * ep
+    elif fond_cfg["type"] == "applique":
+        fond_y = P - ep_fond
+        fond_x = 0
+        fond_w = L
+    else:  # vissage
+        fond_y = P - ep_fond
+        fond_x = ep
+        fond_w = L - 2 * ep
+
+    rects.append(Rect(fond_x, fond_y, fond_w, ep_fond,
+                       couleur_fond, "Fond", "fond"))
+
+    # --- Separations ---
+    largeurs = calculer_largeurs_meuble(config)
+    x_cursor = ep
+
+    compartiments_geom: list[dict] = []
+    for comp_idx in range(nb_comp):
+        larg_c = largeurs[comp_idx]
+        compartiments_geom.append({"x": x_cursor, "largeur": larg_c})
+
+        if comp_idx < nb_comp - 1:
+            x_sep = x_cursor + larg_c
+            ret_av = config["separation"]["retrait_avant"]
+            ret_ar = config["separation"]["retrait_arriere"]
+            prof_sep = P - ret_av - ret_ar
+            rects.append(Rect(x_sep, ret_av, ep_sep, prof_sep,
+                               couleur_struct,
+                               f"Separation {comp_idx + 1}", "separation"))
+            x_cursor = x_sep + ep_sep
+        else:
+            x_cursor += larg_c
+
+    # --- Etageres (empreinte en plan, une par compartiment) ---
+    for comp_idx in range(nb_comp):
+        cg = compartiments_geom[comp_idx]
+        comp_data = config["compartiments"][comp_idx]
+        nb_etag = comp_data["etageres"]
+
+        if nb_etag > 0:
+            jeu_lat = config["etagere"]["jeu_lateral"]
+            larg_etag = cg["largeur"] - 2 * jeu_lat
+            prof_etag = (P - config["etagere"]["retrait_avant"]
+                         - fond_cfg["distance_chant"] - ep_fond)
+            rects.append(Rect(
+                cg["x"] + jeu_lat, 0,
+                larg_etag, prof_etag,
+                couleur_etagere,
+                f"Etagere C{comp_idx+1} (x{nb_etag})", "etagere"
+            ))
+
+    # --- Facades (en avant du caisson, y negatif) ---
+    pose = config["pose"]
+    rec = RECOUVREMENT.get(pose, 16.0)
+    jeu_p = config["porte"]
+
+    for comp_idx in range(nb_comp):
+        cg = compartiments_geom[comp_idx]
+        comp_data = config["compartiments"][comp_idx]
+        facade = comp_data["facade"]
+        facade_type = facade["type"]
+
+        if facade_type == "niche":
+            continue
+
+        # Position X de la facade (meme logique que vue de face)
+        if pose == "encloisonnee":
+            x_facade = cg["x"] + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] - 2 * jeu_p["jeu_lateral"]
+        else:
+            x_facade = cg["x"] - rec + jeu_p["jeu_lateral"]
+            w_facade = cg["largeur"] + 2 * rec - 2 * jeu_p["jeu_lateral"]
+            if comp_idx == 0:
+                x_facade = -rec + ep + jeu_p["jeu_lateral"]
+            if comp_idx == nb_comp - 1:
+                w_facade = (cg["x"] + cg["largeur"] + rec
+                            - jeu_p["jeu_lateral"]) - x_facade
+
+        # Facade positionnee devant le caisson
+        label_type = {"portes": "Porte", "tiroirs": "Tiroir",
+                      "mixte": "Facade"}.get(facade_type, "Facade")
+        rects.append(Rect(
+            x_facade, -ep_f, w_facade, ep_f,
+            couleur_facade,
+            f"{label_type} C{comp_idx+1}", facade_type.rstrip("s")
+            if facade_type != "mixte" else "porte"
+        ))
+
+    # --- Cotations ---
+    rects.append(Rect(0, -50, L, 2, "#333333", f"{L:.0f}", "cotation"))
+    rects.append(Rect(-30, 0, 2, P, "#333333", f"{P:.0f}", "cotation"))
+
+    return rects
+
+
+def generer_vue_cote_meuble(config: dict) -> list[Rect]:
+    """Genere la geometrie 2D vue de cote en coupe (plan YZ) d'un meuble.
+
+    Coupe longitudinale montrant la profondeur (X) et la hauteur (Y).
+    X=0 correspond a la face avant, X=P au fond.
+
+    Args:
+        config: Configuration complete issue de ``meuble_schema_vers_config``.
+
+    Returns:
+        Liste de ``Rect`` pour le dessin 2D en vue de cote (coupe).
+    """
+    rects: list[Rect] = []
+
+    H = config["hauteur"]
+    P = config["profondeur"]
+    ep = config["epaisseur"]
+    ep_f = config["epaisseur_facade"]
+    h_plinthe = config["hauteur_plinthe"]
+    assemblage = config["assemblage"]
+    nb_comp = config["nombre_compartiments"]
+
+    couleur_struct = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+    couleur_facade = _rgb_to_hex(config["facade"]["couleur_rgb"])
+    couleur_fond = "#D4C5A9"
+    couleur_plinthe = "#404040"
+    couleur_etagere = _rgb_to_hex(config["panneau"]["couleur_rgb"])
+
+    h_corps = H - h_plinthe
+
+    # Dimensions selon assemblage
+    if assemblage == "dessus_sur":
+        flanc_h = h_corps - 2 * ep
+        flanc_z = h_plinthe + ep
+    else:
+        flanc_h = h_corps
+        flanc_z = h_plinthe
+
+    # --- Flanc (vu de cote : P x flanc_h) ---
+    rects.append(Rect(0, flanc_z, P, flanc_h,
+                       couleur_struct, "Cote (flanc)", "flanc"))
+
+    # --- Dessus ---
+    rects.append(Rect(0, h_plinthe + h_corps - ep, P, ep,
+                       couleur_struct, "Dessus", "dessus"))
+
+    # --- Dessous ---
+    rects.append(Rect(0, h_plinthe, P, ep,
+                       couleur_struct, "Dessous", "dessous"))
+
+    # --- Fond ---
+    fond_cfg = config["fond"]
+    ep_fond = fond_cfg["epaisseur"]
+    if fond_cfg["type"] == "rainure":
+        fond_x = P - fond_cfg["distance_chant"] - ep_fond
+    elif fond_cfg["type"] == "applique":
+        fond_x = P - ep_fond
+    else:
+        fond_x = P - ep_fond
+
+    z_fond_bas = h_plinthe + ep
+    h_fond = h_corps - 2 * ep
+    rects.append(Rect(fond_x, z_fond_bas, ep_fond, h_fond,
+                       couleur_fond, "Fond", "fond"))
+
+    # --- Plinthe ---
+    plinthe_cfg = config["plinthe"]
+    if plinthe_cfg["type"] != "aucune":
+        retrait_p = plinthe_cfg["retrait"]
+        rects.append(Rect(retrait_p, 0, plinthe_cfg["epaisseur"], h_plinthe,
+                           couleur_plinthe, "Plinthe", "plinthe"))
+
+    # --- Etageres (coupe montrant la profondeur a chaque hauteur) ---
+    # On prend le premier compartiment qui a des etageres
+    for comp_idx in range(nb_comp):
+        comp_data = config["compartiments"][comp_idx]
+        nb_etag = comp_data["etageres"]
+        if nb_etag > 0:
+            z_bas_etag = h_plinthe + ep
+            z_haut_etag = h_plinthe + h_corps - ep
+            h_zone = z_haut_etag - z_bas_etag
+            espacement = h_zone / (nb_etag + 1)
+            prof_etag = (P - config["etagere"]["retrait_avant"]
+                         - fond_cfg["distance_chant"] - ep_fond)
+
+            for e_idx in range(nb_etag):
+                z_e = z_bas_etag + espacement * (e_idx + 1)
+                rects.append(Rect(
+                    0, z_e, prof_etag, ep,
+                    couleur_etagere,
+                    f"Etagere E{e_idx+1}", "etagere"
+                ))
+            break  # une seule coupe representative
+
+    # --- Cremailleres (bandes verticales sur les flancs) ---
+    crem_cfg = config["cremaillere"]
+    h_crem = h_corps - 2 * ep
+    z_crem = h_plinthe + ep
+    # Cremaillere avant
+    rects.append(Rect(
+        crem_cfg["distance_avant"], z_crem,
+        crem_cfg["largeur"], h_crem,
+        "#A0A0A0", "Cremaillere avant", "cremaillere"
+    ))
+    # Cremaillere arriere
+    rects.append(Rect(
+        P - crem_cfg["distance_arriere"] - crem_cfg["largeur"], z_crem,
+        crem_cfg["largeur"], h_crem,
+        "#A0A0A0", "Cremaillere arriere", "cremaillere"
+    ))
+
+    # --- Facades (en coupe, a l'avant) ---
+    jeu_p = config["porte"]
+    z_facade_bas = h_plinthe + jeu_p["jeu_bas"]
+    z_facade_haut = H - jeu_p["jeu_haut"]
+    h_facade_zone = z_facade_haut - z_facade_bas
+
+    # Chercher le type de facade le plus representatif
+    facade_type = "niche"
+    nb_tiroirs = 0
+    for comp_data in config["compartiments"]:
+        ft = comp_data["facade"]["type"]
+        if ft != "niche":
+            facade_type = ft
+            nb_tiroirs = comp_data["facade"].get("nb_tiroirs", 0)
+            break
+
+    if facade_type == "portes":
+        rects.append(Rect(
+            -ep_f, z_facade_bas, ep_f, h_facade_zone,
+            couleur_facade, "Porte (coupe)", "porte"
+        ))
+    elif facade_type == "tiroirs" and nb_tiroirs > 0:
+        jeu_entre_t = config["tiroir"]["jeu_entre"]
+        h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
+                            * jeu_entre_t) / nb_tiroirs)
+        for t_idx in range(nb_tiroirs):
+            z_t = z_facade_bas + t_idx * (h_facade_tiroir + jeu_entre_t)
+            rects.append(Rect(
+                -ep_f, z_t, ep_f, h_facade_tiroir,
+                couleur_facade, f"Tiroir T{t_idx+1} (coupe)", "tiroir"
+            ))
+    elif facade_type == "mixte":
+        # Simplifie : une facade pleine
+        rects.append(Rect(
+            -ep_f, z_facade_bas, ep_f, h_facade_zone,
+            couleur_facade, "Facade (coupe)", "porte"
+        ))
+
+    # --- Cotations ---
+    rects.append(Rect(0, -50, P, 2, "#333333", f"{P:.0f}", "cotation"))
+    rects.append(Rect(-50, 0, 2, H, "#333333", f"{H:.0f}", "cotation"))
+
+    return rects
