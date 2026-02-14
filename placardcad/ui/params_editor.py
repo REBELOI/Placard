@@ -333,7 +333,9 @@ class ParamsEditor(QWidget):
         form_plinthe = QFormLayout(group_plinthe)
         form_plinthe.addRow("Type:", self._creer_combo(
             "plinthe.type", ["avant", "trois_cotes", "aucune"]))
-        form_plinthe.addRow("Retrait:", self._creer_spin("plinthe.retrait", 0, 100))
+        form_plinthe.addRow("Retrait avant:", self._creer_spin("plinthe.retrait", 0, 100))
+        form_plinthe.addRow("Retrait gauche:", self._creer_spin("plinthe.retrait_gauche", 0, 100))
+        form_plinthe.addRow("Retrait droite:", self._creer_spin("plinthe.retrait_droite", 0, 100))
         form_plinthe.addRow("Epaisseur:", self._creer_spin("plinthe.epaisseur", 6, 50))
         layout.addWidget(group_plinthe)
 

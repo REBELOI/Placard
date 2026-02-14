@@ -629,20 +629,32 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
     plinthe_cfg = config["plinthe"]
     if plinthe_cfg["type"] != "aucune":
         retrait_p = plinthe_cfg["retrait"]
+        ep_plinthe = plinthe_cfg["epaisseur"]
+
+        if plinthe_cfg["type"] == "trois_cotes":
+            retrait_g = plinthe_cfg.get("retrait_gauche", retrait_p)
+            retrait_d = plinthe_cfg.get("retrait_droite", retrait_p)
+            plinthe_x = retrait_g
+            plinthe_w = L - retrait_g - retrait_d
+        else:
+            plinthe_x = retrait_p
+            plinthe_w = L - 2 * retrait_p
+
         rects.append(Rect(
-            retrait_p, 0, L - 2 * retrait_p, h_plinthe,
+            plinthe_x, 0, plinthe_w, h_plinthe,
             couleur_plinthe, "Plinthe avant", "plinthe"
         ))
         fiche.ajouter_piece(PieceInfo(
             "Plinthe avant",
-            L - 2 * retrait_p, h_plinthe, plinthe_cfg["epaisseur"],
+            plinthe_w, h_plinthe, ep_plinthe,
             couleur_fab=config["panneau"]["couleur_fab"],
         ))
         if plinthe_cfg["type"] == "trois_cotes":
+            longueur_cote = P - retrait_p - ep_plinthe
             for cote, nom in [("gauche", "Plinthe gauche"),
                               ("droite", "Plinthe droite")]:
                 fiche.ajouter_piece(PieceInfo(
-                    nom, P - retrait_p, h_plinthe, plinthe_cfg["epaisseur"],
+                    nom, longueur_cote, h_plinthe, ep_plinthe,
                     couleur_fab=config["panneau"]["couleur_fab"],
                 ))
 
@@ -1311,8 +1323,14 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
     plinthe_cfg = config["plinthe"]
     if plinthe_cfg["type"] != "aucune":
         retrait_p = plinthe_cfg["retrait"]
-        rects.append(Rect(retrait_p, 0, plinthe_cfg["epaisseur"], h_plinthe,
-                           couleur_plinthe, "Plinthe", "plinthe"))
+        ep_plinthe = plinthe_cfg["epaisseur"]
+        rects.append(Rect(retrait_p, 0, ep_plinthe, h_plinthe,
+                           couleur_plinthe, "Plinthe avant", "plinthe"))
+        if plinthe_cfg["type"] == "trois_cotes":
+            longueur_cote = P - retrait_p - ep_plinthe
+            rects.append(Rect(retrait_p + ep_plinthe, 0,
+                               longueur_cote, h_plinthe,
+                               couleur_plinthe, "Plinthe cote", "plinthe"))
 
     # --- Etageres (coupe montrant la profondeur a chaque hauteur) ---
     # On prend le premier compartiment qui a des etageres

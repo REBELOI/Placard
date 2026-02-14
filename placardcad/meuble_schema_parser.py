@@ -373,6 +373,8 @@ def meuble_schema_vers_config(schema_text: str,
         "plinthe": {
             "type": "avant",
             "retrait": 30,
+            "retrait_gauche": 30,
+            "retrait_droite": 30,
             "epaisseur": 16,
         },
 

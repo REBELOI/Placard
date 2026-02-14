@@ -679,18 +679,21 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
     h_plinthe = config.get("hauteur_plinthe", 0)
     if plinthe_cfg.get("type") == "trois_cotes" and h_plinthe > 0:
         retrait_p = plinthe_cfg.get("retrait", 30)
+        retrait_g = plinthe_cfg.get("retrait_gauche", retrait_p)
+        retrait_d = plinthe_cfg.get("retrait_droite", retrait_p)
         ep_plinthe = plinthe_cfg.get("epaisseur", 16)
         couleur_p = COULEURS_3D_MEUBLE.get("plinthe", (0.4, 0.4, 0.4))
-        for nom_p, px in [("Plinthe_gauche", 0.0),
-                          ("Plinthe_droite", L - ep_plinthe)]:
+        longueur_cote = P - retrait_p - ep_plinthe
+        for nom_p, px in [("Plinthe_gauche", retrait_g),
+                          ("Plinthe_droite", L - retrait_d - ep_plinthe)]:
             objets.append({
                 "nom": _nom_unique(nom_p, noms_utilises),
                 "label": nom_p.replace("_", " "),
                 "length": ep_plinthe,
-                "width": P - retrait_p,
+                "width": longueur_cote,
                 "height": h_plinthe,
                 "px": px,
-                "py": retrait_p,
+                "py": retrait_p + ep_plinthe,
                 "pz": 0,
                 "couleur": couleur_p,
                 "transparence": 0,
