@@ -550,6 +550,7 @@ def _nom_groupe_freecad(nom: str) -> str:
 def generer_script_meuble_groupe(
     config: dict,
     nom_groupe: str,
+    nom_projet: str = "Projet",
 ) -> str:
     """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un App::Part.
 
@@ -561,6 +562,7 @@ def generer_script_meuble_groupe(
     Args:
         config: Configuration complete du meuble.
         nom_groupe: Nom du conteneur FreeCAD (issu du nom d'amenagement).
+        nom_projet: Nom du projet (utilise pour creer le document si aucun n'est ouvert).
 
     Returns:
         Code source Python du script FreeCAD.
@@ -578,7 +580,7 @@ def generer_script_meuble_groupe(
         "",
         "doc = FreeCAD.activeDocument()",
         "if doc is None:",
-        "    doc = FreeCAD.newDocument('Cuisine')",
+        f"    doc = FreeCAD.newDocument('{_nom_groupe_freecad(nom_projet)}')",
         "",
         f"GRP_NAME = '{grp_name}'",
         "",

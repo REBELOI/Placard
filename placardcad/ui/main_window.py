@@ -989,10 +989,15 @@ class MainWindow(QMainWindow):
 
         # Nom du groupe = nom de l'amenagement
         nom_groupe = "Meuble"
+        nom_projet = "Projet"
         if self._current_amenagement_id and self.db:
             am = self.db.get_amenagement(self._current_amenagement_id)
             if am and am.get("nom"):
                 nom_groupe = am["nom"]
+            if am and am.get("projet_id"):
+                proj = self.db.get_projet(am["projet_id"])
+                if proj and proj.get("nom"):
+                    nom_projet = proj["nom"]
 
         # Proposer le fichier de sortie
         default_name = nom_groupe.replace(" ", "_") + ".py"
@@ -1008,7 +1013,7 @@ class MainWindow(QMainWindow):
         config = meuble_schema_vers_config(schema_text, params)
 
         try:
-            script = generer_script_meuble_groupe(config, nom_groupe)
+            script = generer_script_meuble_groupe(config, nom_groupe, nom_projet)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(script)
 
