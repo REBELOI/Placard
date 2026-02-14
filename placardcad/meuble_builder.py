@@ -105,7 +105,7 @@ def _ajouter_poignee(
     poignee_cfg = config.get("poignee", {})
     if poignee_cfg.get("modele", "baton_inox") == "aucune":
         return
-    entraxe = poignee_cfg.get("entraxe", 128)
+    entraxe = int(poignee_cfg.get("entraxe", 128))
     diametre = poignee_cfg.get("diametre", 12)
     dist_haut = poignee_cfg.get("distance_haut", 50)
     cat = POIGNEE_BATON_CATALOGUE.get(entraxe)
@@ -1124,7 +1124,7 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
     if poignee_cfg.get("modele", "baton_inox") != "aucune":
         nb_poignees = sum(1 for r in rects if r.type_elem == "poignee")
         if nb_poignees > 0:
-            entraxe = poignee_cfg.get("entraxe", 128)
+            entraxe = int(poignee_cfg.get("entraxe", 128))
             cat = POIGNEE_BATON_CATALOGUE.get(entraxe)
             if cat:
                 ref = cat["ref"]
