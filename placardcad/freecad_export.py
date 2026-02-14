@@ -550,19 +550,17 @@ def _nom_groupe_freecad(nom: str) -> str:
 def generer_script_meuble_groupe(
     config: dict,
     nom_groupe: str,
-    offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> str:
-    """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un groupe.
+    """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un App::Part.
 
     Le script est concu pour etre execute dans un document FreeCAD existant.
-    Si le groupe existe deja, il est supprime puis recree. Chaque element
-    du meuble est un Part::Box ajoute au groupe. Le groupe peut ensuite
-    etre deplace dans FreeCAD via sa propriete Placement.
+    Si le conteneur existe deja, il est supprime puis recree. Chaque element
+    du meuble est un Part::Box ajoute au App::Part. Le conteneur peut ensuite
+    etre deplace dans FreeCAD via sa propriete Placement (onglet Donnees).
 
     Args:
         config: Configuration complete du meuble.
-        nom_groupe: Nom du groupe FreeCAD (issu du nom d'amenagement).
-        offset: Decalage (X, Y, Z) pour positionner le meuble.
+        nom_groupe: Nom du conteneur FreeCAD (issu du nom d'amenagement).
 
     Returns:
         Code source Python du script FreeCAD.
@@ -583,7 +581,6 @@ def generer_script_meuble_groupe(
         "    doc = FreeCAD.newDocument('Cuisine')",
         "",
         f"GRP_NAME = '{grp_name}'",
-        f"OFFSET = FreeCAD.Vector({offset[0]:.2f}, {offset[1]:.2f}, {offset[2]:.2f})",
         "",
         "# --- Supprimer le groupe existant s'il existe ---",
         "old_grp = doc.getObject(GRP_NAME)",
@@ -592,8 +589,8 @@ def generer_script_meuble_groupe(
         "        doc.removeObject(child.Name)",
         "    doc.removeObject(GRP_NAME)",
         "",
-        "# --- Creer le groupe ---",
-        "grp = doc.addObject('App::DocumentObjectGroup', GRP_NAME)",
+        "# --- Creer le conteneur (App::Part = deplacable via Placement) ---",
+        "grp = doc.addObject('App::Part', GRP_NAME)",
         f"grp.Label = '{nom_groupe.replace(chr(39), chr(39) + chr(39))}'",
         "",
     ]
@@ -611,7 +608,7 @@ def generer_script_meuble_groupe(
         lines.append(f"obj.Height = {obj['height']:.2f}")
         lines.append(
             f"obj.Placement = FreeCAD.Placement("
-            f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}) + OFFSET, "
+            f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}), "
             f"FreeCAD.Rotation(0, 0, 0, 1))"
         )
         lines.append(
