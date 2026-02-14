@@ -18,7 +18,7 @@ import math
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox,
     QLabel, QSizePolicy, QMenu, QInputDialog, QMessageBox, QDialog,
-    QFormLayout, QDialogButtonBox, QSpinBox,
+    QFormLayout, QDialogButtonBox, QSpinBox, QComboBox,
 )
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt5.QtGui import (
@@ -36,6 +36,26 @@ _COULEURS_MEUBLES = [
     "#7B68EE", "#D2691E", "#2E8B57", "#BC8F8F",
 ]
 
+# Points de pivot possibles (cle, label, fraction_x, fraction_y)
+# fraction_x/y en pourcentage de largeur/profondeur (0..1)
+# (0,0) = avant-gauche, (1,1) = arriere-droit
+_PIVOTS = [
+    ("avant_gauche",  "Av. gauche",  0.0, 0.0),
+    ("avant_centre",  "Av. centre",  0.5, 0.0),
+    ("avant_droit",   "Av. droit",   1.0, 0.0),
+    ("milieu_gauche", "Milieu G",    0.0, 0.5),
+    ("centre",        "Centre",      0.5, 0.5),
+    ("milieu_droit",  "Milieu D",    1.0, 0.5),
+    ("arriere_gauche","Ar. gauche",  0.0, 1.0),
+    ("arriere_centre","Ar. centre",  0.5, 1.0),
+    ("arriere_droit", "Ar. droit",   1.0, 1.0),
+]
+
+# Seuil d'accrochage aux murs (mm)
+_SNAP_THRESHOLD = 30
+# Tolerance d'angle pour considerer deux segments paralleles (radians)
+_SNAP_ANGLE_TOL = math.radians(5)
+
 
 class FloorPlanEditor(QWidget):
     """Editeur de plan d'etage avec positionnement interactif des meubles.
@@ -46,7 +66,8 @@ class FloorPlanEditor(QWidget):
             (amenagement_id, x, y, rotation_deg)
     """
 
-    placement_modifie = pyqtSignal(int, float, float, float)
+    # (amenagement_id, x, y, rotation_deg, pivot_key)
+    placement_modifie = pyqtSignal(int, float, float, float, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -126,6 +147,18 @@ class FloorPlanEditor(QWidget):
         self._spin_rot.valueChanged.connect(self._on_spin_rot)
         toolbar.addWidget(self._spin_rot)
 
+        toolbar.addSpacing(10)
+        toolbar.addWidget(QLabel("Pivot:"))
+        self._combo_pivot = QComboBox()
+        for key, label, _fx, _fy in _PIVOTS:
+            self._combo_pivot.addItem(label, key)
+        self._combo_pivot.setEnabled(False)
+        self._combo_pivot.setToolTip(
+            "Point de rotation du meuble.\n"
+            "Avant = face avant (trait rouge)")
+        self._combo_pivot.currentIndexChanged.connect(self._on_pivot_changed)
+        toolbar.addWidget(self._combo_pivot)
+
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
@@ -178,6 +211,7 @@ class FloorPlanEditor(QWidget):
                     "x": placement.get("x", 0.0),
                     "y": placement.get("y", 0.0),
                     "rotation": placement.get("rotation", 0.0),
+                    "pivot": placement.get("pivot", "avant_gauche"),
                     "couleur": _COULEURS_MEUBLES[i % len(_COULEURS_MEUBLES)],
                 })
 
@@ -211,6 +245,7 @@ class FloorPlanEditor(QWidget):
                 m["x"] = placement.get("x", m["x"])
                 m["y"] = placement.get("y", m["y"])
                 m["rotation"] = placement.get("rotation", m["rotation"])
+                m["pivot"] = placement.get("pivot", m.get("pivot", "avant_gauche"))
                 break
 
         self.update()
@@ -266,27 +301,63 @@ class FloorPlanEditor(QWidget):
         self._emit_placement(m)
         self.update()
 
+    def _on_pivot_changed(self, index: int):
+        """Slot appele quand l'utilisateur change le pivot dans le combo."""
+        if self._selected_idx < 0 or self._selected_idx >= len(self._meubles):
+            return
+        new_key = self._combo_pivot.currentData()
+        m = self._meubles[self._selected_idx]
+        old_key = m.get("pivot", "avant_gauche")
+        if new_key == old_key:
+            return
+
+        # Recalculer (x, y) pour que le meuble ne bouge pas visuellement
+        old_pvx, old_pvy = _pivot_local_mm(m, old_key)
+        new_pvx, new_pvy = _pivot_local_mm(m, new_key)
+        angle = math.radians(m["rotation"])
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        dx = new_pvx - old_pvx
+        dy = new_pvy - old_pvy
+        m["x"] += dx * cos_a - dy * sin_a
+        m["y"] += dx * sin_a + dy * cos_a
+        m["pivot"] = new_key
+
+        self._emit_placement(m)
+        self._update_spins()
+        self.update()
+
     def _update_spins(self):
         """Met a jour les spinboxes en fonction de la selection."""
         has_sel = 0 <= self._selected_idx < len(self._meubles)
         self._spin_x.setEnabled(has_sel)
         self._spin_y.setEnabled(has_sel)
         self._spin_rot.setEnabled(has_sel)
+        self._combo_pivot.setEnabled(has_sel)
         if has_sel:
             m = self._meubles[self._selected_idx]
             self._spin_x.blockSignals(True)
             self._spin_y.blockSignals(True)
             self._spin_rot.blockSignals(True)
+            self._combo_pivot.blockSignals(True)
             self._spin_x.setValue(m["x"])
             self._spin_y.setValue(m["y"])
             self._spin_rot.setValue(m["rotation"])
+            # Selectionner le pivot dans le combo
+            pivot_key = m.get("pivot", "avant_gauche")
+            for i, (key, _, _, _) in enumerate(_PIVOTS):
+                if key == pivot_key:
+                    self._combo_pivot.setCurrentIndex(i)
+                    break
             self._spin_x.blockSignals(False)
             self._spin_y.blockSignals(False)
             self._spin_rot.blockSignals(False)
+            self._combo_pivot.blockSignals(False)
 
     def _emit_placement(self, m: dict):
         """Emet le signal placement_modifie."""
-        self.placement_modifie.emit(m["id"], m["x"], m["y"], m["rotation"])
+        pivot = m.get("pivot", "avant_gauche")
+        self.placement_modifie.emit(m["id"], m["x"], m["y"], m["rotation"], pivot)
 
     # =================================================================
     #  Transformations vue -> mm et mm -> vue
@@ -308,17 +379,18 @@ class FloorPlanEditor(QWidget):
         """Retourne les 4 coins du meuble en coordonnees monde (mm)."""
         cx, cy = m["x"], m["y"]
         L, P = m["largeur"], m["profondeur"]
+        pvx, pvy = _pivot_local_mm(m)
         angle_rad = math.radians(m["rotation"])
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
-        # Coins relatifs au centre (0,0) du meuble
-        corners_local = [
-            (0, 0), (L, 0), (L, P), (0, P)
-        ]
+        corners_local = [(0, 0), (L, 0), (L, P), (0, P)]
         result = []
         for lx, ly in corners_local:
-            rx = cx + lx * cos_a - ly * sin_a
-            ry = cy + lx * sin_a + ly * cos_a
+            # Decaler depuis le pivot
+            dx = lx - pvx
+            dy = ly - pvy
+            rx = cx + dx * cos_a - dy * sin_a
+            ry = cy + dx * sin_a + dy * cos_a
             result.append((rx, ry))
         return result
 
@@ -381,14 +453,18 @@ class FloorPlanEditor(QWidget):
 
     def _point_in_meuble(self, px: float, py: float, m: dict) -> bool:
         """Teste si un point (mm) est dans le rectangle tourne du meuble."""
-        # Transformer le point dans le repere local du meuble
+        pvx, pvy = _pivot_local_mm(m)
         dx = px - m["x"]
         dy = py - m["y"]
         angle_rad = -math.radians(m["rotation"])
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
-        lx = dx * cos_a - dy * sin_a
-        ly = dx * sin_a + dy * cos_a
+        # Coordonnees locales relatives au pivot
+        rx = dx * cos_a - dy * sin_a
+        ry = dx * sin_a + dy * cos_a
+        # Ajouter l'offset du pivot pour avoir les coords depuis l'origine
+        lx = rx + pvx
+        ly = ry + pvy
         return 0 <= lx <= m["largeur"] and 0 <= ly <= m["profondeur"]
 
     def _hit_contour_point(self, mx_mm: float, my_mm: float) -> int:
@@ -523,6 +599,11 @@ class FloorPlanEditor(QWidget):
             dy = my - self._drag_start_mm[1]
             m["x"] = round(self._drag_meuble_start[0] + dx)
             m["y"] = round(self._drag_meuble_start[1] + dy)
+            # Accrochage aux murs
+            snap_dx, snap_dy = self._compute_wall_snap(m)
+            if snap_dx != 0 or snap_dy != 0:
+                m["x"] = round(m["x"] + snap_dx)
+                m["y"] = round(m["y"] + snap_dy)
             self._update_spins()
             self.update()
 
@@ -633,6 +714,73 @@ class FloorPlanEditor(QWidget):
     # =================================================================
     #  Utilitaires contour
     # =================================================================
+
+    def _compute_wall_snap(self, m: dict) -> tuple[float, float]:
+        """Calcule le vecteur de snap pour accrocher une arete du meuble a un mur.
+
+        Pour chaque arete du meuble, verifie si elle est parallele et proche
+        d'un segment de mur. Si oui, retourne le vecteur de translation
+        pour coller l'arete au mur.
+
+        Returns:
+            (dx, dy) vecteur de snap en mm, ou (0, 0) si pas de snap.
+        """
+        if not self._contour or len(self._contour) < 2:
+            return 0, 0
+
+        corners = self._meuble_corners(m)
+        meuble_edges = [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+
+        best_dist = _SNAP_THRESHOLD
+        best_snap = (0.0, 0.0)
+
+        n = len(self._contour)
+        for (ea, eb) in meuble_edges:
+            me_dx = eb[0] - ea[0]
+            me_dy = eb[1] - ea[1]
+            me_len = math.hypot(me_dx, me_dy)
+            if me_len < 1:
+                continue
+            me_angle = math.atan2(me_dy, me_dx)
+            me_mid_x = (ea[0] + eb[0]) / 2
+            me_mid_y = (ea[1] + eb[1]) / 2
+
+            for si in range(n):
+                wa = self._contour[si]
+                wb = self._contour[(si + 1) % n]
+                w_dx = wb[0] - wa[0]
+                w_dy = wb[1] - wa[1]
+                w_len = math.hypot(w_dx, w_dy)
+                if w_len < 1:
+                    continue
+                w_angle = math.atan2(w_dy, w_dx)
+
+                # Verifier le parallelisme
+                adiff = abs(_normalize_angle(me_angle - w_angle))
+                if adiff > _SNAP_ANGLE_TOL and abs(adiff - math.pi) > _SNAP_ANGLE_TOL:
+                    continue
+
+                # Distance perpendiculaire du milieu de l'arete a la ligne du mur
+                # Normale unitaire du mur
+                nx = -w_dy / w_len
+                ny = w_dx / w_len
+                rel_x = me_mid_x - wa[0]
+                rel_y = me_mid_y - wa[1]
+                dist = rel_x * nx + rel_y * ny  # distance signee
+
+                if abs(dist) >= best_dist:
+                    continue
+
+                # Verifier que la projection du milieu tombe sur le segment
+                t = (rel_x * w_dx + rel_y * w_dy) / (w_len * w_len)
+                margin = me_len / (2 * w_len)
+                if t < -margin or t > 1 + margin:
+                    continue
+
+                best_dist = abs(dist)
+                best_snap = (-dist * nx, -dist * ny)
+
+        return best_snap
 
     def _hit_segment_midpoint(self, mx_mm: float, my_mm: float) -> int:
         """Retourne l'index du segment dont le milieu est proche du curseur, ou -1."""
@@ -839,12 +987,16 @@ class FloorPlanEditor(QWidget):
         """Dessine un meuble (rectangle tourne) sur le plan."""
         L = m["largeur"] * scale
         P = m["profondeur"] * scale
+        pvx_px = _pivot_local_mm(m)[0] * scale
+        pvy_px = _pivot_local_mm(m)[1] * scale
         cx = ox + m["x"] * scale
         cy = oy + m["y"] * scale
 
         painter.save()
         painter.translate(cx, cy)
         painter.rotate(m["rotation"])
+        # Decaler pour que le pivot soit a l'origine de rotation
+        painter.translate(-pvx_px, -pvy_px)
 
         # Rectangle du meuble
         couleur = QColor(m["couleur"])
@@ -865,21 +1017,27 @@ class FloorPlanEditor(QWidget):
         painter.setPen(QPen(QColor("#CC0000"), 3))
         painter.drawLine(QPointF(0, 0), QPointF(L, 0))
 
+        # Indicateur du pivot (croix)
+        if selected:
+            painter.setPen(QPen(QColor("#FF0000"), 1.5))
+            r = 5
+            painter.drawLine(
+                QPointF(pvx_px - r, pvy_px - r),
+                QPointF(pvx_px + r, pvy_px + r))
+            painter.drawLine(
+                QPointF(pvx_px + r, pvy_px - r),
+                QPointF(pvx_px - r, pvy_px + r))
+            painter.drawEllipse(QPointF(pvx_px, pvy_px), r, r)
+
         # Label du meuble
         painter.setPen(QColor("#222"))
         painter.setFont(font)
         label = m["nom"]
         tw = fm.horizontalAdvance(label)
         th = fm.height()
-        # Centrer le texte dans le rectangle
         if L > tw + 4 and P > th + 4:
-            painter.drawText(
-                QRectF(0, 0, L, P),
-                Qt.AlignCenter,
-                label
-            )
+            painter.drawText(QRectF(0, 0, L, P), Qt.AlignCenter, label)
         elif L > 20 and P > 10:
-            # Texte plus petit
             small_font = QFont()
             small_font.setPointSize(6)
             painter.setFont(small_font)
@@ -956,3 +1114,29 @@ def _snap_to_angles(ref_x: float, ref_y: float,
     snapped_x = ref_x + dist * math.cos(best_angle)
     snapped_y = ref_y + dist * math.sin(best_angle)
     return snapped_x, snapped_y
+
+
+def _pivot_local_mm(m: dict, pivot_key: str | None = None) -> tuple[float, float]:
+    """Retourne l'offset local (mm) du point de pivot du meuble.
+
+    Args:
+        m: Dict du meuble (doit contenir 'largeur', 'profondeur').
+        pivot_key: Cle du pivot. Si None, utilise m["pivot"].
+
+    Returns:
+        (pvx, pvy) offset en mm depuis l'origine (avant-gauche) du meuble.
+    """
+    key = pivot_key or m.get("pivot", "avant_gauche")
+    for k, _label, fx, fy in _PIVOTS:
+        if k == key:
+            return fx * m["largeur"], fy * m["profondeur"]
+    return 0.0, 0.0
+
+
+def _normalize_angle(a: float) -> float:
+    """Normalise un angle en radians dans [-pi, pi]."""
+    while a > math.pi:
+        a -= 2 * math.pi
+    while a < -math.pi:
+        a += 2 * math.pi
+    return a

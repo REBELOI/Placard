@@ -547,6 +547,26 @@ def _nom_groupe_freecad(nom: str) -> str:
     return clean or "Meuble"
 
 
+_PIVOT_FRACTIONS = {
+    "avant_gauche": (0.0, 0.0),
+    "avant_centre": (0.5, 0.0),
+    "avant_droit": (1.0, 0.0),
+    "milieu_gauche": (0.0, 0.5),
+    "centre": (0.5, 0.5),
+    "milieu_droit": (1.0, 0.5),
+    "arriere_gauche": (0.0, 1.0),
+    "arriere_centre": (0.5, 1.0),
+    "arriere_droit": (1.0, 1.0),
+}
+
+
+def _pivot_offset(pivot_key: str, largeur: float, profondeur: float
+                  ) -> tuple[float, float]:
+    """Retourne l'offset local (mm) du pivot depuis l'origine du meuble."""
+    fx, fy = _PIVOT_FRACTIONS.get(pivot_key, (0.0, 0.0))
+    return fx * largeur, fy * profondeur
+
+
 def generer_script_meuble_groupe(
     config: dict,
     nom_groupe: str,
@@ -570,11 +590,25 @@ def generer_script_meuble_groupe(
     objets = _collecter_objets_3d_meuble(config)
     grp_name = _nom_groupe_freecad(nom_groupe)
 
-    # Placement du meuble sur le plan (position + rotation)
+    # Placement du meuble sur le plan (position + rotation + pivot)
     placement = config.get("placement", {})
-    place_x = placement.get("x", 0.0)
-    place_y = placement.get("y", 0.0)
+    pivot_x = placement.get("x", 0.0)
+    pivot_y = placement.get("y", 0.0)
     place_rot = placement.get("rotation", 0.0)
+    pivot_key = placement.get("pivot", "avant_gauche")
+
+    # Calculer la position de l'origine (avant-gauche) du meuble
+    # a partir de la position du pivot
+    import math as _math
+    L = config.get("largeur", 600)
+    P = config.get("profondeur", 600)
+    pvx, pvy = _pivot_offset(pivot_key, L, P)
+    angle_rad = _math.radians(place_rot)
+    cos_a = _math.cos(angle_rad)
+    sin_a = _math.sin(angle_rad)
+    # origin = pivot_world - rotate(pivot_local)
+    place_x = pivot_x - (pvx * cos_a - pvy * sin_a)
+    place_y = pivot_y - (pvx * sin_a + pvy * cos_a)
 
     lines = [
         f"# Script PlacardCAD — {nom_groupe}",

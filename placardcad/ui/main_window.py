@@ -405,7 +405,8 @@ class MainWindow(QMainWindow):
             self.floor_plan_editor.refresh_meuble(self._current_amenagement_id)
 
     def _on_placement_modifie(self, amenagement_id: int,
-                              x: float, y: float, rotation: float):
+                              x: float, y: float, rotation: float,
+                              pivot: str):
         """Slot appele quand un meuble est deplace/tourne sur le plan.
 
         Sauvegarde la position dans les params de l'amenagement concerne.
@@ -415,12 +416,15 @@ class MainWindow(QMainWindow):
             x: Position X en mm.
             y: Position Y en mm.
             rotation: Angle de rotation en degres.
+            pivot: Cle du point de pivot.
         """
         am = self.db.get_amenagement(amenagement_id)
         if not am:
             return
         params = json.loads(am.get("params_json", "{}"))
-        params["placement"] = {"x": x, "y": y, "rotation": rotation}
+        params["placement"] = {
+            "x": x, "y": y, "rotation": rotation, "pivot": pivot,
+        }
         self.db.modifier_amenagement(
             amenagement_id,
             params_json=json.dumps(params, ensure_ascii=False),
