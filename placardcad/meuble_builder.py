@@ -39,6 +39,8 @@ LEGRABOX_LONGUEURS_COULISSES = [
 
 # =====================================================================
 #  Constantes charnieres CLIP top (Blum)
+#  Charnieres: 71B959 (applique), 71B969 (semi-applique), 71B979 (encloisonnee)
+#  Embases: 174710ZE
 # =====================================================================
 
 CLIP_TOP_DIAMETRE_CUVETTE = 35.0
@@ -47,9 +49,9 @@ CLIP_TOP_DISTANCE_BORD = 3.0
 CLIP_TOP_MARGE_HAUT_BAS = 80.0  # distance min du bord haut/bas de la porte
 
 RECOUVREMENT = {
-    "applique": 16.0,
-    "semi_applique": 8.0,
-    "encloisonnee": 0.0,
+    "applique": 16.0,       # 71B959
+    "semi_applique": 8.0,   # 71B969
+    "encloisonnee": 0.0,    # 71B979, jeu de 2mm
 }
 
 
