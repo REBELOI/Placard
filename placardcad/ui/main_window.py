@@ -37,7 +37,7 @@ from ..meuble_builder import (
 )
 from ..pdf_export import exporter_pdf, exporter_pdf_projet, exporter_pdf_meuble
 from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebit
-from ..freecad_export import exporter_freecad
+from ..freecad_export import exporter_freecad, exporter_freecad_meuble, generer_script_freecad
 from ..dxf_export import exporter_dxf
 from ..etiquettes_export import exporter_etiquettes
 from ..liste_courses import generer_liste_courses, exporter_liste_courses
@@ -905,11 +905,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export", str(e))
 
     def _exporter_freecad(self):
-        """Exporte le placard en fichier FreeCAD natif (.FCStd).
+        """Exporte le placard ou meuble en fichier FreeCAD (.FCStd) + script Python.
 
-        Genere un fichier FreeCAD 3D a partir de la configuration courante
-        du schema et des parametres. Le fichier peut etre ouvert dans
-        FreeCAD pour visualisation et modification.
+        Genere un fichier FreeCAD 3D et un script Python (.py) compagnon.
+        Le script peut etre execute dans la console FreeCAD (Macro > Executer)
+        pour recreer le modele avec recalcul automatique des formes.
         """
         if not self._rects:
             QMessageBox.warning(self, "Export FreeCAD",
@@ -926,15 +926,32 @@ class MainWindow(QMainWindow):
 
         schema_text = self.schema_editor.get_schema()
         params = self.params_editor.get_params()
-        config = schema_vers_config(schema_text, params)
+        is_meuble = est_schema_meuble(schema_text)
+
+        if is_meuble:
+            config = meuble_schema_vers_config(schema_text, params)
+        else:
+            config = schema_vers_config(schema_text, params)
 
         try:
-            exporter_freecad(filepath, config)
+            if is_meuble:
+                exporter_freecad_meuble(filepath, config)
+            else:
+                exporter_freecad(filepath, config)
+
+            # Generer aussi le script Python compagnon
+            script_path = filepath.rsplit(".", 1)[0] + ".py"
+            script = generer_script_freecad(config, is_meuble=is_meuble)
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
+
             self.statusbar.showMessage(f"FreeCAD exporte: {filepath}")
             QMessageBox.information(
                 self, "Export FreeCAD",
                 f"Fichier FreeCAD exporte:\n{filepath}\n\n"
-                "Ouvrir dans FreeCAD puis Ctrl+Shift+R pour recalculer les formes."
+                f"Script Python genere:\n{script_path}\n\n"
+                "Pour un resultat optimal, ouvrir le script .py dans\n"
+                "FreeCAD via Macro > Executer une macro."
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export FreeCAD", str(e))

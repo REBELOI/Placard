@@ -313,11 +313,12 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
         '</Properties>',
     ]
 
-    # Liste des objets
+    # Liste des objets (status="1" = Touched → force recalcul a l'ouverture)
     lines.append(f'<Objects Count="{len(objets)}">')
     for i, obj in enumerate(objets):
         lines.append(
-            f'<Object type="Part::Box" name="{xml_escape(obj["nom"])}" id="{i}"/>'
+            f'<Object type="Part::Box" name="{xml_escape(obj["nom"])}" '
+            f'id="{i}" status="1"/>'
         )
     lines.append('</Objects>')
 
@@ -326,7 +327,7 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
     for obj in objets:
         label = xml_escape(obj["label"], {'"': '&quot;'})
         lines.append(f'<Object name="{xml_escape(obj["nom"])}">')
-        lines.append('<Properties Count="6">')
+        lines.append('<Properties Count="5">')
 
         # Label
         lines.append('<Property name="Label" type="App::PropertyString">')
@@ -360,26 +361,10 @@ def _generer_document_xml(objets: list[dict]) -> bytes:
             f'Oz="1.000000000000000e+0"/>')
         lines.append('</Property>')
 
-        # Shape (status=1 = Touched → force le recalcul a l'ouverture)
-        lines.append(
-            '<Property name="Shape" type="Part::PropertyPartShape" '
-            'status="1">'
-        )
-        lines.append('</Property>')
-
         lines.append('</Properties>')
         lines.append('</Object>')
 
     lines.append('</ObjectData>')
-
-    # Dependances inter-objets (aucune)
-    lines.append(f'<ObjectDeps Count="{len(objets)}">')
-    for obj in objets:
-        lines.append(
-            f'<ObjectDep Name="{xml_escape(obj["nom"])}" Count="0"/>'
-        )
-    lines.append('</ObjectDeps>')
-
     lines.append('</Document>')
 
     return '\n'.join(lines).encode("utf-8")
@@ -486,6 +471,63 @@ def exporter_freecad(filepath: str, config: dict) -> str:
         zf.writestr("GuiDocument.xml", gui_xml)
 
     return filepath
+
+
+def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
+    """Genere un script Python executable dans la console FreeCAD.
+
+    Ce script recree tous les objets Part::Box avec les bonnes dimensions,
+    positions, couleurs et labels. Il suffit de le copier-coller dans la
+    console Python de FreeCAD ou de l'executer via Macro > Executer.
+
+    Args:
+        config: Configuration complete du placard ou meuble.
+        is_meuble: True pour un meuble, False pour un placard.
+
+    Returns:
+        Code source Python du script FreeCAD.
+    """
+    if is_meuble:
+        objets = _collecter_objets_3d_meuble(config)
+    else:
+        objets = _collecter_objets_3d(config)
+
+    lines = [
+        "import FreeCAD",
+        "import Part",
+        "",
+        "doc = FreeCAD.newDocument('PlacardCAD')",
+        "",
+    ]
+
+    for obj in objets:
+        nom = obj["nom"]
+        label = obj["label"].replace("'", "\\'")
+        r, g, b = obj["couleur"]
+        lines.append(f"obj = doc.addObject('Part::Box', '{nom}')")
+        lines.append(f"obj.Label = '{label}'")
+        lines.append(f"obj.Length = {obj['length']:.2f}")
+        lines.append(f"obj.Width = {obj['width']:.2f}")
+        lines.append(f"obj.Height = {obj['height']:.2f}")
+        lines.append(
+            f"obj.Placement = FreeCAD.Placement("
+            f"FreeCAD.Vector({obj['px']:.2f}, {obj['py']:.2f}, {obj['pz']:.2f}), "
+            f"FreeCAD.Rotation(0, 0, 0, 1))"
+        )
+        lines.append(
+            f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
+        )
+        if obj["transparence"] > 0:
+            lines.append(
+                f"obj.ViewObject.Transparency = {obj['transparence']}"
+            )
+        lines.append("")
+
+    lines.append("doc.recompute()")
+    lines.append("FreeCADGui.activeDocument().activeView().viewIsometric()")
+    lines.append("FreeCADGui.SendMsgToActiveView('ViewFit')")
+
+    return "\n".join(lines)
 
 
 # =====================================================================
