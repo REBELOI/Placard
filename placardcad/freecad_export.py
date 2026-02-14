@@ -690,7 +690,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
                 "width": P - retrait_p,
                 "height": h_plinthe,
                 "px": px,
-                "py": retrait_p,
+                "py": 0,
                 "pz": 0,
                 "couleur": couleur_p,
                 "transparence": 0,
