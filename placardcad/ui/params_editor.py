@@ -30,6 +30,7 @@ CLES_CONFIG_TYPE_MEUBLE = [
     "panneau",
     "facade",
     "dessus",
+    "dessous",
     "fond",
     "plinthe",
     "tiroir",
@@ -325,6 +326,13 @@ class ParamsEditor(QWidget):
         form_dessus.addRow("Largeur traverse:", self._creer_spin(
             "dessus.largeur_traverse", 50, 300))
         layout.addWidget(group_dessus)
+
+        # Dessous
+        group_dessous = QGroupBox("Dessous")
+        form_dessous = QFormLayout(group_dessous)
+        form_dessous.addRow("Retrait arriere:", self._creer_spin(
+            "dessous.retrait_arriere", 0, 200))
+        layout.addWidget(group_dessous)
 
         # Fond
         group_fond = QGroupBox("Fond")

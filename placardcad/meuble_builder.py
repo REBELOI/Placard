@@ -707,10 +707,12 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
         ))
 
     # --- Dessous ---
+    retrait_ar_dessous = config.get("dessous", {}).get("retrait_arriere", 50)
+    prof_dessous = P - retrait_ar_dessous
     rects.append(Rect(dessous_x, h_plinthe, dessous_w, ep,
                        couleur_struct, "Dessous", "dessous"))
     fiche.ajouter_piece(PieceInfo(
-        "Dessous", dessous_w, P, ep,
+        "Dessous", dessous_w, prof_dessous, ep,
         couleur_fab=config["panneau"]["couleur_fab"],
         chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
     ))
@@ -1339,7 +1341,9 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
                            couleur_struct, "Traverse arriere", "traverse"))
 
     # --- Dessous ---
-    rects.append(Rect(0, h_plinthe, P, ep,
+    retrait_ar_dessous = config.get("dessous", {}).get("retrait_arriere", 50)
+    prof_dessous = P - retrait_ar_dessous
+    rects.append(Rect(0, h_plinthe, prof_dessous, ep,
                        couleur_struct, "Dessous", "dessous"))
 
     # --- Fond ---

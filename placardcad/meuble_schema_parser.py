@@ -384,6 +384,11 @@ def meuble_schema_vers_config(schema_text: str,
             "largeur_traverse": 100,   # mm (profondeur de chaque traverse)
         },
 
+        # Dessous
+        "dessous": {
+            "retrait_arriere": 50,     # mm - retrait depuis le mur du fond
+        },
+
         # Tiroirs LEGRABOX
         "tiroir": {
             "hauteur": "M",

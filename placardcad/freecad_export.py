@@ -570,8 +570,12 @@ def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, flo
     fond_cfg = config.get("fond", {})
     ep_fond = fond_cfg.get("epaisseur", 3)
 
-    if type_elem in ("flanc", "dessus", "dessous", "separation"):
+    if type_elem in ("flanc", "dessus", "separation"):
         return P, 0
+
+    elif type_elem == "dessous":
+        retrait_ar = config.get("dessous", {}).get("retrait_arriere", 50)
+        return P - retrait_ar, 0
 
     elif type_elem == "fond":
         return ep_fond, P - ep_fond
