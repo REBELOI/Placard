@@ -117,6 +117,10 @@ def _render_facade_groupes(
     Chaque groupe est soit un groupe de tiroirs (avec hauteur LEGRABOX),
     soit un groupe de portes (qui recoit l'espace restant).
 
+    Les tiroirs sont adaptes pour remplir la hauteur du meuble :
+    le tiroir du haut garde sa hauteur LEGRABOX minimum, les tiroirs
+    du bas sont agrandis pour occuper l'espace disponible.
+
     Args:
         rects: Liste de Rect a completer.
         fiche: Fiche de fabrication a completer.
@@ -138,7 +142,7 @@ def _render_facade_groupes(
     P = config["profondeur"]
     hauteur_defaut = config["tiroir"]["hauteur"]
 
-    # --- Calculer la hauteur de chaque groupe ---
+    # --- Calculer la hauteur minimale de chaque groupe ---
     group_infos: list[dict] = []
     total_fixed = 0.0
     nb_porte_groups = 0
@@ -147,12 +151,12 @@ def _render_facade_groupes(
         if g["type"] == "tiroir":
             h_code = g.get("hauteur") or hauteur_defaut
             h_cote = LEGRABOX_HAUTEURS.get(h_code, 90.5)
-            h_tiroir_facade = h_cote + 2 * jeu_p["jeu_haut"]
+            h_tiroir_min = h_cote + 2 * jeu_p["jeu_haut"]
             nb = g["nombre"]
-            h_zone = nb * h_tiroir_facade + max(0, nb - 1) * jeu_entre_t
+            h_zone = nb * h_tiroir_min + max(0, nb - 1) * jeu_entre_t
             group_infos.append({
                 "type": "tiroir", "hauteur": h_code, "nombre": nb,
-                "h_zone": h_zone, "h_facade": h_tiroir_facade,
+                "h_zone": h_zone, "h_facade_min": h_tiroir_min,
                 "h_cote": h_cote,
             })
             total_fixed += h_zone
@@ -164,14 +168,74 @@ def _render_facade_groupes(
             })
             nb_porte_groups += 1
 
-    # Espace restant pour les portes
     nb_gaps = max(0, len(groupes) - 1)
-    remaining = h_facade_zone - total_fixed - nb_gaps * jeu_entre_g
-    if nb_porte_groups > 0:
-        h_per_porte = remaining / nb_porte_groups
+    has_porte = nb_porte_groups > 0
+
+    # --- Adapter les hauteurs de tiroirs a l'espace disponible ---
+    # Le tiroir du haut garde sa hauteur minimale LEGRABOX.
+    # Les tiroirs du bas sont agrandis pour remplir l'espace.
+    if has_porte:
+        # Avec portes : les portes absorbent l'espace restant
+        remaining = h_facade_zone - total_fixed - nb_gaps * jeu_entre_g
+        if nb_porte_groups > 0:
+            h_per_porte = remaining / nb_porte_groups
+            for gi in group_infos:
+                if gi["type"] == "porte":
+                    gi["h_zone"] = h_per_porte
+        # Tiroirs gardent leurs hauteurs minimales
         for gi in group_infos:
-            if gi["type"] == "porte":
-                gi["h_zone"] = h_per_porte
+            if gi["type"] == "tiroir":
+                gi["h_facade_bas"] = gi["h_facade_min"]
+                gi["h_facade_haut"] = gi["h_facade_min"]
+                gi["nb_bas"] = gi["nombre"]
+    else:
+        # Pure tiroirs : adapter les hauteurs
+        extra = h_facade_zone - total_fixed - nb_gaps * jeu_entre_g
+
+        # Trouver le groupe tiroir le plus haut (dernier dans la liste)
+        topmost_idx = -1
+        for i in range(len(group_infos) - 1, -1, -1):
+            if group_infos[i]["type"] == "tiroir":
+                topmost_idx = i
+                break
+
+        # Compter les tiroirs adaptables (tous sauf le dernier du groupe haut)
+        nb_adaptable = 0
+        for i, gi in enumerate(group_infos):
+            if gi["type"] == "tiroir":
+                if i == topmost_idx:
+                    nb_adaptable += gi["nombre"] - 1
+                else:
+                    nb_adaptable += gi["nombre"]
+
+        if extra > 0 and nb_adaptable > 0:
+            extra_per = extra / nb_adaptable
+            for i, gi in enumerate(group_infos):
+                if gi["type"] != "tiroir":
+                    continue
+                if i == topmost_idx:
+                    # Dernier groupe : tiroirs du bas adaptes, le dernier au minimum
+                    gi["nb_bas"] = gi["nombre"] - 1
+                    gi["h_facade_bas"] = gi["h_facade_min"] + extra_per
+                    gi["h_facade_haut"] = gi["h_facade_min"]
+                else:
+                    # Groupes inferieurs : tous adaptes
+                    gi["nb_bas"] = gi["nombre"]
+                    gi["h_facade_bas"] = gi["h_facade_min"] + extra_per
+                    gi["h_facade_haut"] = gi["h_facade_min"] + extra_per
+                # Recalculer h_zone
+                nb_b = gi["nb_bas"]
+                nb_h = gi["nombre"] - nb_b
+                gi["h_zone"] = (nb_b * gi["h_facade_bas"]
+                                + nb_h * gi["h_facade_haut"]
+                                + max(0, gi["nombre"] - 1) * jeu_entre_t)
+        else:
+            # Pas d'espace extra : tous au minimum
+            for gi in group_infos:
+                if gi["type"] == "tiroir":
+                    gi["h_facade_bas"] = gi["h_facade_min"]
+                    gi["h_facade_haut"] = gi["h_facade_min"]
+                    gi["nb_bas"] = gi["nombre"]
 
     # --- Positionner et dessiner chaque groupe (bas -> haut) ---
     z_current = z_facade_bas
@@ -182,31 +246,54 @@ def _render_facade_groupes(
 
         if gi["type"] == "tiroir":
             nb = gi["nombre"]
-            h_tiroir_facade = gi["h_facade"]
+            nb_bas = gi.get("nb_bas", nb)
+            h_bas = gi.get("h_facade_bas", gi["h_facade_min"])
+            h_haut = gi.get("h_facade_haut", gi["h_facade_min"])
             h_code = gi["hauteur"]
             h_cote = gi["h_cote"]
 
+            z_t = z_current
             for t_idx in range(nb):
-                z_t = z_current + t_idx * (h_tiroir_facade + jeu_entre_t)
+                h_t = h_bas if t_idx < nb_bas else h_haut
                 rects.append(Rect(
-                    x_facade, z_t, w_facade, h_tiroir_facade,
+                    x_facade, z_t, w_facade, h_t,
                     couleur_facade,
                     f"Tiroir C{comp_idx+1} {h_code}{t_idx+1}", "tiroir"
                 ))
+                z_t += h_t + jeu_entre_t
 
-            # BOM: facade tiroir
-            fiche.ajouter_piece(PieceInfo(
-                f"Facade tiroir {h_code} C{comp_idx+1}",
-                w_facade, h_tiroir_facade, ep_f,
-                couleur_fab=config["facade"]["couleur_fab"],
-                chant_desc="4 chants",
-                quantite=nb,
-            ))
-
-            # BOM: fond tiroir
+            # BOM: facades tiroirs (groupees par dimension)
             larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
             lg_coulisse = _longueur_coulisse(P, ep_f)
+            nb_haut = nb - nb_bas
 
+            if nb_bas > 0:
+                fiche.ajouter_piece(PieceInfo(
+                    f"Facade tiroir {h_code} C{comp_idx+1}",
+                    w_facade, h_bas, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                    quantite=nb_bas,
+                ))
+            if nb_haut > 0 and abs(h_haut - h_bas) > 0.1:
+                fiche.ajouter_piece(PieceInfo(
+                    f"Facade tiroir {h_code} haut C{comp_idx+1}",
+                    w_facade, h_haut, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                    quantite=nb_haut,
+                ))
+            elif nb_haut > 0:
+                # Meme dimension que les bas : ajouter a la quantite
+                fiche.pieces[-1] = PieceInfo(
+                    f"Facade tiroir {h_code} C{comp_idx+1}",
+                    w_facade, h_bas, ep_f,
+                    couleur_fab=config["facade"]["couleur_fab"],
+                    chant_desc="4 chants",
+                    quantite=nb,
+                )
+
+            # BOM: fond tiroir (memes dimensions pour tous)
             fiche.ajouter_piece(PieceInfo(
                 f"Fond tiroir {h_code} C{comp_idx+1}",
                 larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
@@ -1126,41 +1213,99 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
         )
 
         if use_groupes:
-            # Rendu par groupes (bas -> haut)
+            # Rendu par groupes avec adaptation des hauteurs (bas -> haut)
             jeu_entre_g = jeu_p["jeu_entre"]
             jeu_entre_t = config["tiroir"]["jeu_entre"]
             hauteur_defaut = config["tiroir"]["hauteur"]
-            z_cur = z_facade_bas
 
-            for gi_idx, g in enumerate(groupes):
+            # Calculer les hauteurs minimales
+            has_porte = any(g["type"] == "porte" for g in groupes)
+            gi_list = []
+            total_min = 0.0
+            for g in groupes:
+                if g["type"] == "tiroir":
+                    h_code = g.get("hauteur") or hauteur_defaut
+                    h_cote = LEGRABOX_HAUTEURS.get(h_code, 90.5)
+                    h_min = h_cote + 2 * jeu_p["jeu_haut"]
+                    nb = g["nombre"]
+                    h_zone = nb * h_min + max(0, nb - 1) * jeu_entre_t
+                    gi_list.append({"type": "tiroir", "nb": nb,
+                                    "h_min": h_min, "h_zone": h_zone})
+                    total_min += h_zone
+                else:
+                    gi_list.append({"type": "porte"})
+
+            nb_gaps = max(0, len(groupes) - 1)
+
+            # Adapter tiroirs si pas de porte
+            if not has_porte:
+                extra = h_facade_zone - total_min - nb_gaps * jeu_entre_g
+                topmost = -1
+                for i in range(len(gi_list) - 1, -1, -1):
+                    if gi_list[i]["type"] == "tiroir":
+                        topmost = i
+                        break
+                nb_adapt = 0
+                for i, gi in enumerate(gi_list):
+                    if gi["type"] == "tiroir":
+                        nb_adapt += gi["nb"] - 1 if i == topmost else gi["nb"]
+                if extra > 0 and nb_adapt > 0:
+                    ep_extra = extra / nb_adapt
+                    for i, gi in enumerate(gi_list):
+                        if gi["type"] != "tiroir":
+                            continue
+                        if i == topmost:
+                            gi["nb_bas"] = gi["nb"] - 1
+                            gi["h_bas"] = gi["h_min"] + ep_extra
+                            gi["h_haut"] = gi["h_min"]
+                        else:
+                            gi["nb_bas"] = gi["nb"]
+                            gi["h_bas"] = gi["h_min"] + ep_extra
+                            gi["h_haut"] = gi["h_min"] + ep_extra
+                else:
+                    for gi in gi_list:
+                        if gi["type"] == "tiroir":
+                            gi["nb_bas"] = gi["nb"]
+                            gi["h_bas"] = gi["h_min"]
+                            gi["h_haut"] = gi["h_min"]
+            else:
+                for gi in gi_list:
+                    if gi["type"] == "tiroir":
+                        gi["nb_bas"] = gi["nb"]
+                        gi["h_bas"] = gi["h_min"]
+                        gi["h_haut"] = gi["h_min"]
+
+            # Dessiner
+            z_cur = z_facade_bas
+            for gi_idx, (g, gi) in enumerate(zip(groupes, gi_list)):
                 if gi_idx > 0:
                     z_cur += jeu_entre_g
 
                 if g["type"] == "tiroir":
+                    nb_bas = gi.get("nb_bas", gi["nb"])
+                    h_bas = gi.get("h_bas", gi["h_min"])
+                    h_haut = gi.get("h_haut", gi["h_min"])
                     h_code = g.get("hauteur") or hauteur_defaut
-                    h_cote = LEGRABOX_HAUTEURS.get(h_code, 90.5)
-                    h_f = h_cote + 2 * jeu_p["jeu_haut"]
-                    nb = g["nombre"]
-                    for t_idx in range(nb):
-                        z_t = z_cur + t_idx * (h_f + jeu_entre_t)
+
+                    z_t = z_cur
+                    for t_idx in range(gi["nb"]):
+                        h_t = h_bas if t_idx < nb_bas else h_haut
                         rects.append(Rect(
-                            -ep_f, z_t, ep_f, h_f,
+                            -ep_f, z_t, ep_f, h_t,
                             couleur_facade,
                             f"Tiroir {h_code}{t_idx+1} (coupe)", "tiroir"
                         ))
-                    z_cur += nb * h_f + max(0, nb - 1) * jeu_entre_t
+                        z_t += h_t + jeu_entre_t
+                    z_cur = z_t - jeu_entre_t  # retirer le dernier jeu
 
                 elif g["type"] == "porte":
-                    # Calculer l'espace restant pour les portes
-                    total_t = 0.0
-                    for g2 in groupes:
-                        if g2["type"] == "tiroir":
-                            h2 = g2.get("hauteur") or hauteur_defaut
-                            hc2 = LEGRABOX_HAUTEURS.get(h2, 90.5)
-                            hf2 = hc2 + 2 * jeu_p["jeu_haut"]
-                            n2 = g2["nombre"]
-                            total_t += n2 * hf2 + max(0, n2 - 1) * jeu_entre_t
-                    nb_gaps = max(0, len(groupes) - 1)
+                    total_t = sum(
+                        gi2["nb"] * gi2["h_bas"]
+                        + max(0, gi2["nb"] - gi2.get("nb_bas", gi2["nb"]))
+                        * gi2.get("h_haut", gi2["h_min"])
+                        + max(0, gi2["nb"] - 1) * jeu_entre_t
+                        for gi2 in gi_list if gi2["type"] == "tiroir"
+                    )
                     h_porte = h_facade_zone - total_t - nb_gaps * jeu_entre_g
                     rects.append(Rect(
                         -ep_f, z_cur, ep_f, h_porte,

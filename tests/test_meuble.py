@@ -364,18 +364,56 @@ class TestMultiHauteurBuilder:
         z_tiroir = tiroirs[0].y
         assert z_tiroir < z_porte
 
-    def test_3F_hauteur_legrabox_F(self):
-        """3F: chaque tiroir a une hauteur basee sur LEGRABOX F."""
+    def test_3F_adaptation_hauteurs(self):
+        """3F: tiroir du haut au minimum LEGRABOX, les bas adaptes."""
         from placardcad.meuble_builder import LEGRABOX_HAUTEURS
         schema = "#MEUBLE\n| 3F |\n  600"
         config = meuble_schema_vers_config(schema)
         rects, _ = generer_geometrie_meuble(config)
-        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        tiroirs = sorted(
+            [r for r in rects if r.type_elem == "tiroir"],
+            key=lambda r: r.y)
         assert len(tiroirs) == 3
-        # Hauteur facade = h_cote + 2 * jeu_haut
-        h_attendue = LEGRABOX_HAUTEURS["F"] + 2 * config["porte"]["jeu_haut"]
-        for t in tiroirs:
-            assert abs(t.h - h_attendue) < 0.1
+        h_min = LEGRABOX_HAUTEURS["F"] + 2 * config["porte"]["jeu_haut"]
+        # Le tiroir du haut (dernier) garde la hauteur minimum
+        assert abs(tiroirs[2].h - h_min) < 0.1
+        # Les tiroirs du bas sont >= minimum (adaptes)
+        assert tiroirs[0].h >= h_min - 0.1
+        assert tiroirs[1].h >= h_min - 0.1
+        # Les 2 tiroirs du bas ont la meme hauteur (adaptee)
+        assert abs(tiroirs[0].h - tiroirs[1].h) < 0.1
+
+
+    def test_tiroirs_remplissent_facade(self):
+        """Les tiroirs remplissent toute la zone facade sans espace vide."""
+        schema = "#MEUBLE\n| 3K |\n  500"
+        config = meuble_schema_vers_config(schema, {"hauteur": 840})
+        rects, _ = generer_geometrie_meuble(config)
+        tiroirs = sorted(
+            [r for r in rects if r.type_elem == "tiroir"],
+            key=lambda r: r.y)
+        assert len(tiroirs) == 3
+        jeu_entre = config["tiroir"]["jeu_entre"]
+        jeu_bas = config["porte"]["jeu_bas"]
+        jeu_haut = config["porte"]["jeu_haut"]
+        h_plinthe = config["hauteur_plinthe"]
+        # Zone totale = H - jeu_bas - jeu_haut - h_plinthe ... (approx)
+        # Verifier que le dernier tiroir arrive pres du haut
+        z_top_tiroir = tiroirs[2].y + tiroirs[2].h
+        z_facade_haut = 840 - jeu_haut
+        assert abs(z_top_tiroir - z_facade_haut) < 1.0
+
+    def test_adaptation_mixte_pas_appliquee(self):
+        """Avec porte+tiroir, les tiroirs gardent leur hauteur minimale."""
+        from placardcad.meuble_builder import LEGRABOX_HAUTEURS
+        schema = "#MEUBLE\n| P+K |\n  500"
+        config = meuble_schema_vers_config(schema)
+        rects, _ = generer_geometrie_meuble(config)
+        tiroirs = [r for r in rects if r.type_elem == "tiroir"]
+        assert len(tiroirs) == 1
+        h_min = LEGRABOX_HAUTEURS["K"] + 2 * config["porte"]["jeu_haut"]
+        # Le tiroir garde sa hauteur minimale
+        assert abs(tiroirs[0].h - h_min) < 0.1
 
 
 class TestCoulisses:
