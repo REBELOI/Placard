@@ -18,7 +18,7 @@ import math
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QDoubleSpinBox,
     QLabel, QSizePolicy, QMenu, QInputDialog, QMessageBox, QDialog,
-    QFormLayout, QDialogButtonBox, QSpinBox, QComboBox,
+    QFormLayout, QDialogButtonBox, QSpinBox, QComboBox, QApplication,
 )
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QTimer
 from PyQt5.QtGui import (
@@ -94,7 +94,7 @@ class FloorPlanEditor(QWidget):
         # Timer pour differencier simple clic (ajout point) et double-clic (edition)
         self._pending_add_timer = QTimer(self)
         self._pending_add_timer.setSingleShot(True)
-        self._pending_add_timer.setInterval(250)
+        self._pending_add_timer.setInterval(QApplication.doubleClickInterval())
         self._pending_add_timer.timeout.connect(self._do_pending_add_point)
         self._pending_add_pos = None  # (mx, my) en mm
         self._dragging_point = False
