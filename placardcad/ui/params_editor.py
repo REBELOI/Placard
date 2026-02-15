@@ -7,14 +7,22 @@ Support d'une configuration type globale (preset) sauvegardee en base.
 
 import json
 import sip
+from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTabWidget, QSpinBox, QDoubleSpinBox, QCheckBox,
     QLineEdit, QLabel, QGroupBox, QScrollArea,
     QPushButton, QInputDialog, QMessageBox, QMenu,
-    QComboBox,
+    QComboBox, QFileDialog, QSizePolicy, QFrame,
 )
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt, QSize
+from PyQt5.QtGui import QPixmap, QColor, QPainter
+
+from ..materials import (
+    CATALOGUE_MATERIAUX, MATERIAUX_DEFAUT_PLACARD, MATERIAUX_DEFAUT_MEUBLE,
+    lister_categories, lister_materiaux_par_categorie, get_materiau,
+    get_chemin_texture_absolu, texture_existe,
+)
 
 # Cles regroupees dans une config type (tout sauf dimensions)
 CLES_CONFIG_TYPE_PLACARD = [
@@ -302,6 +310,7 @@ class ParamsEditor(QWidget):
         self.tabs.addTab(self._creer_onglet_panneaux(), "Panneaux")
         self.tabs.addTab(self._creer_onglet_cremailleres(), "Cremailleres")
         self.tabs.addTab(self._creer_onglet_tasseaux(), "Tasseaux")
+        self.tabs.addTab(self._creer_onglet_materiaux_placard(), "Materiaux")
         self.tabs.addTab(self._creer_onglet_debit(), "Debit")
 
     def _creer_onglet_dimensions_placard(self) -> QWidget:
@@ -397,6 +406,7 @@ class ParamsEditor(QWidget):
         self.tabs.addTab(self._creer_onglet_structure_meuble(), "Structure")
         self.tabs.addTab(self._creer_onglet_facades_meuble(), "Facades")
         self.tabs.addTab(self._creer_onglet_interieur_meuble(), "Interieur")
+        self.tabs.addTab(self._creer_onglet_materiaux_meuble(), "Materiaux")
         self.tabs.addTab(self._creer_onglet_debit(), "Debit")
 
     def _creer_onglet_dimensions_meuble(self) -> QWidget:
@@ -562,6 +572,340 @@ class ParamsEditor(QWidget):
         form_crem.addRow("Distance arriere:", self._creer_spin(
             "cremaillere.distance_arriere", 10, 100))
         layout.addWidget(group_crem)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
+    # =================================================================
+    #  ONGLETS MATERIAUX (Render Workbench)
+    # =================================================================
+
+    def _creer_apercu_couleur(self, couleur_rgb: list[float], size: int = 24) -> QLabel:
+        """Cree un label avec un carre de couleur comme apercu.
+
+        Args:
+            couleur_rgb: Couleur [R, G, B] en 0.0-1.0.
+            size: Taille du carre en pixels.
+
+        Returns:
+            QLabel avec pixmap colore.
+        """
+        pixmap = QPixmap(size, size)
+        r = int(couleur_rgb[0] * 255)
+        g = int(couleur_rgb[1] * 255)
+        b = int(couleur_rgb[2] * 255)
+        pixmap.fill(QColor(r, g, b))
+        label = QLabel()
+        label.setPixmap(pixmap)
+        label.setFixedSize(size, size)
+        return label
+
+    def _creer_apercu_texture(self, chemin_relatif: str,
+                              max_w: int = 120, max_h: int = 80) -> QLabel:
+        """Cree un label avec apercu de la texture si elle existe.
+
+        Args:
+            chemin_relatif: Chemin relatif de la texture.
+            max_w: Largeur max de l'apercu en pixels.
+            max_h: Hauteur max de l'apercu en pixels.
+
+        Returns:
+            QLabel avec image ou texte indicatif.
+        """
+        label = QLabel()
+        label.setFixedSize(max_w, max_h)
+        label.setAlignment(Qt.AlignCenter)
+        label.setFrameShape(QFrame.StyledPanel)
+        label.setStyleSheet("QLabel { background: #f0f0f0; border: 1px solid #ccc; }")
+
+        if chemin_relatif and texture_existe(chemin_relatif):
+            chemin = str(get_chemin_texture_absolu(chemin_relatif))
+            pixmap = QPixmap(chemin)
+            if not pixmap.isNull():
+                label.setPixmap(pixmap.scaled(
+                    max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                return label
+
+        if chemin_relatif:
+            label.setText("(image\nnon trouvee)")
+        else:
+            label.setText("(pas de\ntexture)")
+        label.setStyleSheet(
+            "QLabel { background: #f0f0f0; border: 1px solid #ccc; "
+            "color: #999; font-size: 10px; }")
+        return label
+
+    def _creer_selecteur_materiau(self, key: str, label_elem: str,
+                                   layout: QVBoxLayout):
+        """Cree un groupe de widgets pour selectionner un materiau.
+
+        Affiche un combo de selection, un apercu couleur, un apercu texture
+        et des boutons pour charger/modifier les images de texture.
+
+        Args:
+            key: Cle du parametre (ex. 'panneau_separation.materiau').
+            label_elem: Label affiche (ex. 'Separation').
+            layout: Layout parent dans lequel ajouter le groupe.
+        """
+        group = QGroupBox(label_elem)
+        group_layout = QVBoxLayout(group)
+
+        # Ligne 1: Combo de selection materiau + apercu couleur
+        row1 = QHBoxLayout()
+        combo = QComboBox()
+        noms_materiaux = sorted(CATALOGUE_MATERIAUX.keys())
+        combo.addItems(noms_materiaux)
+        combo.currentTextChanged.connect(
+            lambda text, k=key, g=group: self._on_materiau_change(k, text, g))
+        self._widgets[key] = combo
+        self._appliquer_tooltip(combo, key)
+        row1.addWidget(QLabel("Materiau:"))
+        row1.addWidget(combo, 1)
+
+        # Apercu couleur
+        apercu_couleur = self._creer_apercu_couleur([0.8, 0.8, 0.8])
+        apercu_couleur.setObjectName(f"apercu_couleur_{key}")
+        row1.addWidget(apercu_couleur)
+        group_layout.addLayout(row1)
+
+        # Ligne 2: Apercu texture + boutons
+        row2 = QHBoxLayout()
+        apercu_tex = self._creer_apercu_texture("")
+        apercu_tex.setObjectName(f"apercu_tex_{key}")
+        row2.addWidget(apercu_tex)
+
+        # Colonne de boutons a droite de l'apercu
+        btns_layout = QVBoxLayout()
+
+        # Cle pour stocker le chemin texture personnalise
+        tex_key = key.replace(".materiau", ".texture_perso")
+
+        btn_tex = QPushButton("Image texture...")
+        btn_tex.setToolTip("Charger une image de texture diffuse personnalisee")
+        btn_tex.clicked.connect(
+            lambda checked, k=key, tk=tex_key, g=group:
+                self._choisir_texture(k, tk, g))
+        btns_layout.addWidget(btn_tex)
+
+        btn_clear = QPushButton("Effacer texture")
+        btn_clear.setToolTip("Retirer la texture personnalisee")
+        btn_clear.clicked.connect(
+            lambda checked, k=key, tk=tex_key, g=group:
+                self._effacer_texture(k, tk, g))
+        btns_layout.addWidget(btn_clear)
+
+        btns_layout.addStretch()
+        row2.addLayout(btns_layout)
+        group_layout.addLayout(row2)
+
+        # Info proprietes rendu
+        info = QLabel("")
+        info.setObjectName(f"info_rendu_{key}")
+        info.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
+        info.setWordWrap(True)
+        group_layout.addWidget(info)
+
+        layout.addWidget(group)
+
+    def _on_materiau_change(self, key: str, nom_materiau: str, group: QGroupBox):
+        """Met a jour les apercus quand le materiau selectionne change.
+
+        Args:
+            key: Cle du parametre materiau.
+            nom_materiau: Nom du nouveau materiau selectionne.
+            group: GroupBox contenant les widgets a mettre a jour.
+        """
+        mat = get_materiau(nom_materiau)
+        if not mat:
+            return
+
+        # Mettre a jour l'apercu couleur
+        apercu_couleur = group.findChild(QLabel, f"apercu_couleur_{key}")
+        if apercu_couleur and not sip.isdeleted(apercu_couleur):
+            pixmap = QPixmap(24, 24)
+            r = int(mat["couleur_rgb"][0] * 255)
+            g = int(mat["couleur_rgb"][1] * 255)
+            b = int(mat["couleur_rgb"][2] * 255)
+            pixmap.fill(QColor(r, g, b))
+            apercu_couleur.setPixmap(pixmap)
+
+        # Mettre a jour l'apercu texture
+        apercu_tex = group.findChild(QLabel, f"apercu_tex_{key}")
+        if apercu_tex and not sip.isdeleted(apercu_tex):
+            tex_path = mat.get("texture_diffuse", "")
+            if tex_path and texture_existe(tex_path):
+                chemin = str(get_chemin_texture_absolu(tex_path))
+                pixmap = QPixmap(chemin)
+                if not pixmap.isNull():
+                    apercu_tex.setPixmap(pixmap.scaled(
+                        120, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    apercu_tex.setStyleSheet(
+                        "QLabel { background: #f0f0f0; border: 1px solid #ccc; }")
+                else:
+                    apercu_tex.clear()
+                    apercu_tex.setText("(image\nnon trouvee)")
+            else:
+                apercu_tex.clear()
+                apercu_tex.setText("(pas de\ntexture)" if not tex_path
+                                   else "(image\nnon trouvee)")
+
+        # Mettre a jour les infos rendu
+        info = group.findChild(QLabel, f"info_rendu_{key}")
+        if info and not sip.isdeleted(info):
+            info.setText(
+                f"Categorie: {mat['categorie']} | "
+                f"Rugosite: {mat['rugosite']:.2f} | "
+                f"Metallic: {mat['metallic']:.2f} | "
+                f"Speculaire: {mat['specular']:.2f}"
+            )
+
+        # Propager le changement
+        if not self._blocked:
+            self._lire_widgets_vers_params()
+            self.params_modifies.emit(self._params)
+
+    def _choisir_texture(self, mat_key: str, tex_key: str, group: QGroupBox):
+        """Ouvre un dialogue pour choisir une image de texture personnalisee.
+
+        L'image selectionnee est copiee dans le repertoire textures
+        de l'application si elle n'y est pas deja.
+
+        Args:
+            mat_key: Cle du parametre materiau.
+            tex_key: Cle pour stocker le chemin texture personnalise.
+            group: GroupBox contenant les widgets.
+        """
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Choisir une image de texture",
+            str(Path.home()),
+            "Images (*.jpg *.jpeg *.png *.bmp *.tif *.tiff);;Tous (*)"
+        )
+        if not filepath:
+            return
+
+        src = Path(filepath)
+        # Copier dans le repertoire textures
+        from ..materials import TEXTURES_DIR
+        TEXTURES_DIR.mkdir(parents=True, exist_ok=True)
+        dest = TEXTURES_DIR / src.name
+        if not dest.exists():
+            import shutil
+            shutil.copy2(str(src), str(dest))
+
+        chemin_relatif = f"textures/{src.name}"
+
+        # Stocker le chemin personnalise dans les params
+        self._set_nested(self._params, tex_key, chemin_relatif)
+
+        # Mettre a jour l'apercu
+        apercu_tex = group.findChild(QLabel, f"apercu_tex_{mat_key}")
+        if apercu_tex and not sip.isdeleted(apercu_tex):
+            chemin_abs = str(get_chemin_texture_absolu(chemin_relatif))
+            pixmap = QPixmap(chemin_abs)
+            if not pixmap.isNull():
+                apercu_tex.setPixmap(pixmap.scaled(
+                    120, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                apercu_tex.setStyleSheet(
+                    "QLabel { background: #f0f0f0; border: 1px solid #ccc; }")
+
+        if not self._blocked:
+            self._lire_widgets_vers_params()
+            self.params_modifies.emit(self._params)
+
+    def _effacer_texture(self, mat_key: str, tex_key: str, group: QGroupBox):
+        """Retire la texture personnalisee et revient a celle du materiau.
+
+        Args:
+            mat_key: Cle du parametre materiau.
+            tex_key: Cle du chemin texture personnalise.
+            group: GroupBox contenant les widgets.
+        """
+        self._set_nested(self._params, tex_key, "")
+
+        # Re-afficher la texture du materiau selectionne
+        combo = self._widgets.get(mat_key)
+        if combo and not sip.isdeleted(combo):
+            self._on_materiau_change(mat_key, combo.currentText(), group)
+
+        if not self._blocked:
+            self._lire_widgets_vers_params()
+            self.params_modifies.emit(self._params)
+
+    def _creer_onglet_materiaux_placard(self) -> QWidget:
+        """Cree l'onglet Materiaux pour le mode Placard.
+
+        Permet de selectionner un materiau (avec apercu texture et couleur)
+        pour chaque type d'element du placard.
+        """
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        info = QLabel(
+            "Attribution des materiaux pour le rendu photoréaliste "
+            "(Render Workbench FreeCAD). Chaque element peut avoir "
+            "son propre materiau avec texture."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #555; padding: 4px; font-style: italic;")
+        layout.addWidget(info)
+
+        elements = [
+            ("panneau_separation.materiau", "Panneau separation"),
+            ("panneau_rayon.materiau", "Panneau rayon"),
+            ("panneau_rayon_haut.materiau", "Panneau rayon haut"),
+            ("panneau_mur.materiau", "Panneau mur"),
+            ("crem_encastree.materiau", "Cremaillere encastree"),
+            ("crem_applique.materiau", "Cremaillere en applique"),
+            ("tasseau.materiau", "Tasseau"),
+            ("materiaux_rendu.mur", "Mur (contexte)"),
+            ("materiaux_rendu.sol", "Sol (contexte)"),
+        ]
+
+        for key, label in elements:
+            self._creer_selecteur_materiau(key, label, layout)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
+    def _creer_onglet_materiaux_meuble(self) -> QWidget:
+        """Cree l'onglet Materiaux pour le mode Meuble.
+
+        Permet de selectionner un materiau pour chaque type d'element
+        du meuble parametrique.
+        """
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        info = QLabel(
+            "Attribution des materiaux pour le rendu photoréaliste "
+            "(Render Workbench FreeCAD). Chaque element peut avoir "
+            "son propre materiau avec texture."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #555; padding: 4px; font-style: italic;")
+        layout.addWidget(info)
+
+        elements = [
+            ("panneau.materiau", "Panneaux structure"),
+            ("facade.materiau", "Facades (portes/tiroirs)"),
+            ("fond.materiau", "Fond"),
+            ("etagere.materiau", "Etageres"),
+            ("separation.materiau", "Separations"),
+            ("plinthe.materiau", "Plinthe"),
+            ("cremaillere.materiau", "Cremailleres"),
+            ("poignee.materiau", "Poignees"),
+            ("materiaux_rendu.mur", "Mur (contexte)"),
+            ("materiaux_rendu.sol", "Sol (contexte)"),
+        ]
+
+        for key, label in elements:
+            self._creer_selecteur_materiau(key, label, layout)
 
         layout.addStretch()
         scroll.setWidget(container)

@@ -24,18 +24,71 @@ from datetime import datetime
 from xml.sax.saxutils import escape as xml_escape
 
 from .placard_builder import generer_geometrie_2d
+from .materials import (
+    CATALOGUE_MATERIAUX, MATERIAUX_DEFAUT_PLACARD, MATERIAUX_DEFAUT_MEUBLE,
+    get_couleur_rgb, get_materiau, generer_script_render_materiaux,
+)
 
 
-# Couleurs RGB par type d'element (valeurs 0.0 - 1.0)
+# Couleurs RGB par type d'element (valeurs 0.0 - 1.0) — fallback si pas de materiau
 COULEURS_3D = {
     "separation": (0.82, 0.71, 0.55),
     "rayon_haut": (0.87, 0.74, 0.53),
     "rayon": (0.82, 0.71, 0.55),
     "panneau_mur": (0.82, 0.71, 0.55),
     "cremaillere_encastree": (0.63, 0.63, 0.63),
-    "cremaillere_applique": (0.80, 0.00, 0.00),
+    "cremaillere_applique": (0.63, 0.63, 0.63),
     "tasseau": (0.85, 0.65, 0.13),
 }
+
+# Mapping type_elem -> cle parametre contenant le materiau
+_TYPE_ELEM_VERS_PARAM_MATERIAU = {
+    "separation": "panneau_separation",
+    "rayon_haut": "panneau_rayon_haut",
+    "rayon": "panneau_rayon",
+    "panneau_mur": "panneau_mur",
+    "cremaillere_encastree": "crem_encastree",
+    "cremaillere_applique": "crem_applique",
+    "tasseau": "tasseau",
+}
+
+
+def _get_couleur_materiau(type_elem: str, config: dict) -> tuple[float, float, float]:
+    """Retourne la couleur RGB d'un element en lisant le materiau des params.
+
+    Cherche d'abord le materiau attribue dans les parametres, puis dans
+    le catalogue. Retombe sur COULEURS_3D si pas de materiau defini.
+
+    Args:
+        type_elem: Type de l'element ('separation', 'rayon', etc.).
+        config: Configuration du placard.
+
+    Returns:
+        Tuple (R, G, B) en 0.0-1.0.
+    """
+    param_key = _TYPE_ELEM_VERS_PARAM_MATERIAU.get(type_elem)
+    if param_key and param_key in config:
+        nom_mat = config[param_key].get("materiau")
+        if nom_mat:
+            rgb = get_couleur_rgb(nom_mat)
+            return tuple(rgb)
+    return COULEURS_3D.get(type_elem, (0.8, 0.7, 0.55))
+
+
+def _get_nom_materiau(type_elem: str, config: dict) -> str:
+    """Retourne le nom du materiau attribue a un type d'element.
+
+    Args:
+        type_elem: Type de l'element.
+        config: Configuration du placard.
+
+    Returns:
+        Nom du materiau ou chaine vide si non defini.
+    """
+    param_key = _TYPE_ELEM_VERS_PARAM_MATERIAU.get(type_elem)
+    if param_key and param_key in config:
+        return config[param_key].get("materiau", "")
+    return MATERIAUX_DEFAUT_PLACARD.get(type_elem, "")
 
 
 def _profondeur_element(type_elem: str, config: dict) -> tuple[float, float]:
@@ -222,7 +275,8 @@ def _collecter_objets_3d(config: dict) -> list[dict]:
             continue
 
         group_rects = grouped[type_elem]
-        couleur = COULEURS_3D.get(type_elem, (0.8, 0.7, 0.55))
+        couleur = _get_couleur_materiau(type_elem, config)
+        nom_mat = _get_nom_materiau(type_elem, config)
         profondeur, y_offset = _profondeur_element(type_elem, config)
 
         if profondeur <= 0:
@@ -246,19 +300,23 @@ def _collecter_objets_3d(config: dict) -> list[dict]:
                 "pz": r.y,
                 "couleur": couleur,
                 "transparence": transparence,
+                "materiau": nom_mat,
             })
 
-    # Murs (contexte transparent)
+    # Murs (contexte transparent) — avec materiaux du rendu
     mur_ep = config.get("mur_epaisseur", 50)
-    mur_couleur = (0.90, 0.90, 0.88)
-    sol_couleur = (0.85, 0.85, 0.82)
+    mat_rendu = config.get("materiaux_rendu", {})
+    mur_mat_nom = mat_rendu.get("mur", "Mur blanc")
+    sol_mat_nom = mat_rendu.get("sol", "Sol carrelage")
+    mur_couleur = tuple(get_couleur_rgb(mur_mat_nom))
+    sol_couleur = tuple(get_couleur_rgb(sol_mat_nom))
 
-    for nom, dims, pos, couleur in [
-        ("Mur_gauche", (mur_ep, P, H), (-mur_ep, 0, 0), mur_couleur),
-        ("Mur_droit", (mur_ep, P, H), (L, 0, 0), mur_couleur),
-        ("Mur_fond", (L + 2 * mur_ep, mur_ep, H), (-mur_ep, P, 0), mur_couleur),
+    for nom, dims, pos, couleur, mat_nom in [
+        ("Mur_gauche", (mur_ep, P, H), (-mur_ep, 0, 0), mur_couleur, mur_mat_nom),
+        ("Mur_droit", (mur_ep, P, H), (L, 0, 0), mur_couleur, mur_mat_nom),
+        ("Mur_fond", (L + 2 * mur_ep, mur_ep, H), (-mur_ep, P, 0), mur_couleur, mur_mat_nom),
         ("Sol", (L + 2 * mur_ep, P + mur_ep, mur_ep),
-         (-mur_ep, 0, -mur_ep), sol_couleur),
+         (-mur_ep, 0, -mur_ep), sol_couleur, sol_mat_nom),
     ]:
         objets.append({
             "nom": _nom_unique(nom, noms_utilises),
@@ -271,6 +329,7 @@ def _collecter_objets_3d(config: dict) -> list[dict]:
             "pz": pos[2],
             "couleur": couleur,
             "transparence": 70,
+            "materiau": mat_nom,
         })
 
     return objets
@@ -528,6 +587,14 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
     lines.append("FreeCADGui.activeDocument().activeView().viewIsometric()")
     lines.append("FreeCADGui.SendMsgToActiveView('ViewFit')")
 
+    # Ajouter le script d'attribution des materiaux Render Workbench
+    objets_materiaux = [
+        (obj["nom"], obj.get("materiau", ""))
+        for obj in objets if obj.get("materiau")
+    ]
+    if objets_materiaux:
+        lines.append(generer_script_render_materiaux(objets_materiaux))
+
     return "\n".join(lines)
 
 
@@ -682,6 +749,14 @@ def generer_script_meuble_groupe(
     lines.append(f"print(f'Groupe {{GRP_NAME}} cree avec {len(objets)} objets.')")
     lines.append("")
 
+    # Ajouter le script d'attribution des materiaux Render Workbench
+    objets_materiaux = [
+        (obj["nom"], obj.get("materiau", ""))
+        for obj in objets if obj.get("materiau")
+    ]
+    if objets_materiaux:
+        lines.append(generer_script_render_materiaux(objets_materiaux))
+
     return "\n".join(lines)
 
 
@@ -704,6 +779,57 @@ COULEURS_3D_MEUBLE = {
     "tiroir": (0.92, 0.92, 0.92),
     "poignee": (0.75, 0.75, 0.78),
 }
+
+# Mapping type_elem meuble -> cle config contenant le materiau
+_TYPE_ELEM_MEUBLE_VERS_PARAM = {
+    "flanc": "panneau",
+    "dessus": "panneau",
+    "dessous": "panneau",
+    "traverse": "panneau",
+    "separation": "separation",
+    "fond": "fond",
+    "etagere": "etagere",
+    "plinthe": "plinthe",
+    "cremaillere": "cremaillere",
+    "porte": "facade",
+    "tiroir": "facade",
+    "poignee": "poignee",
+}
+
+
+def _get_couleur_materiau_meuble(type_elem: str, config: dict) -> tuple[float, float, float]:
+    """Retourne la couleur RGB d'un element meuble via son materiau.
+
+    Args:
+        type_elem: Type de l'element meuble.
+        config: Configuration du meuble.
+
+    Returns:
+        Tuple (R, G, B) en 0.0-1.0.
+    """
+    param_key = _TYPE_ELEM_MEUBLE_VERS_PARAM.get(type_elem)
+    if param_key and param_key in config and isinstance(config[param_key], dict):
+        nom_mat = config[param_key].get("materiau")
+        if nom_mat:
+            rgb = get_couleur_rgb(nom_mat)
+            return tuple(rgb)
+    return COULEURS_3D_MEUBLE.get(type_elem, (0.8, 0.7, 0.55))
+
+
+def _get_nom_materiau_meuble(type_elem: str, config: dict) -> str:
+    """Retourne le nom du materiau attribue a un type d'element meuble.
+
+    Args:
+        type_elem: Type de l'element.
+        config: Configuration du meuble.
+
+    Returns:
+        Nom du materiau ou chaine vide.
+    """
+    param_key = _TYPE_ELEM_MEUBLE_VERS_PARAM.get(type_elem)
+    if param_key and param_key in config and isinstance(config[param_key], dict):
+        return config[param_key].get("materiau", "")
+    return MATERIAUX_DEFAUT_MEUBLE.get(type_elem, "")
 
 
 def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, float]:
@@ -824,7 +950,8 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             continue
 
         group_rects = grouped[type_elem]
-        couleur = COULEURS_3D_MEUBLE.get(type_elem, (0.8, 0.7, 0.55))
+        couleur = _get_couleur_materiau_meuble(type_elem, config)
+        nom_mat = _get_nom_materiau_meuble(type_elem, config)
         profondeur, y_offset = _profondeur_element_meuble(type_elem, config)
 
         if profondeur <= 0:
@@ -848,6 +975,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
                 "pz": r.y,
                 "couleur": couleur,
                 "transparence": transparence,
+                "materiau": nom_mat,
             })
 
     # Plinthes de cotes (non presentes dans les rects 2D face)
