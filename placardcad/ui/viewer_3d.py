@@ -38,6 +38,13 @@ class PlacardViewer(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setStyleSheet("background-color: white;")
         self.setMouseTracking(True)
+        self.setToolTip(
+            "Molette : zoom (centre sur le curseur)\n"
+            "Clic gauche maintenu : deplacer la vue\n"
+            "Clic milieu maintenu : deplacer la vue\n"
+            "Double-clic : reinitialiser la vue\n"
+            "Clic droit : copier / enregistrer l'image"
+        )
 
     def set_geometrie(self, rects: list, largeur: float, hauteur: float):
         """Met a jour la geometrie a afficher."""

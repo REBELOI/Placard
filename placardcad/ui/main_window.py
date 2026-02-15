@@ -194,11 +194,14 @@ class MainWindow(QMainWindow):
 
         # Nouveau projet
         self.action_new_projet = QAction("Nouveau projet", self)
+        self.action_new_projet.setToolTip("Creer un nouveau projet (chantier)")
         self.action_new_projet.triggered.connect(self.project_panel._nouveau_projet)
         toolbar.addAction(self.action_new_projet)
 
         # Nouvel amenagement
         self.action_new_amenagement = QAction("Nouvel amenagement", self)
+        self.action_new_amenagement.setToolTip(
+            "Ajouter un amenagement (placard ou meuble) au projet selectionne")
         self.action_new_amenagement.triggered.connect(self.project_panel._nouvel_amenagement)
         toolbar.addAction(self.action_new_amenagement)
 
@@ -223,6 +226,7 @@ class MainWindow(QMainWindow):
 
         # Regenerer
         self.action_regenerer = QAction("Actualiser vue", self)
+        self.action_regenerer.setToolTip("Recalculer et redessiner la vue 2D depuis le schema courant")
         self.action_regenerer.triggered.connect(self._regenerer_vue)
         toolbar.addAction(self.action_regenerer)
 
@@ -230,26 +234,39 @@ class MainWindow(QMainWindow):
 
         # Apercu PDF
         self.action_apercu_pdf = QAction("Apercu PDF", self)
+        self.action_apercu_pdf.setToolTip(
+            "Generer un PDF temporaire et l'ouvrir dans le lecteur du systeme")
         self.action_apercu_pdf.triggered.connect(self._apercu_pdf)
         toolbar.addAction(self.action_apercu_pdf)
 
         # Export PDF
         self.action_export_pdf = QAction("Exporter PDF", self)
+        self.action_export_pdf.setToolTip(
+            "Exporter l'amenagement courant en PDF\n"
+            "(vue de face, fiche de debit, plan de decoupe)")
         self.action_export_pdf.triggered.connect(self._exporter_pdf)
         toolbar.addAction(self.action_export_pdf)
 
         # Export PDF projet complet
         self.action_export_pdf_projet = QAction("Exporter PDF projet", self)
+        self.action_export_pdf_projet.setToolTip(
+            "Exporter tout le projet en PDF multi-pages\n"
+            "(une page par amenagement + pieces manuelles)")
         self.action_export_pdf_projet.triggered.connect(self._exporter_pdf_projet)
         toolbar.addAction(self.action_export_pdf_projet)
 
         # Export fiche texte
         self.action_export_texte = QAction("Exporter fiche texte", self)
+        self.action_export_texte.setToolTip(
+            "Exporter la nomenclature des pieces en fichier texte brut")
         self.action_export_texte.triggered.connect(self._exporter_fiche_texte)
         toolbar.addAction(self.action_export_texte)
 
         # Export FreeCAD
         self.action_export_freecad = QAction("Exporter FreeCAD", self)
+        self.action_export_freecad.setToolTip(
+            "Exporter en fichier FreeCAD 3D (.FCStd) + script Python\n"
+            "(ouvrir le .py dans FreeCAD via Macro > Executer)")
         self.action_export_freecad.triggered.connect(self._exporter_freecad)
         toolbar.addAction(self.action_export_freecad)
 
@@ -272,16 +289,25 @@ class MainWindow(QMainWindow):
 
         # Export DXF
         self.action_export_dxf = QAction("Exporter DXF", self)
+        self.action_export_dxf.setToolTip(
+            "Exporter en fichier DXF (plan 2D)\n"
+            "Compatible AutoCAD, LibreCAD, FreeCAD")
         self.action_export_dxf.triggered.connect(self._exporter_dxf)
         toolbar.addAction(self.action_export_dxf)
 
         # Etiquettes
         self.action_etiquettes = QAction("Etiquettes", self)
+        self.action_etiquettes.setToolTip(
+            "Exporter les etiquettes de pieces en PDF A4\n"
+            "(une etiquette par piece avec dimensions et reference)")
         self.action_etiquettes.triggered.connect(self._exporter_etiquettes)
         toolbar.addAction(self.action_etiquettes)
 
         # Liste de courses
         self.action_liste_courses = QAction("Liste de courses", self)
+        self.action_liste_courses.setToolTip(
+            "Generer la liste des materiaux a acheter en PDF\n"
+            "(panneaux bruts, cremailleres, taquets, tasseaux)")
         self.action_liste_courses.triggered.connect(self._exporter_liste_courses)
         toolbar.addAction(self.action_liste_courses)
 
@@ -289,6 +315,9 @@ class MainWindow(QMainWindow):
 
         # Optimisation debit
         self.action_optim_debit = QAction("Optimisation debit", self)
+        self.action_optim_debit.setToolTip(
+            "Optimiser le plan de decoupe des panneaux bruts\n"
+            "(minimiser les chutes sur les panneaux fournisseur)")
         self.action_optim_debit.triggered.connect(self._ouvrir_debit_dialog)
         toolbar.addAction(self.action_optim_debit)
 
@@ -483,10 +512,11 @@ class MainWindow(QMainWindow):
     def _on_mode_change(self, mode: str):
         """Reagit au changement de mode dans le selecteur.
 
-        Met a jour les onglets de parametres et insere un template
-        si le schema est vide.
+        Met a jour les onglets de parametres, l'aide contextuelle
+        et insere un template si le schema est vide.
         """
         self.params_editor.set_mode(mode)
+        self.schema_editor.set_mode_aide(mode)
         schema = self.schema_editor.get_schema().strip()
         if not schema:
             # Schema vide → inserer le template
@@ -502,18 +532,20 @@ class MainWindow(QMainWindow):
         self._regenerer_vue()
 
     def _sync_combo_from_schema(self):
-        """Synchronise le combo mode et les onglets parametres avec le schema."""
+        """Synchronise le combo mode, les onglets parametres et l'aide avec le schema."""
         schema = self.schema_editor.get_schema().strip()
         if est_schema_meuble(schema):
             self.combo_mode.blockSignals(True)
             self.combo_mode.setCurrentText("Meuble")
             self.combo_mode.blockSignals(False)
             self.params_editor.set_mode("Meuble")
+            self.schema_editor.set_mode_aide("Meuble")
         elif schema:
             self.combo_mode.blockSignals(True)
             self.combo_mode.setCurrentText("Placard")
             self.combo_mode.blockSignals(False)
             self.params_editor.set_mode("Placard")
+            self.schema_editor.set_mode_aide("Placard")
 
     # =====================================================================
     #  GENERATION VUE
