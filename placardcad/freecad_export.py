@@ -592,6 +592,9 @@ def generer_script_meuble_groupe(
     grp_name = _nom_groupe_freecad(nom_groupe)
 
     # Placement du meuble sur le plan (position + rotation + pivot)
+    # Convention: dans l'editeur de plan, Y augmente vers le bas (ecran).
+    # Dans FreeCAD, Y augmente vers le fond. On negatie Y et la rotation
+    # pour que la vue de dessus FreeCAD corresponde au plan de l'appli.
     placement = config.get("placement", {})
     pivot_x = placement.get("x", 0.0)
     pivot_y = placement.get("y", 0.0)
@@ -599,17 +602,20 @@ def generer_script_meuble_groupe(
     pivot_key = placement.get("pivot", "avant_gauche")
 
     # Calculer la position de l'origine (avant-gauche) du meuble
-    # a partir de la position du pivot
-    import math as _math
+    # a partir de la position du pivot (en coordonnees plan)
     L = config.get("largeur", 600)
     P = config.get("profondeur", 600)
     pvx, pvy = _pivot_offset(pivot_key, L, P)
-    angle_rad = _math.radians(place_rot)
-    cos_a = _math.cos(angle_rad)
-    sin_a = _math.sin(angle_rad)
-    # origin = pivot_world - rotate(pivot_local)
-    place_x = pivot_x - (pvx * cos_a - pvy * sin_a)
-    place_y = pivot_y - (pvx * sin_a + pvy * cos_a)
+    angle_rad = math.radians(place_rot)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    # origin = pivot_world - rotate(pivot_local) en coordonnees plan
+    plan_x = pivot_x - (pvx * cos_a - pvy * sin_a)
+    plan_y = pivot_y - (pvx * sin_a + pvy * cos_a)
+    # Conversion plan -> FreeCAD : negation de Y et de la rotation
+    place_x = plan_x
+    place_y = -plan_y
+    fc_rot = -place_rot
 
     lines = [
         f"# Script PlacardCAD — {nom_groupe}",
@@ -637,7 +643,7 @@ def generer_script_meuble_groupe(
         f"grp.Label = '{nom_groupe.replace(chr(39), chr(39) + chr(39))}'",
         f"grp.Placement = FreeCAD.Placement(",
         f"    FreeCAD.Vector({place_x:.2f}, {place_y:.2f}, 0),",
-        f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {place_rot:.2f}))",
+        f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))",
         "",
     ]
 
@@ -1272,7 +1278,13 @@ def generer_script_projet(
     ]
 
     # --- Murs : extrusion de chaque segment du contour ---
+    # Convention: dans l'editeur de plan, Y augmente vers le bas (ecran).
+    # Dans FreeCAD, Y augmente vers le fond. On negatie Y pour que la
+    # vue de dessus FreeCAD corresponde a la vue en plan de l'appli.
     if contour and len(contour) >= 3:
+        # Convertir le contour en coordonnees FreeCAD (negation de Y)
+        fc_contour = [(x, -y) for x, y in contour]
+
         lines.append("# " + "=" * 60)
         lines.append("# Murs de la piece")
         lines.append("# " + "=" * 60)
@@ -1281,10 +1293,10 @@ def generer_script_projet(
         lines.append("grp_murs.Label = 'Murs'")
         lines.append("")
 
-        n = len(contour)
+        n = len(fc_contour)
         for i in range(n):
-            ax, ay = contour[i]
-            bx, by = contour[(i + 1) % n]
+            ax, ay = fc_contour[i]
+            bx, by = fc_contour[(i + 1) % n]
             seg_dx = bx - ax
             seg_dy = by - ay
             seg_len = math.hypot(seg_dx, seg_dy)
@@ -1309,8 +1321,8 @@ def generer_script_projet(
             lines.append("")
 
         # Sol : Part::Box plat couvrant le bounding box du contour
-        xs = [p[0] for p in contour]
-        ys = [p[1] for p in contour]
+        xs = [p[0] for p in fc_contour]
+        ys = [p[1] for p in fc_contour]
         sol_x0, sol_y0 = min(xs), min(ys)
         sol_w = max(xs) - sol_x0
         sol_h = max(ys) - sol_y0
@@ -1352,6 +1364,7 @@ def generer_script_projet(
             objets = _collecter_objets_3d(config)
 
         # Calcul du placement (position + rotation + pivot)
+        # Coordonnees plan → FreeCAD : negation de Y et de la rotation
         placement = config.get("placement", {})
         pivot_x = placement.get("x", 0.0)
         pivot_y = placement.get("y", 0.0)
@@ -1364,8 +1377,13 @@ def generer_script_projet(
         angle_rad = math.radians(place_rot)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
-        place_x = pivot_x - (pvx * cos_a - pvy * sin_a)
-        place_y = pivot_y - (pvx * sin_a + pvy * cos_a)
+        # Origine en coordonnees plan
+        plan_x = pivot_x - (pvx * cos_a - pvy * sin_a)
+        plan_y = pivot_y - (pvx * sin_a + pvy * cos_a)
+        # Conversion plan -> FreeCAD
+        fc_x = plan_x
+        fc_y = -plan_y
+        fc_rot = -place_rot
 
         lines.append("# " + "=" * 60)
         lines.append(f"# {nom}")
@@ -1375,8 +1393,8 @@ def generer_script_projet(
         lines.append(f"grp.Label = '{nom.replace(chr(39), chr(39) + chr(39))}'")
         lines.append(
             f"grp.Placement = FreeCAD.Placement("
-            f"FreeCAD.Vector({place_x:.2f}, {place_y:.2f}, 0), "
-            f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {place_rot:.2f}))"
+            f"FreeCAD.Vector({fc_x:.2f}, {fc_y:.2f}, 0), "
+            f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))"
         )
         lines.append("")
 
@@ -1407,7 +1425,7 @@ def generer_script_projet(
             lines.append("")
 
     lines.append("doc.recompute()")
-    lines.append("FreeCADGui.activeDocument().activeView().viewIsometric()")
+    lines.append("FreeCADGui.activeDocument().activeView().viewTop()")
     lines.append("FreeCADGui.SendMsgToActiveView('ViewFit')")
     lines.append(
         f"print('Projet {nom_projet} : "
