@@ -651,7 +651,12 @@ def generer_script_meuble_groupe(
         nom = obj["nom"]
         label = obj["label"].replace("'", "\\'")
         r, g, b = obj["couleur"]
-        px, py, pz = obj["px"], obj["py"], obj["pz"]
+        px, pz = obj["px"], obj["pz"]
+        # Miroir Y local : la conversion plan→FreeCAD negatie Y monde,
+        # mais Part::Box s'etend toujours en +Y. On inverse la coordonnee
+        # Y locale pour que l'avant du meuble (Y=0) reste cote piece
+        # et l'arriere (Y=P) reste cote mur en vue de dessus FreeCAD.
+        py = -obj["py"] - obj["width"]
 
         lines.append(f"obj = doc.addObject('Part::Box', '{nom}')")
         lines.append(f"obj.Label = '{label}'")
@@ -1390,7 +1395,11 @@ def _generer_script_amenagement(
         obj_nom = obj["nom"]
         label = obj["label"].replace("'", "\\'")
         r, g, b = obj["couleur"]
-        px, py, pz = obj["px"], obj["py"], obj["pz"]
+        px, pz = obj["px"], obj["pz"]
+        # Miroir Y local : compense la negation de Y monde dans la
+        # conversion plan→FreeCAD (voir commentaire dans
+        # generer_script_meuble_groupe pour le detail).
+        py = -obj["py"] - obj["width"]
 
         lines.append(f"obj = doc.addObject('Part::Box', '{obj_nom}')")
         lines.append(f"obj.Label = '{label}'")
