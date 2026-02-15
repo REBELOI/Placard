@@ -41,7 +41,7 @@ from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebi
 from ..freecad_export import (
     exporter_freecad, exporter_freecad_meuble,
     generer_script_freecad, generer_script_meuble_groupe,
-    generer_script_projet,
+    generer_scripts_projet,
 )
 from ..dxf_export import exporter_dxf
 from ..etiquettes_export import exporter_etiquettes
@@ -1078,13 +1078,12 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur export script", str(e))
 
     def _exporter_script_projet_freecad(self):
-        """Exporte le projet complet (plan + meubles) en script Python FreeCAD.
+        """Exporte le projet complet en scripts Python FreeCAD dans un dossier.
 
-        Genere un script Python qui cree dans FreeCAD :
-        - Les murs de la piece (extrusion du contour du plan).
-        - Le sol.
-        - Tous les amenagements (placards et meubles) positionnes selon
-          leur placement defini dans l'editeur de plan.
+        Genere un dossier contenant :
+        - main.py : script maitre qui cree le document et lance les sous-scripts.
+        - murs_sol.py : murs de la piece et sol.
+        - Un script .py par amenagement (meuble ou placard).
         """
         if not self._current_projet_id:
             QMessageBox.warning(self, "Script projet FreeCAD",
@@ -1143,37 +1142,37 @@ class MainWindow(QMainWindow):
                                 "Aucun amenagement valide a exporter.")
             return
 
-        # Fichier de sortie
-        default_name = nom_projet.replace(" ", "_") + "_projet.py"
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Exporter script projet FreeCAD",
-            default_name,
-            "Python (*.py);;Tous (*)"
-        )
-        if not filepath:
+        # Selection du dossier de sortie
+        folder = QFileDialog.getExistingDirectory(
+            self, "Dossier d'export FreeCAD projet")
+        if not folder:
             return
 
         try:
-            script = generer_script_projet(
+            scripts = generer_scripts_projet(
                 nom_projet=nom_projet,
                 contour=contour,
                 amenagements=amenagements_data,
             )
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(script)
 
-            msg = f"Script projet exporte:\n{filepath}\n\n"
-            msg += f"{len(amenagements_data)} amenagement(s) inclus.\n"
-            if contour:
-                msg += f"Contour de piece: {len(contour)} points.\n"
-            else:
-                msg += "Pas de contour de piece defini.\n"
+            fichiers_ecrits = []
+            for filename, content in scripts.items():
+                filepath = os.path.join(folder, filename)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+                fichiers_ecrits.append(filename)
+
+            msg = f"Scripts exportes dans :\n{folder}\n\n"
+            msg += "Fichiers generes :\n"
+            for fn in sorted(fichiers_ecrits):
+                msg += f"  - {fn}\n"
             if erreurs:
                 msg += f"\nAmenagements ignores ({len(erreurs)}):\n"
                 msg += "\n".join(erreurs)
-            msg += "\nOuvrir dans FreeCAD: Macro > Executer une macro."
+            msg += "\nOuvrir main.py dans FreeCAD:\nMacro > Executer une macro."
 
-            self.statusbar.showMessage(f"Script projet exporte: {filepath}")
+            self.statusbar.showMessage(
+                f"Projet exporte: {len(fichiers_ecrits)} scripts dans {folder}")
             QMessageBox.information(self, "Script projet FreeCAD", msg)
         except Exception as e:
             QMessageBox.critical(self, "Erreur export projet", str(e))

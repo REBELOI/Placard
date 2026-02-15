@@ -1235,114 +1235,227 @@ _COULEUR_MUR = (0.90, 0.90, 0.88)
 _COULEUR_SOL = (0.85, 0.85, 0.82)
 
 
-def generer_script_projet(
-    nom_projet: str,
+def _generer_script_murs_sol(
     contour: list[tuple[float, float]],
-    amenagements: list[dict],
-    hauteur_piece: float = 2500,
-    epaisseur_mur: float = 50,
+    hauteur_piece: float,
+    epaisseur_mur: float,
 ) -> str:
-    """Genere un script Python FreeCAD assemblant le plan de la piece et tous les meubles.
+    """Genere le script FreeCAD pour les murs et le sol de la piece.
 
-    Le script cree un document FreeCAD contenant :
-    - Les murs de la piece (extrusion de chaque segment du contour).
-    - Le sol (face extrudee du polygone du contour).
-    - Un App::Part par amenagement, positionne avec son placement (x, y, rotation, pivot).
+    Chaque segment du contour est extrude en Part::Box. Les coordonnees
+    sont converties du repere plan (Y vers le bas) au repere FreeCAD
+    (Y vers le fond) par negation de Y.
 
     Args:
-        nom_projet: Nom du projet (utilise comme nom du document FreeCAD).
-        contour: Liste de points (x, y) en mm formant le polygone ferme de la piece.
-        amenagements: Liste de dicts, chacun contenant :
-            - "nom": nom de l'amenagement
-            - "config": config complete (schema parse + params)
-            - "is_meuble": True si meuble, False si placard
-        hauteur_piece: Hauteur sous plafond en mm (defaut 2500).
-        epaisseur_mur: Epaisseur des murs 3D en mm (defaut 50).
+        contour: Polygone de la piece en coordonnees plan (mm).
+        hauteur_piece: Hauteur sous plafond en mm.
+        epaisseur_mur: Epaisseur des murs 3D en mm.
 
     Returns:
-        Code source Python du script FreeCAD.
+        Code source Python du script.
     """
-    doc_name = _nom_groupe_freecad(nom_projet)
+    fc_contour = [(x, -y) for x, y in contour]
 
     lines = [
-        f"# Script PlacardCAD — Projet {nom_projet}",
-        f"# Plan complet avec {len(amenagements)} amenagement(s)",
-        "# Executer dans FreeCAD: Macro > Executer une macro",
+        "# Script PlacardCAD — Murs et sol",
+        "# Genere les murs de la piece et le sol.",
+        "# Appele automatiquement par main.py",
         "",
         "import FreeCAD",
-        "import FreeCADGui",
         "import Part",
         "",
-        f"doc = FreeCAD.newDocument('{doc_name}')",
+        "doc = FreeCAD.activeDocument()",
+        "",
+        "grp_murs = doc.addObject('App::Part', 'Murs')",
+        "grp_murs.Label = 'Murs'",
         "",
     ]
 
-    # --- Murs : extrusion de chaque segment du contour ---
-    # Convention: dans l'editeur de plan, Y augmente vers le bas (ecran).
-    # Dans FreeCAD, Y augmente vers le fond. On negatie Y pour que la
-    # vue de dessus FreeCAD corresponde a la vue en plan de l'appli.
-    if contour and len(contour) >= 3:
-        # Convertir le contour en coordonnees FreeCAD (negation de Y)
-        fc_contour = [(x, -y) for x, y in contour]
+    n = len(fc_contour)
+    for i in range(n):
+        ax, ay = fc_contour[i]
+        bx, by = fc_contour[(i + 1) % n]
+        seg_dx = bx - ax
+        seg_dy = by - ay
+        seg_len = math.hypot(seg_dx, seg_dy)
+        if seg_len < 1:
+            continue
+        seg_angle = math.degrees(math.atan2(seg_dy, seg_dx))
+        r, g, b = _COULEUR_MUR
 
-        lines.append("# " + "=" * 60)
-        lines.append("# Murs de la piece")
-        lines.append("# " + "=" * 60)
-        lines.append("")
-        lines.append("grp_murs = doc.addObject('App::Part', 'Murs')")
-        lines.append("grp_murs.Label = 'Murs'")
-        lines.append("")
-
-        n = len(fc_contour)
-        for i in range(n):
-            ax, ay = fc_contour[i]
-            bx, by = fc_contour[(i + 1) % n]
-            seg_dx = bx - ax
-            seg_dy = by - ay
-            seg_len = math.hypot(seg_dx, seg_dy)
-            if seg_len < 1:
-                continue
-            seg_angle = math.degrees(math.atan2(seg_dy, seg_dx))
-            r, g, b = _COULEUR_MUR
-
-            lines.append(f"obj = doc.addObject('Part::Box', 'Mur_{i}')")
-            lines.append(f"obj.Label = 'Mur {i}'")
-            lines.append(f"obj.Length = {seg_len:.2f}")
-            lines.append(f"obj.Width = {epaisseur_mur:.2f}")
-            lines.append(f"obj.Height = {hauteur_piece:.2f}")
-            lines.append(
-                f"obj.Placement = FreeCAD.Placement("
-                f"FreeCAD.Vector({ax:.2f}, {ay:.2f}, 0), "
-                f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {seg_angle:.2f}))"
-            )
-            lines.append(f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})")
-            lines.append("obj.ViewObject.Transparency = 70")
-            lines.append("grp_murs.addObject(obj)")
-            lines.append("")
-
-        # Sol : Part::Box plat couvrant le bounding box du contour
-        xs = [p[0] for p in fc_contour]
-        ys = [p[1] for p in fc_contour]
-        sol_x0, sol_y0 = min(xs), min(ys)
-        sol_w = max(xs) - sol_x0
-        sol_h = max(ys) - sol_y0
-        r, g, b = _COULEUR_SOL
-        lines.append("obj = doc.addObject('Part::Box', 'Sol')")
-        lines.append("obj.Label = 'Sol'")
-        lines.append(f"obj.Length = {sol_w:.2f}")
-        lines.append(f"obj.Width = {sol_h:.2f}")
-        lines.append(f"obj.Height = {epaisseur_mur:.2f}")
+        lines.append(f"obj = doc.addObject('Part::Box', 'Mur_{i}')")
+        lines.append(f"obj.Label = 'Mur {i}'")
+        lines.append(f"obj.Length = {seg_len:.2f}")
+        lines.append(f"obj.Width = {epaisseur_mur:.2f}")
+        lines.append(f"obj.Height = {hauteur_piece:.2f}")
         lines.append(
             f"obj.Placement = FreeCAD.Placement("
-            f"FreeCAD.Vector({sol_x0:.2f}, {sol_y0:.2f}, {-epaisseur_mur:.2f}), "
-            f"FreeCAD.Rotation(0, 0, 0, 1))"
+            f"FreeCAD.Vector({ax:.2f}, {ay:.2f}, 0), "
+            f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {seg_angle:.2f}))"
         )
         lines.append(f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})")
         lines.append("obj.ViewObject.Transparency = 70")
         lines.append("grp_murs.addObject(obj)")
         lines.append("")
 
-    # --- Meubles / Placards ---
+    # Sol
+    xs = [p[0] for p in fc_contour]
+    ys = [p[1] for p in fc_contour]
+    sol_x0, sol_y0 = min(xs), min(ys)
+    sol_w = max(xs) - sol_x0
+    sol_h = max(ys) - sol_y0
+    r, g, b = _COULEUR_SOL
+    lines.append("obj = doc.addObject('Part::Box', 'Sol')")
+    lines.append("obj.Label = 'Sol'")
+    lines.append(f"obj.Length = {sol_w:.2f}")
+    lines.append(f"obj.Width = {sol_h:.2f}")
+    lines.append(f"obj.Height = {epaisseur_mur:.2f}")
+    lines.append(
+        f"obj.Placement = FreeCAD.Placement("
+        f"FreeCAD.Vector({sol_x0:.2f}, {sol_y0:.2f}, {-epaisseur_mur:.2f}), "
+        f"FreeCAD.Rotation(0, 0, 0, 1))"
+    )
+    lines.append(f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})")
+    lines.append("obj.ViewObject.Transparency = 70")
+    lines.append("grp_murs.addObject(obj)")
+    lines.append("")
+
+    lines.append(f"print('Murs et sol generes ({n} segments).')")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _generer_script_amenagement(
+    nom: str,
+    grp_name: str,
+    config: dict,
+    is_meuble: bool,
+) -> str:
+    """Genere le script FreeCAD pour un amenagement (meuble ou placard).
+
+    Cree un App::Part positionne selon le placement de l'amenagement,
+    avec tous ses elements 3D en Part::Box.
+
+    Args:
+        nom: Nom affiche de l'amenagement.
+        grp_name: Nom FreeCAD du groupe (sans caracteres speciaux).
+        config: Configuration complete (schema parse + params).
+        is_meuble: True si meuble, False si placard.
+
+    Returns:
+        Code source Python du script.
+    """
+    if is_meuble:
+        objets = _collecter_objets_3d_meuble(config)
+    else:
+        objets = _collecter_objets_3d(config)
+
+    # Calcul du placement plan → FreeCAD (negation Y et rotation)
+    placement = config.get("placement", {})
+    pivot_x = placement.get("x", 0.0)
+    pivot_y = placement.get("y", 0.0)
+    place_rot = placement.get("rotation", 0.0)
+    pivot_key = placement.get("pivot", "avant_gauche")
+
+    L = config.get("largeur", 600)
+    P = config.get("profondeur", 600)
+    pvx, pvy = _pivot_offset(pivot_key, L, P)
+    angle_rad = math.radians(place_rot)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    plan_x = pivot_x - (pvx * cos_a - pvy * sin_a)
+    plan_y = pivot_y - (pvx * sin_a + pvy * cos_a)
+    fc_x = plan_x
+    fc_y = -plan_y
+    fc_rot = -place_rot
+
+    lines = [
+        f"# Script PlacardCAD — {nom}",
+        "# Appele automatiquement par main.py",
+        "",
+        "import FreeCAD",
+        "import Part",
+        "",
+        "doc = FreeCAD.activeDocument()",
+        "",
+        f"grp = doc.addObject('App::Part', '{grp_name}')",
+        f"grp.Label = '{nom.replace(chr(39), chr(39) + chr(39))}'",
+        f"grp.Placement = FreeCAD.Placement(",
+        f"    FreeCAD.Vector({fc_x:.2f}, {fc_y:.2f}, 0),",
+        f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))",
+        "",
+    ]
+
+    for obj in objets:
+        obj_nom = obj["nom"]
+        label = obj["label"].replace("'", "\\'")
+        r, g, b = obj["couleur"]
+        px, py, pz = obj["px"], obj["py"], obj["pz"]
+
+        lines.append(f"obj = doc.addObject('Part::Box', '{obj_nom}')")
+        lines.append(f"obj.Label = '{label}'")
+        lines.append(f"obj.Length = {obj['length']:.2f}")
+        lines.append(f"obj.Width = {obj['width']:.2f}")
+        lines.append(f"obj.Height = {obj['height']:.2f}")
+        lines.append(
+            f"obj.Placement = FreeCAD.Placement("
+            f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}), "
+            f"FreeCAD.Rotation(0, 0, 0, 1))"
+        )
+        lines.append(
+            f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
+        )
+        if obj.get("transparence", 0) > 0:
+            lines.append(
+                f"obj.ViewObject.Transparency = {obj['transparence']}"
+            )
+        lines.append("grp.addObject(obj)")
+        lines.append("")
+
+    lines.append(f"print('{nom} : {len(objets)} objets generes.')")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generer_scripts_projet(
+    nom_projet: str,
+    contour: list[tuple[float, float]],
+    amenagements: list[dict],
+    hauteur_piece: float = 2500,
+    epaisseur_mur: float = 50,
+) -> dict[str, str]:
+    """Genere un ensemble de scripts Python FreeCAD pour le projet complet.
+
+    Produit un fichier par element du projet, plus un script main.py
+    qui orchestre l'execution de tous les sous-scripts.
+
+    Structure generee :
+        main.py             — script maitre (creer doc, executer les sous-scripts)
+        murs_sol.py         — murs et sol de la piece
+        meuble_NomXxx.py    — un script par amenagement
+
+    Args:
+        nom_projet: Nom du projet.
+        contour: Polygone de la piece en coordonnees plan (mm).
+        amenagements: Liste de dicts (nom, config, is_meuble).
+        hauteur_piece: Hauteur sous plafond en mm.
+        epaisseur_mur: Epaisseur des murs 3D en mm.
+
+    Returns:
+        Dictionnaire {nom_fichier: contenu_script}.
+    """
+    scripts: dict[str, str] = {}
+    sub_scripts: list[str] = []
+
+    # --- Murs et sol ---
+    if contour and len(contour) >= 3:
+        filename = "murs_sol.py"
+        scripts[filename] = _generer_script_murs_sol(
+            contour, hauteur_piece, epaisseur_mur)
+        sub_scripts.append(filename)
+
+    # --- Un script par amenagement ---
+    noms_fichiers: set[str] = set()
     noms_groupes: set[str] = set()
     for idx, am_data in enumerate(amenagements):
         nom = am_data.get("nom", f"Amenagement_{idx}")
@@ -1350,87 +1463,54 @@ def generer_script_projet(
         is_meuble = am_data.get("is_meuble", False)
 
         grp_name = _nom_groupe_freecad(nom)
-        # Eviter les doublons de noms
-        base = grp_name
+        base_grp = grp_name
         suffix = 2
         while grp_name in noms_groupes:
-            grp_name = f"{base}_{suffix}"
+            grp_name = f"{base_grp}_{suffix}"
             suffix += 1
         noms_groupes.add(grp_name)
 
-        if is_meuble:
-            objets = _collecter_objets_3d_meuble(config)
-        else:
-            objets = _collecter_objets_3d(config)
+        filename = f"{grp_name}.py"
+        base_fn = filename
+        suffix = 2
+        while filename in noms_fichiers:
+            filename = f"{grp_name}_{suffix}.py"
+            suffix += 1
+        noms_fichiers.add(filename)
 
-        # Calcul du placement (position + rotation + pivot)
-        # Coordonnees plan → FreeCAD : negation de Y et de la rotation
-        placement = config.get("placement", {})
-        pivot_x = placement.get("x", 0.0)
-        pivot_y = placement.get("y", 0.0)
-        place_rot = placement.get("rotation", 0.0)
-        pivot_key = placement.get("pivot", "avant_gauche")
+        scripts[filename] = _generer_script_amenagement(
+            nom, grp_name, config, is_meuble)
+        sub_scripts.append(filename)
 
-        L = config.get("largeur", 600)
-        P = config.get("profondeur", 600)
-        pvx, pvy = _pivot_offset(pivot_key, L, P)
-        angle_rad = math.radians(place_rot)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-        # Origine en coordonnees plan
-        plan_x = pivot_x - (pvx * cos_a - pvy * sin_a)
-        plan_y = pivot_y - (pvx * sin_a + pvy * cos_a)
-        # Conversion plan -> FreeCAD
-        fc_x = plan_x
-        fc_y = -plan_y
-        fc_rot = -place_rot
-
-        lines.append("# " + "=" * 60)
-        lines.append(f"# {nom}")
-        lines.append("# " + "=" * 60)
-        lines.append("")
-        lines.append(f"grp = doc.addObject('App::Part', '{grp_name}')")
-        lines.append(f"grp.Label = '{nom.replace(chr(39), chr(39) + chr(39))}'")
-        lines.append(
-            f"grp.Placement = FreeCAD.Placement("
-            f"FreeCAD.Vector({fc_x:.2f}, {fc_y:.2f}, 0), "
-            f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))"
-        )
-        lines.append("")
-
-        for obj in objets:
-            obj_nom = obj["nom"]
-            label = obj["label"].replace("'", "\\'")
-            r, g, b = obj["couleur"]
-            px, py, pz = obj["px"], obj["py"], obj["pz"]
-
-            lines.append(f"obj = doc.addObject('Part::Box', '{obj_nom}')")
-            lines.append(f"obj.Label = '{label}'")
-            lines.append(f"obj.Length = {obj['length']:.2f}")
-            lines.append(f"obj.Width = {obj['width']:.2f}")
-            lines.append(f"obj.Height = {obj['height']:.2f}")
-            lines.append(
-                f"obj.Placement = FreeCAD.Placement("
-                f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}), "
-                f"FreeCAD.Rotation(0, 0, 0, 1))"
-            )
-            lines.append(
-                f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
-            )
-            if obj.get("transparence", 0) > 0:
-                lines.append(
-                    f"obj.ViewObject.Transparency = {obj['transparence']}"
-                )
-            lines.append("grp.addObject(obj)")
-            lines.append("")
-
-    lines.append("doc.recompute()")
-    lines.append("FreeCADGui.activeDocument().activeView().viewTop()")
-    lines.append("FreeCADGui.SendMsgToActiveView('ViewFit')")
-    lines.append(
+    # --- main.py ---
+    doc_name = _nom_groupe_freecad(nom_projet)
+    main_lines = [
+        f"# Script PlacardCAD — Projet {nom_projet}",
+        f"# Genere {len(sub_scripts)} sous-script(s).",
+        "# Executer ce fichier dans FreeCAD: Macro > Executer une macro",
+        "",
+        "import os",
+        "import FreeCAD",
+        "import FreeCADGui",
+        "",
+        f"doc = FreeCAD.newDocument('{doc_name}')",
+        "",
+        "# Repertoire contenant les sous-scripts",
+        "script_dir = os.path.dirname(os.path.abspath(__file__))",
+        "",
+    ]
+    for sub in sub_scripts:
+        main_lines.append(f"exec(open(os.path.join(script_dir, '{sub}'), encoding='utf-8').read())")
+    main_lines.append("")
+    main_lines.append("doc.recompute()")
+    main_lines.append("FreeCADGui.activeDocument().activeView().viewTop()")
+    main_lines.append("FreeCADGui.SendMsgToActiveView('ViewFit')")
+    main_lines.append(
         f"print('Projet {nom_projet} : "
         f"{len(amenagements)} amenagement(s) genere(s).')"
     )
-    lines.append("")
+    main_lines.append("")
 
-    return "\n".join(lines)
+    scripts["main.py"] = "\n".join(main_lines)
+
+    return scripts
