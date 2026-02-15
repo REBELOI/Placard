@@ -822,6 +822,13 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
     largeurs = calculer_largeurs_meuble(config)
     x_cursor = ep  # Position X courante (apres flanc gauche)
 
+    # Profondeur separation : limitee au panneau de fond
+    ep_fond = fond_cfg["epaisseur"]
+    if fond_type == "rainure":
+        prof_sep = P - fond_cfg["distance_chant"] - ep_fond
+    else:
+        prof_sep = P - ep_fond
+
     compartiments_geom: list[dict] = []
     for comp_idx in range(nb_comp):
         larg_c = largeurs[comp_idx]
@@ -840,8 +847,7 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                                f"Separation {comp_idx + 1}", "separation"))
             fiche.ajouter_piece(PieceInfo(
                 f"Separation {comp_idx + 1}",
-                P - config["separation"]["retrait_avant"]
-                  - config["separation"]["retrait_arriere"],
+                prof_sep,
                 h_sep, ep_sep,
                 couleur_fab=config["panneau"]["couleur_fab"],
                 chant_desc=f"Avant {config['panneau']['chant_epaisseur']}mm",
@@ -1244,8 +1250,8 @@ def generer_vue_dessus_meuble(config: dict) -> list[Rect]:
     largeurs = calculer_largeurs_meuble(config)
     x_cursor = ep
     sep_retrait_av = config["separation"].get("retrait_avant", 0)
-    sep_retrait_ar = config["separation"].get("retrait_arriere", 0)
-    sep_prof = P - sep_retrait_av - sep_retrait_ar
+    # La separation s'arrete au panneau de fond (fond_y deja calcule ci-dessus)
+    sep_prof = fond_y - sep_retrait_av
 
     compartiments_geom: list[dict] = []
     for comp_idx in range(nb_comp):

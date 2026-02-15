@@ -732,8 +732,12 @@ def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, flo
     elif type_elem == "separation":
         sep_cfg = config.get("separation", {})
         retrait_av = sep_cfg.get("retrait_avant", 0)
-        retrait_ar = sep_cfg.get("retrait_arriere", 0)
-        return P - retrait_av - retrait_ar, retrait_av
+        # La separation s'arrete au panneau de fond
+        if fond_cfg.get("type") == "rainure":
+            fond_y = P - fond_cfg.get("distance_chant", 10) - ep_fond
+        else:
+            fond_y = P - ep_fond
+        return fond_y - retrait_av, retrait_av
 
     elif type_elem == "dessous":
         retrait_ar = config.get("dessous", {}).get("retrait_arriere", 50)
