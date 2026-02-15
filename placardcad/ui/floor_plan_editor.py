@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QLabel, QSizePolicy, QMenu, QInputDialog, QMessageBox, QDialog,
     QFormLayout, QDialogButtonBox, QSpinBox, QComboBox,
 )
-from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
+from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal, QTimer
 from PyQt5.QtGui import (
     QPainter, QPen, QColor, QBrush, QFont, QFontMetrics,
     QPolygonF, QTransform,
@@ -90,6 +90,13 @@ class FloorPlanEditor(QWidget):
         # Edition du contour
         self._editing_contour = False
         self._selected_point = -1
+
+        # Timer pour differencier simple clic (ajout point) et double-clic (edition)
+        self._pending_add_timer = QTimer(self)
+        self._pending_add_timer.setSingleShot(True)
+        self._pending_add_timer.setInterval(250)
+        self._pending_add_timer.timeout.connect(self._do_pending_add_point)
+        self._pending_add_pos = None  # (mx, my) en mm
         self._dragging_point = False
 
         # Vue (zoom / pan)
@@ -514,6 +521,18 @@ class FloorPlanEditor(QWidget):
         self._zoom = new_zoom
         self.update()
 
+    def _do_pending_add_point(self):
+        """Callback du timer : ajouter le point en attente (simple clic confirme)."""
+        if self._pending_add_pos is None:
+            return
+        mx, my = self._pending_add_pos
+        self._pending_add_pos = None
+        insert_idx = self._best_insert_index(mx, my)
+        self._contour.insert(insert_idx, (round(mx), round(my)))
+        self._selected_point = insert_idx
+        self._save_contour()
+        self.update()
+
     def mousePressEvent(self, event):
         mx, my = self._px_to_mm(event.pos().x(), event.pos().y())
 
@@ -523,15 +542,15 @@ class FloorPlanEditor(QWidget):
                 idx = self._hit_contour_point(mx, my)
                 if idx >= 0:
                     # Commencer a deplacer ce point
+                    self._pending_add_timer.stop()
+                    self._pending_add_pos = None
                     self._selected_point = idx
                     self._dragging_point = True
                 else:
-                    # Ajouter un nouveau point
-                    # Inserer apres le point le plus proche du segment
-                    insert_idx = self._best_insert_index(mx, my)
-                    self._contour.insert(insert_idx, (round(mx), round(my)))
-                    self._selected_point = insert_idx
-                    self._dragging_point = True
+                    # Differer l'ajout de point pour laisser le double-clic
+                    # se declencher (edition de cotation ou coordonnees)
+                    self._pending_add_pos = (mx, my)
+                    self._pending_add_timer.start()
                 self.update()
                 return
             elif event.button() == Qt.MiddleButton:
@@ -627,6 +646,10 @@ class FloorPlanEditor(QWidget):
     def mouseDoubleClickEvent(self, event):
         if event.button() != Qt.LeftButton:
             return
+
+        # Annuler l'ajout de point en attente (le simple clic precedent)
+        self._pending_add_timer.stop()
+        self._pending_add_pos = None
 
         # --- Mode edition contour : double-clic sur point ou cotation ---
         if self._editing_contour and self._contour:
