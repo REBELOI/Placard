@@ -55,6 +55,8 @@ _PIVOTS = [
 _SNAP_THRESHOLD = 30
 # Tolerance d'angle pour considerer deux segments paralleles (radians)
 _SNAP_ANGLE_TOL = math.radians(5)
+# Angle max de correction automatique de rotation lors du snap (radians)
+_SNAP_ROT_ANGLE_MAX = math.radians(15)
 
 
 class FloorPlanEditor(QWidget):
@@ -618,7 +620,11 @@ class FloorPlanEditor(QWidget):
             dy = my - self._drag_start_mm[1]
             m["x"] = round(self._drag_meuble_start[0] + dx)
             m["y"] = round(self._drag_meuble_start[1] + dy)
-            # Accrochage aux murs
+            # Accrochage rotation aux murs (avant le snap de position)
+            rot_snap = self._compute_rotation_snap(m)
+            if rot_snap != 0:
+                m["rotation"] = (m["rotation"] + rot_snap) % 360
+            # Accrochage position aux murs
             snap_dx, snap_dy = self._compute_wall_snap(m)
             if snap_dx != 0 or snap_dy != 0:
                 m["x"] = round(m["x"] + snap_dx)
@@ -691,12 +697,23 @@ class FloorPlanEditor(QWidget):
         if self._selected_idx >= 0:
             m = self._meubles[self._selected_idx]
             menu = QMenu(self)
+            act_align = menu.addAction("Aligner au mur le plus proche")
+            menu.addSeparator()
             act_90 = menu.addAction("Rotation 90°")
             act_180 = menu.addAction("Rotation 180°")
             act_270 = menu.addAction("Rotation 270°")
             act_0 = menu.addAction("Rotation 0°")
             action = menu.exec_(event.globalPos())
-            if action == act_90:
+            if action == act_align:
+                # Utiliser un seuil plus large pour le menu explicite
+                rot = self._compute_rotation_snap(m)
+                if rot != 0:
+                    m["rotation"] = (m["rotation"] + rot) % 360
+                snap_dx, snap_dy = self._compute_wall_snap(m)
+                if snap_dx != 0 or snap_dy != 0:
+                    m["x"] = round(m["x"] + snap_dx)
+                    m["y"] = round(m["y"] + snap_dy)
+            elif action == act_90:
                 m["rotation"] = 90
             elif action == act_180:
                 m["rotation"] = 180
@@ -804,6 +821,80 @@ class FloorPlanEditor(QWidget):
                 best_snap = (-dist * nx, -dist * ny)
 
         return best_snap
+
+    def _compute_rotation_snap(self, m: dict) -> float:
+        """Calcule la correction de rotation pour aligner une arete du meuble
+        sur le mur le plus proche.
+
+        Quand une arete du meuble est a moins de _SNAP_THRESHOLD mm d'un mur
+        et que l'ecart d'angle est inferieur a _SNAP_ROT_ANGLE_MAX, retourne
+        la correction de rotation (en degres) a appliquer au meuble pour que
+        l'arete devienne parallele au mur.
+
+        Returns:
+            Correction de rotation en degres, ou 0.0 si pas de snap.
+        """
+        if not self._contour or len(self._contour) < 2:
+            return 0.0
+
+        corners = self._meuble_corners(m)
+        meuble_edges = [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+
+        best_dist = _SNAP_THRESHOLD
+        best_rot = 0.0
+
+        n = len(self._contour)
+        for (ea, eb) in meuble_edges:
+            me_dx = eb[0] - ea[0]
+            me_dy = eb[1] - ea[1]
+            me_len = math.hypot(me_dx, me_dy)
+            if me_len < 1:
+                continue
+            me_angle = math.atan2(me_dy, me_dx)
+            me_mid_x = (ea[0] + eb[0]) / 2
+            me_mid_y = (ea[1] + eb[1]) / 2
+
+            for si in range(n):
+                wa = self._contour[si]
+                wb = self._contour[(si + 1) % n]
+                w_dx = wb[0] - wa[0]
+                w_dy = wb[1] - wa[1]
+                w_len = math.hypot(w_dx, w_dy)
+                if w_len < 1:
+                    continue
+                w_angle = math.atan2(w_dy, w_dx)
+
+                # Distance perpendiculaire du milieu de l'arete au mur
+                wall_nx = -w_dy / w_len
+                wall_ny = w_dx / w_len
+                rel_x = me_mid_x - wa[0]
+                rel_y = me_mid_y - wa[1]
+                dist = abs(rel_x * wall_nx + rel_y * wall_ny)
+
+                if dist >= best_dist:
+                    continue
+
+                # Verifier que la projection tombe sur le segment du mur
+                t = (rel_x * w_dx + rel_y * w_dy) / (w_len * w_len)
+                margin = me_len / (2 * w_len)
+                if t < -margin or t > 1 + margin:
+                    continue
+
+                # Difference d'angle (parallele ou anti-parallele)
+                adiff = _normalize_angle(me_angle - w_angle)
+                if abs(adiff) <= _SNAP_ROT_ANGLE_MAX:
+                    rot_correction = -adiff
+                elif abs(adiff - math.pi) <= _SNAP_ROT_ANGLE_MAX:
+                    rot_correction = -(adiff - math.pi)
+                elif abs(adiff + math.pi) <= _SNAP_ROT_ANGLE_MAX:
+                    rot_correction = -(adiff + math.pi)
+                else:
+                    continue
+
+                best_dist = dist
+                best_rot = rot_correction
+
+        return math.degrees(best_rot)
 
     def _hit_segment_midpoint(self, mx_mm: float, my_mm: float) -> int:
         """Retourne l'index du segment dont le milieu est proche du curseur, ou -1."""
