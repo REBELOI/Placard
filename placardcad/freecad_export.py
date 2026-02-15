@@ -1285,7 +1285,14 @@ def _generer_script_murs_sol(
         seg_len = math.hypot(seg_dx, seg_dy)
         if seg_len < 1:
             continue
-        seg_angle = math.degrees(math.atan2(seg_dy, seg_dx))
+        seg_angle_rad = math.atan2(seg_dy, seg_dx)
+        seg_angle = math.degrees(seg_angle_rad)
+        # Decaler l'origine pour que l'epaisseur s'etende vers l'exterieur
+        # de la piece. Le contour plan (horaire en Y-bas) devient anti-horaire
+        # en FreeCAD (Y-haut), donc +Y local pointe vers l'interieur.
+        # On recule l'origine de epaisseur_mur en -Y local.
+        wall_x = ax + epaisseur_mur * math.sin(seg_angle_rad)
+        wall_y = ay - epaisseur_mur * math.cos(seg_angle_rad)
         r, g, b = _COULEUR_MUR
 
         lines.append(f"obj = doc.addObject('Part::Box', 'Mur_{i}')")
@@ -1295,7 +1302,7 @@ def _generer_script_murs_sol(
         lines.append(f"obj.Height = {hauteur_piece:.2f}")
         lines.append(
             f"obj.Placement = FreeCAD.Placement("
-            f"FreeCAD.Vector({ax:.2f}, {ay:.2f}, 0), "
+            f"FreeCAD.Vector({wall_x:.2f}, {wall_y:.2f}, 0), "
             f"FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {seg_angle:.2f}))"
         )
         lines.append(f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})")
