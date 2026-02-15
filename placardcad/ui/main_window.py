@@ -41,6 +41,7 @@ from ..optimisation_debit import pieces_depuis_fiche, PieceDebit, ParametresDebi
 from ..freecad_export import (
     exporter_freecad, exporter_freecad_meuble,
     generer_script_freecad, generer_script_meuble_groupe,
+    generer_scripts_projet,
 )
 from ..dxf_export import exporter_dxf
 from ..etiquettes_export import exporter_etiquettes
@@ -259,6 +260,15 @@ class MainWindow(QMainWindow):
             "(pour assembler plusieurs meubles dans un même document)")
         self.action_export_script.triggered.connect(self._exporter_script_freecad)
         toolbar.addAction(self.action_export_script)
+
+        # Export Script FreeCAD projet complet (plan + meubles)
+        self.action_export_projet_freecad = QAction("Script projet FreeCAD", self)
+        self.action_export_projet_freecad.setToolTip(
+            "Exporter le projet complet en script Python FreeCAD\n"
+            "(plan de la pièce + tous les meubles positionnés)")
+        self.action_export_projet_freecad.triggered.connect(
+            self._exporter_script_projet_freecad)
+        toolbar.addAction(self.action_export_projet_freecad)
 
         # Export DXF
         self.action_export_dxf = QAction("Exporter DXF", self)
@@ -1066,6 +1076,106 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erreur export script", str(e))
+
+    def _exporter_script_projet_freecad(self):
+        """Exporte le projet complet en scripts Python FreeCAD dans un dossier.
+
+        Genere un dossier contenant :
+        - main.py : script maitre qui cree le document et lance les sous-scripts.
+        - murs_sol.py : murs de la piece et sol.
+        - Un script .py par amenagement (meuble ou placard).
+        """
+        if not self._current_projet_id:
+            QMessageBox.warning(self, "Script projet FreeCAD",
+                                "Aucun projet selectionne.")
+            return
+
+        projet = self.db.get_projet(self._current_projet_id)
+        if not projet:
+            return
+        nom_projet = projet.get("nom", "Projet")
+
+        amenagements = self.db.lister_amenagements(self._current_projet_id)
+        if not amenagements:
+            QMessageBox.warning(self, "Script projet FreeCAD",
+                                "Le projet ne contient aucun amenagement.")
+            return
+
+        # Recuperer le contour de la piece depuis plan_json
+        plan_json_str = projet.get("plan_json", "{}")
+        try:
+            plan_data = json.loads(plan_json_str) if plan_json_str else {}
+        except json.JSONDecodeError:
+            plan_data = {}
+        contour_raw = plan_data.get("contour", [])
+        contour = [(p[0], p[1]) for p in contour_raw if len(p) >= 2]
+
+        # Construire la liste des amenagements avec leur config
+        amenagements_data = []
+        erreurs = []
+        for am in amenagements:
+            schema_txt = am.get("schema_txt", "")
+            if not schema_txt or not schema_txt.strip():
+                continue
+            try:
+                params_json = am.get("params_json", "{}")
+                params = json.loads(params_json) if params_json else dict(PARAMS_DEFAUT)
+            except json.JSONDecodeError:
+                params = dict(PARAMS_DEFAUT)
+
+            try:
+                is_meuble = est_schema_meuble(schema_txt)
+                if is_meuble:
+                    config = meuble_schema_vers_config(schema_txt, params)
+                else:
+                    config = schema_vers_config(schema_txt, params)
+                amenagements_data.append({
+                    "nom": am.get("nom", "Amenagement"),
+                    "config": config,
+                    "is_meuble": is_meuble,
+                })
+            except Exception as e:
+                erreurs.append(f"{am.get('nom', '?')}: {e}")
+
+        if not amenagements_data:
+            QMessageBox.warning(self, "Script projet FreeCAD",
+                                "Aucun amenagement valide a exporter.")
+            return
+
+        # Selection du dossier de sortie
+        folder = QFileDialog.getExistingDirectory(
+            self, "Dossier d'export FreeCAD projet")
+        if not folder:
+            return
+
+        try:
+            scripts = generer_scripts_projet(
+                nom_projet=nom_projet,
+                contour=contour,
+                amenagements=amenagements_data,
+            )
+
+            fichiers_ecrits = []
+            for filename, content in scripts.items():
+                filepath = os.path.join(folder, filename)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+                fichiers_ecrits.append(filename)
+
+            msg = f"Scripts exportes dans :\n{folder}\n\n"
+            msg += "Fichiers generes :\n"
+            for fn in sorted(fichiers_ecrits):
+                msg += f"  - {fn}\n"
+            if erreurs:
+                msg += f"\nAmenagements ignores ({len(erreurs)}):\n"
+                msg += "\n".join(erreurs)
+            msg += "\nOuvrir main.py dans FreeCAD:\nMacro > Executer une macro."
+
+            self.statusbar.showMessage(
+                f"Projet exporte: {len(fichiers_ecrits)} scripts dans {folder}")
+            QMessageBox.information(self, "Script projet FreeCAD", msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Erreur export projet", str(e))
 
     def _exporter_etiquettes(self):
         """Exporte les etiquettes de pieces en PDF format A4.
