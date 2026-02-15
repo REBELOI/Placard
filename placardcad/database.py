@@ -25,6 +25,7 @@ PARAMS_DEFAUT = {
         "epaisseur": 19,
         "couleur_fab": "Chene clair",
         "couleur_rgb": [0.82, 0.71, 0.55],
+        "materiau": "Chene clair",
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
@@ -34,6 +35,7 @@ PARAMS_DEFAUT = {
         "epaisseur": 19,
         "couleur_fab": "Chene clair",
         "couleur_rgb": [0.82, 0.71, 0.55],
+        "materiau": "Chene clair",
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
@@ -45,6 +47,7 @@ PARAMS_DEFAUT = {
         "epaisseur": 22,
         "couleur_fab": "Chene clair",
         "couleur_rgb": [0.82, 0.71, 0.55],
+        "materiau": "Chene clair",
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
@@ -56,6 +59,7 @@ PARAMS_DEFAUT = {
         "epaisseur": 19,
         "couleur_fab": "Chene clair",
         "couleur_rgb": [0.82, 0.71, 0.55],
+        "materiau": "Chene clair",
         "chant_epaisseur": 1,
         "chant_couleur_fab": "Chene clair",
         "chant_couleur_rgb": [0.85, 0.74, 0.58],
@@ -69,6 +73,7 @@ PARAMS_DEFAUT = {
         "retrait_avant": 80,
         "retrait_arriere": 80,
         "couleur_rgb": [0.6, 0.6, 0.6],
+        "materiau": "Acier galvanise",
     },
     "crem_applique": {
         "largeur": 25,
@@ -77,13 +82,19 @@ PARAMS_DEFAUT = {
         "retrait_avant": 80,
         "retrait_arriere": 80,
         "couleur_rgb": [0.6, 0.6, 0.6],
+        "materiau": "Acier galvanise",
     },
     "tasseau": {
         "section_h": 30,
         "section_l": 30,
         "retrait_avant": 20,
         "couleur_rgb": [0.85, 0.75, 0.55],
+        "materiau": "Chene clair",
         "biseau_longueur": 15,
+    },
+    "materiaux_rendu": {
+        "mur": "Mur blanc",
+        "sol": "Sol carrelage",
     },
     "afficher_murs": True,
     "mur_epaisseur": 50,
@@ -147,6 +158,23 @@ CREATE TABLE IF NOT EXISTS pieces_manuelles (
     sens_fil        INTEGER NOT NULL DEFAULT 1,
     quantite        INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS materiaux (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom             TEXT NOT NULL UNIQUE,
+    categorie       TEXT NOT NULL DEFAULT 'bois',
+    couleur_rgb     TEXT NOT NULL DEFAULT '[0.8, 0.8, 0.8]',
+    texture_diffuse TEXT DEFAULT '',
+    texture_bump    TEXT DEFAULT '',
+    texture_roughness TEXT DEFAULT '',
+    rugosite        REAL NOT NULL DEFAULT 0.5,
+    metallic        REAL NOT NULL DEFAULT 0.0,
+    specular        REAL NOT NULL DEFAULT 0.5,
+    ior             REAL NOT NULL DEFAULT 1.5,
+    transparence    REAL NOT NULL DEFAULT 0.0,
+    date_creation   TEXT NOT NULL,
+    date_modif      TEXT NOT NULL
+);
 """
 
 # Cles regroupees dans une configuration type (tout sauf dimensions)
@@ -209,6 +237,34 @@ class Database:
             self.conn.execute(
                 "ALTER TABLE projets ADD COLUMN plan_json TEXT DEFAULT '{}'"
             )
+            self.conn.commit()
+
+        # Verifier si la table materiaux existe deja
+        tables = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "materiaux" not in tables:
+            self.conn.executescript("""
+                CREATE TABLE IF NOT EXISTS materiaux (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nom             TEXT NOT NULL UNIQUE,
+                    categorie       TEXT NOT NULL DEFAULT 'bois',
+                    couleur_rgb     TEXT NOT NULL DEFAULT '[0.8, 0.8, 0.8]',
+                    texture_diffuse TEXT DEFAULT '',
+                    texture_bump    TEXT DEFAULT '',
+                    texture_roughness TEXT DEFAULT '',
+                    rugosite        REAL NOT NULL DEFAULT 0.5,
+                    metallic        REAL NOT NULL DEFAULT 0.0,
+                    specular        REAL NOT NULL DEFAULT 0.5,
+                    ior             REAL NOT NULL DEFAULT 1.5,
+                    transparence    REAL NOT NULL DEFAULT 0.0,
+                    date_creation   TEXT NOT NULL DEFAULT '',
+                    date_modif      TEXT NOT NULL DEFAULT ''
+                );
+            """)
             self.conn.commit()
 
     def close(self):
@@ -647,3 +703,144 @@ class Database:
             (projet_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- Materiaux (rendu photoréaliste) ---
+
+    def ajouter_materiau(self, nom: str, categorie: str = "bois",
+                         couleur_rgb: list[float] | None = None,
+                         texture_diffuse: str = "",
+                         texture_bump: str = "",
+                         texture_roughness: str = "",
+                         rugosite: float = 0.5,
+                         metallic: float = 0.0,
+                         specular: float = 0.5,
+                         ior: float = 1.5,
+                         transparence: float = 0.0) -> int:
+        """Ajoute un materiau personnalise dans la base de donnees.
+
+        Args:
+            nom: Nom unique du materiau.
+            categorie: Categorie ('bois', 'metal', 'melamine', etc.).
+            couleur_rgb: Couleur diffuse [R, G, B] en 0.0-1.0.
+            texture_diffuse: Chemin vers l'image de texture diffuse.
+            texture_bump: Chemin vers l'image de bump map.
+            texture_roughness: Chemin vers la roughness map.
+            rugosite: Rugosite de surface (0.0 - 1.0).
+            metallic: Metallicite (0.0 - 1.0).
+            specular: Intensite speculaire (0.0 - 1.0).
+            ior: Indice de refraction.
+            transparence: Transparence (0.0 - 1.0).
+
+        Returns:
+            Identifiant du materiau cree.
+        """
+        if couleur_rgb is None:
+            couleur_rgb = [0.8, 0.8, 0.8]
+        now = datetime.now().isoformat()
+        cur = self.conn.execute(
+            "INSERT INTO materiaux "
+            "(nom, categorie, couleur_rgb, texture_diffuse, texture_bump, "
+            " texture_roughness, rugosite, metallic, specular, ior, "
+            " transparence, date_creation, date_modif) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (nom, categorie, json.dumps(couleur_rgb), texture_diffuse,
+             texture_bump, texture_roughness, rugosite, metallic, specular,
+             ior, transparence, now, now)
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def modifier_materiau(self, materiau_id: int, **kwargs):
+        """Modifie les champs d'un materiau existant.
+
+        Args:
+            materiau_id: Identifiant du materiau a modifier.
+            **kwargs: Champs a mettre a jour parmi nom, categorie,
+                couleur_rgb, texture_diffuse, texture_bump,
+                texture_roughness, rugosite, metallic, specular,
+                ior, transparence.
+        """
+        allowed = {"nom", "categorie", "couleur_rgb", "texture_diffuse",
+                   "texture_bump", "texture_roughness", "rugosite", "metallic",
+                   "specular", "ior", "transparence"}
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        if "couleur_rgb" in fields:
+            fields["couleur_rgb"] = json.dumps(fields["couleur_rgb"])
+        fields["date_modif"] = datetime.now().isoformat()
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = list(fields.values()) + [materiau_id]
+        self.conn.execute(f"UPDATE materiaux SET {sets} WHERE id = ?", vals)
+        self.conn.commit()
+
+    def supprimer_materiau(self, materiau_id: int):
+        """Supprime un materiau de la base de donnees.
+
+        Args:
+            materiau_id: Identifiant du materiau a supprimer.
+        """
+        self.conn.execute("DELETE FROM materiaux WHERE id = ?", (materiau_id,))
+        self.conn.commit()
+
+    def get_materiau(self, materiau_id: int) -> Optional[dict]:
+        """Retourne un materiau par son identifiant.
+
+        Args:
+            materiau_id: Identifiant du materiau recherche.
+
+        Returns:
+            Dictionnaire du materiau avec couleur_rgb deserialisee,
+            ou None si non trouve.
+        """
+        row = self.conn.execute(
+            "SELECT * FROM materiaux WHERE id = ?", (materiau_id,)
+        ).fetchone()
+        if row:
+            d = dict(row)
+            d["couleur_rgb"] = json.loads(d["couleur_rgb"])
+            return d
+        return None
+
+    def get_materiau_par_nom(self, nom: str) -> Optional[dict]:
+        """Retourne un materiau par son nom.
+
+        Args:
+            nom: Nom du materiau recherche.
+
+        Returns:
+            Dictionnaire du materiau ou None.
+        """
+        row = self.conn.execute(
+            "SELECT * FROM materiaux WHERE nom = ?", (nom,)
+        ).fetchone()
+        if row:
+            d = dict(row)
+            d["couleur_rgb"] = json.loads(d["couleur_rgb"])
+            return d
+        return None
+
+    def lister_materiaux(self, categorie: str | None = None) -> list[dict]:
+        """Liste les materiaux, optionnellement filtres par categorie.
+
+        Args:
+            categorie: Filtre par categorie, ou None pour tout lister.
+
+        Returns:
+            Liste de dictionnaires materiaux.
+        """
+        if categorie:
+            rows = self.conn.execute(
+                "SELECT * FROM materiaux WHERE categorie = ? ORDER BY nom",
+                (categorie,)
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM materiaux ORDER BY categorie, nom"
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["couleur_rgb"] = json.loads(d["couleur_rgb"])
+            result.append(d)
+        return result
