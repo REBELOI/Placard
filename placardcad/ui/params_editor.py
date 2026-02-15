@@ -44,9 +44,118 @@ CLES_CONFIG_TYPE_MEUBLE = [
 
 
 class ParamsEditor(QWidget):
-    """Editeur de parametres generaux avec formulaire a onglets et preset global."""
+    """Editeur de parametres generaux avec formulaire a onglets, preset global et aide contextuelle."""
 
     params_modifies = pyqtSignal(dict)
+
+    # Tooltips pour chaque champ de parametres
+    _TOOLTIPS = {
+        # Dimensions placard
+        "hauteur": "Hauteur totale du placard (sol au plafond), en mm",
+        "largeur": "Largeur totale du placard (mur a mur), en mm",
+        "profondeur": "Profondeur du placard (de la face avant au mur du fond), en mm",
+        "rayon_haut_position": "Distance entre le plafond et le rayon haut, en mm",
+
+        # Dimensions meuble
+        "epaisseur": "Epaisseur des panneaux de structure du meuble, en mm",
+        "epaisseur_facade": "Epaisseur des facades (portes/tiroirs), en mm",
+        "hauteur_plinthe": "Hauteur de la plinthe sous le meuble (0 = pas de plinthe), en mm",
+
+        # Panneaux placard
+        "panneau_separation.epaisseur": "Epaisseur du panneau de separation vertical entre compartiments",
+        "panneau_separation.couleur_fab": "Reference couleur/decor du panneau chez le fournisseur",
+        "panneau_separation.chant_epaisseur": "Epaisseur du chant colle sur les bords visibles, en mm",
+        "panneau_separation.sens_fil": "Cocher pour aligner le fil du bois dans le sens de la longueur lors du debit",
+        "panneau_rayon.epaisseur": "Epaisseur des rayons (etageres reglables), en mm",
+        "panneau_rayon.couleur_fab": "Reference couleur/decor du rayon chez le fournisseur",
+        "panneau_rayon.chant_epaisseur": "Epaisseur du chant colle sur le bord avant du rayon",
+        "panneau_rayon.sens_fil": "Respecter le sens du fil du bois pour les rayons",
+        "panneau_rayon.retrait_avant": "Recul du rayon par rapport a la face avant du placard, en mm",
+        "panneau_rayon.retrait_arriere": "Recul du rayon par rapport au mur du fond, en mm",
+        "panneau_rayon_haut.epaisseur": "Epaisseur du rayon haut (etagere fixe en haut), en mm",
+        "panneau_rayon_haut.couleur_fab": "Reference couleur/decor du rayon haut",
+        "panneau_rayon_haut.chant_epaisseur": "Epaisseur du chant du rayon haut",
+        "panneau_rayon_haut.sens_fil": "Respecter le sens du fil pour le rayon haut",
+        "panneau_rayon_haut.retrait_avant": "Recul du rayon haut par rapport a la face avant, en mm",
+        "panneau_rayon_haut.retrait_arriere": "Recul du rayon haut par rapport au mur du fond, en mm",
+        "panneau_mur.epaisseur": "Epaisseur du panneau mur (fixe sur le mur lateral pour les cremailleres), en mm",
+        "panneau_mur.couleur_fab": "Reference couleur/decor du panneau mur",
+        "panneau_mur.chant_epaisseur": "Epaisseur du chant du panneau mur",
+        "panneau_mur.sens_fil": "Respecter le sens du fil pour le panneau mur",
+
+        # Cremailleres
+        "crem_encastree.largeur": "Largeur de la cremaillere encastree (rainure dans le panneau), en mm",
+        "crem_encastree.epaisseur": "Epaisseur de la cremaillere encastree, en mm",
+        "crem_encastree.saillie": "Depassement de la cremaillere hors du panneau, en mm",
+        "crem_encastree.jeu_rayon": "Jeu entre le rayon et la cremaillere (pour insertion facile), en mm",
+        "crem_encastree.pas": "Pas de perforation de la cremaillere (espacement entre trous), en mm",
+        "crem_encastree.retrait_avant": "Distance entre la face avant et le debut de la cremaillere, en mm",
+        "crem_encastree.retrait_arriere": "Distance entre le mur du fond et la fin de la cremaillere, en mm",
+        "crem_applique.largeur": "Largeur de la cremaillere en applique, en mm",
+        "crem_applique.epaisseur_saillie": "Epaisseur de la cremaillere en saillie (vissee sur le mur), en mm",
+        "crem_applique.jeu_rayon": "Jeu entre le rayon et la cremaillere applique, en mm",
+        "crem_applique.pas": "Pas de perforation de la cremaillere applique, en mm",
+        "crem_applique.retrait_avant": "Distance entre la face avant et le debut de la cremaillere, en mm",
+        "crem_applique.retrait_arriere": "Distance entre le mur du fond et la fin de la cremaillere, en mm",
+
+        # Tasseaux
+        "tasseau.section_h": "Hauteur de la section du tasseau, en mm",
+        "tasseau.section_l": "Largeur de la section du tasseau, en mm",
+        "tasseau.retrait_avant": "Recul du tasseau par rapport a la face avant du placard, en mm",
+        "tasseau.biseau_longueur": "Longueur du biseau (coupe en angle) a l'extremite du tasseau, en mm",
+
+        # Meuble — structure
+        "assemblage": "Type d'assemblage : dessus_entre (entre les cotes) ou dessus_sur (sur les cotes)",
+        "pose": "Mode de pose des facades : applique, semi-applique ou encloisonnee",
+        "panneau.couleur_fab": "Reference couleur/decor des panneaux de structure",
+        "panneau.chant_epaisseur": "Epaisseur du chant colle sur les bords visibles des panneaux",
+        "panneau.chant_couleur_fab": "Reference couleur du chant (si different du panneau)",
+        "facade.couleur_fab": "Reference couleur/decor des facades (portes et tiroirs)",
+        "dessus.type": "Type de dessus : traverses (2 bandes avant/arriere) ou plein (panneau complet)",
+        "dessus.largeur_traverse": "Largeur des traverses du dessus, en mm",
+        "dessous.retrait_arriere": "Recul du panneau du dessous par rapport a l'arriere, en mm",
+        "fond.type": "Mode de fixation du fond : rainure, vissage ou applique",
+        "fond.epaisseur": "Epaisseur du panneau de fond, en mm",
+        "fond.profondeur_rainure": "Profondeur de la rainure pour le fond (si mode rainure), en mm",
+        "fond.distance_chant": "Distance entre le chant arriere et la rainure du fond, en mm",
+        "fond.hauteur": "Hauteur du fond (0 = pleine hauteur du meuble), en mm",
+        "plinthe.type": "Type de plinthe : avant seule, trois cotes ou aucune",
+        "plinthe.retrait": "Recul de la plinthe par rapport a la face avant, en mm",
+        "plinthe.retrait_gauche": "Recul de la plinthe cote gauche, en mm",
+        "plinthe.retrait_droite": "Recul de la plinthe cote droit, en mm",
+        "plinthe.epaisseur": "Epaisseur de la plinthe, en mm",
+
+        # Meuble — facades
+        "porte.jeu_haut": "Jeu entre le haut de la porte et le dessus du meuble, en mm",
+        "porte.jeu_bas": "Jeu entre le bas de la porte et le dessous du meuble, en mm",
+        "porte.jeu_lateral": "Jeu lateral entre la porte et le cote du meuble, en mm",
+        "porte.jeu_entre": "Jeu entre deux portes adjacentes, en mm",
+        "tiroir.hauteur": "Hauteur de coulisse LEGRABOX : M=90.5, K=128.5, C=193, F=257 mm",
+        "tiroir.jeu_lateral": "Jeu lateral entre le tiroir et le cote du meuble, en mm",
+        "tiroir.jeu_entre": "Jeu vertical entre deux tiroirs, en mm",
+        "poignee.modele": "Modele de poignee : baton inox ou aucune",
+        "poignee.entraxe": "Distance entre les deux vis de fixation de la poignee, en mm",
+        "poignee.distance_haut": "Distance entre le haut de la facade et l'axe de la poignee, en mm",
+
+        # Meuble — interieur
+        "etagere.jeu_lateral": "Jeu lateral entre l'etagere et les cotes du meuble, en mm",
+        "etagere.retrait_avant": "Recul de l'etagere par rapport a la face avant du meuble, en mm",
+        "separation.epaisseur": "Epaisseur des panneaux de separation interieure, en mm",
+        "separation.retrait_avant": "Recul de la separation par rapport a la face avant, en mm",
+        "separation.retrait_arriere": "Recul de la separation par rapport a l'arriere, en mm",
+        "cremaillere.largeur": "Largeur de la cremaillere aluminium interieure, en mm",
+        "cremaillere.profondeur": "Profondeur d'encastrement de la cremaillere alu, en mm",
+        "cremaillere.distance_avant": "Distance entre la face avant et la cremaillere, en mm",
+        "cremaillere.distance_arriere": "Distance entre l'arriere et la cremaillere, en mm",
+
+        # Debit
+        "debit.panneau_longueur": "Longueur du panneau brut (format fournisseur), en mm",
+        "debit.panneau_largeur": "Largeur du panneau brut (format fournisseur), en mm",
+        "debit.trait_scie": "Largeur du trait de scie (perte de matiere a chaque coupe), en mm",
+        "debit.surcote": "Surcote ajoutee de chaque cote des pieces (marge de securite), en mm",
+        "debit.delignage": "Perte lors du premier trait de mise d'equerre du panneau brut, en mm",
+        "debit.sens_fil": "Respecter le sens du fil du bois lors de l'optimisation de debit",
+    }
 
     def __init__(self, db=None, parent=None):
         super().__init__(parent)
@@ -134,6 +243,12 @@ class ParamsEditor(QWidget):
     #  WIDGETS DE BASE
     # =================================================================
 
+    def _appliquer_tooltip(self, widget: QWidget, key: str):
+        """Applique le tooltip contextuel correspondant a la cle du parametre."""
+        tip = self._TOOLTIPS.get(key)
+        if tip:
+            widget.setToolTip(tip)
+
     def _creer_spin(self, key: str, minimum: int = 0, maximum: int = 10000,
                     suffix: str = " mm") -> QSpinBox:
         spin = QSpinBox()
@@ -141,6 +256,7 @@ class ParamsEditor(QWidget):
         spin.setSuffix(suffix)
         spin.valueChanged.connect(self._on_value_changed)
         self._widgets[key] = spin
+        self._appliquer_tooltip(spin, key)
         return spin
 
     def _creer_dspin(self, key: str, minimum: float = 0, maximum: float = 100,
@@ -151,18 +267,21 @@ class ParamsEditor(QWidget):
         spin.setDecimals(decimals)
         spin.valueChanged.connect(self._on_value_changed)
         self._widgets[key] = spin
+        self._appliquer_tooltip(spin, key)
         return spin
 
     def _creer_check(self, key: str, label: str = "") -> QCheckBox:
         chk = QCheckBox(label)
         chk.stateChanged.connect(self._on_value_changed)
         self._widgets[key] = chk
+        self._appliquer_tooltip(chk, key)
         return chk
 
     def _creer_text(self, key: str) -> QLineEdit:
         edit = QLineEdit()
         edit.textChanged.connect(self._on_value_changed)
         self._widgets[key] = edit
+        self._appliquer_tooltip(edit, key)
         return edit
 
     def _creer_combo(self, key: str, options: list[str]) -> QComboBox:
@@ -170,6 +289,7 @@ class ParamsEditor(QWidget):
         combo.addItems(options)
         combo.currentTextChanged.connect(self._on_value_changed)
         self._widgets[key] = combo
+        self._appliquer_tooltip(combo, key)
         return combo
 
     # =================================================================
