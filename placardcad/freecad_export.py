@@ -640,12 +640,13 @@ def generer_script_meuble_groupe(
     nom_groupe: str,
     nom_projet: str = "Projet",
 ) -> str:
-    """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un App::Part.
+    """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un groupe.
 
     Le script est concu pour etre execute dans un document FreeCAD existant.
     Si le conteneur existe deja, il est supprime puis recree. Chaque element
-    du meuble est un Part::Box ajoute au App::Part. Le conteneur peut ensuite
-    etre deplace dans FreeCAD via sa propriete Placement (onglet Donnees).
+    du meuble est un Part::Box ajoute au DocumentObjectGroup. Le placement
+    du groupe est compose dans chaque objet enfant pour compatibilite avec
+    le Render Workbench (pas de restriction de portee).
 
     Args:
         config: Configuration complete du meuble.
@@ -705,10 +706,12 @@ def generer_script_meuble_groupe(
         "        doc.removeObject(child.Name)",
         "    doc.removeObject(GRP_NAME)",
         "",
-        "# --- Creer le conteneur (App::Part = deplacable via Placement) ---",
-        "grp = doc.addObject('App::Part', GRP_NAME)",
+        "# --- Creer le conteneur (DocumentObjectGroup = compatible Render WB) ---",
+        "grp = doc.addObject('App::DocumentObjectGroup', GRP_NAME)",
         f"grp.Label = '{nom_groupe.replace(chr(39), chr(39) + chr(39))}'",
-        f"grp.Placement = FreeCAD.Placement(",
+        "",
+        "# Placement du groupe applique a chaque objet enfant",
+        f"_grp_plc = FreeCAD.Placement(",
         f"    FreeCAD.Vector({place_x:.2f}, {place_y:.2f}, 0),",
         f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))",
         "",
@@ -731,9 +734,9 @@ def generer_script_meuble_groupe(
         lines.append(f"obj.Width = {obj['width']:.2f}")
         lines.append(f"obj.Height = {obj['height']:.2f}")
         lines.append(
-            f"obj.Placement = FreeCAD.Placement("
+            f"obj.Placement = _grp_plc.multiply(FreeCAD.Placement("
             f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}), "
-            f"FreeCAD.Rotation(0, 0, 0, 1))"
+            f"FreeCAD.Rotation(0, 0, 0, 1)))"
         )
         lines.append(
             f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
@@ -1403,7 +1406,7 @@ def _generer_script_murs_sol(
         "",
         "doc = FreeCAD.activeDocument()",
         "",
-        "grp_murs = doc.addObject('App::Part', 'Murs')",
+        "grp_murs = doc.addObject('App::DocumentObjectGroup', 'Murs')",
         "grp_murs.Label = 'Murs'",
         "",
     ]
@@ -1477,8 +1480,8 @@ def _generer_script_amenagement(
 ) -> str:
     """Genere le script FreeCAD pour un amenagement (meuble ou placard).
 
-    Cree un App::Part positionne selon le placement de l'amenagement,
-    avec tous ses elements 3D en Part::Box.
+    Cree un DocumentObjectGroup avec le placement compose dans chaque objet
+    enfant (compatible Render Workbench, pas de restriction de portee).
 
     Args:
         nom: Nom affiche de l'amenagement.
@@ -1522,9 +1525,11 @@ def _generer_script_amenagement(
         "",
         "doc = FreeCAD.activeDocument()",
         "",
-        f"grp = doc.addObject('App::Part', '{grp_name}')",
+        f"grp = doc.addObject('App::DocumentObjectGroup', '{grp_name}')",
         f"grp.Label = '{nom.replace(chr(39), chr(39) + chr(39))}'",
-        f"grp.Placement = FreeCAD.Placement(",
+        "",
+        "# Placement du groupe applique a chaque objet enfant",
+        f"_grp_plc = FreeCAD.Placement(",
         f"    FreeCAD.Vector({fc_x:.2f}, {fc_y:.2f}, 0),",
         f"    FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), {fc_rot:.2f}))",
         "",
@@ -1546,9 +1551,9 @@ def _generer_script_amenagement(
         lines.append(f"obj.Width = {obj['width']:.2f}")
         lines.append(f"obj.Height = {obj['height']:.2f}")
         lines.append(
-            f"obj.Placement = FreeCAD.Placement("
+            f"obj.Placement = _grp_plc.multiply(FreeCAD.Placement("
             f"FreeCAD.Vector({px:.2f}, {py:.2f}, {pz:.2f}), "
-            f"FreeCAD.Rotation(0, 0, 0, 1))"
+            f"FreeCAD.Rotation(0, 0, 0, 1)))"
         )
         lines.append(
             f"obj.ViewObject.ShapeColor = ({r:.3f}, {g:.3f}, {b:.3f})"
