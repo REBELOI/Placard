@@ -27,6 +27,7 @@ from .placard_builder import generer_geometrie_2d
 from .materials import (
     CATALOGUE_MATERIAUX, MATERIAUX_DEFAUT_PLACARD, MATERIAUX_DEFAUT_MEUBLE,
     get_couleur_rgb, get_materiau, generer_script_render_materiaux,
+    generer_script_render_projet,
 )
 
 
@@ -595,6 +596,11 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
     if objets_materiaux:
         lines.append(generer_script_render_materiaux(objets_materiaux))
 
+    # Ajouter le projet et vues de rendu (Render Workbench)
+    noms_objets_rendu = [obj["nom"] for obj in objets]
+    if noms_objets_rendu:
+        lines.append(generer_script_render_projet(noms_objets_rendu))
+
     return "\n".join(lines)
 
 
@@ -759,6 +765,11 @@ def generer_script_meuble_groupe(
     ]
     if objets_materiaux:
         lines.append(generer_script_render_materiaux(objets_materiaux))
+
+    # Ajouter le projet et vues de rendu (Render Workbench)
+    noms_objets_rendu = [obj["nom"] for obj in objets]
+    if noms_objets_rendu:
+        lines.append(generer_script_render_projet(noms_objets_rendu))
 
     return "\n".join(lines)
 

@@ -949,3 +949,91 @@ def generer_script_render_materiaux(
     lines.append("")
 
     return "\n".join(lines)
+
+
+# =====================================================================
+#  Mapping moteur de rendu → template par defaut (studio_light)
+# =====================================================================
+
+_RENDER_TEMPLATES: dict[str, str] = {
+    "Cycles": "cycles_studio_light.xml",
+    "Luxcore": "luxcore_studio_light.cfg",
+    "Povray": "povray_studio_light.pov",
+    "Appleseed": "appleseed_studio_light.appleseed",
+    "Pbrt": "pbrt_studio_light.pbrt",
+    "OspRay": "ospray_studio_light.ospray",
+}
+
+
+def generer_script_render_projet(
+    noms_objets: list[str],
+    moteur_rendu: str = "Cycles",
+) -> str:
+    """Genere un script Python FreeCAD pour creer un projet et des vues de rendu.
+
+    Le script cree un projet Render Workbench avec le moteur de rendu specifie
+    et ajoute une vue pour chaque objet. Cela permet a la commande
+    Render > Render (Gui.runCommand('Render_Render', 0)) de fonctionner.
+
+    Le script est autonome : il importe lui-meme le module Render avec un
+    try/except, donc il peut etre utilise sans generer_script_render_materiaux.
+
+    Args:
+        noms_objets: Noms des objets FreeCAD a inclure dans le rendu.
+        moteur_rendu: Nom du moteur de rendu ('Cycles', 'Povray',
+            'Luxcore', 'Appleseed', 'Pbrt', 'OspRay'). Defaut: 'Cycles'.
+
+    Returns:
+        Code source Python du script.
+    """
+    template = _RENDER_TEMPLATES.get(moteur_rendu, "")
+    nb = len(noms_objets)
+
+    lines = [
+        "",
+        "# --- Projet de rendu (Render Workbench) ---",
+        "try:",
+        "    import Render",
+        "    import os.path as _osp",
+        "",
+        "    # Supprimer un ancien projet de rendu PlacardCAD s'il existe",
+        "    for _old in list(doc.Objects):",
+        "        if getattr(_old, 'Label', '') == 'Rendu PlacardCAD':",
+        "            doc.removeObject(_old.Name)",
+        "            break",
+        "",
+    ]
+
+    if template:
+        lines.extend([
+            f"    _rdr_tpl = _osp.join(Render.WBDIR, 'templates', '{template}')",
+            "    if not _osp.isfile(_rdr_tpl):",
+            "        _rdr_tpl = ''",
+        ])
+    else:
+        lines.append("    _rdr_tpl = ''")
+
+    lines.extend([
+        f"    _, _rdr_proj, _ = Render.Project.create("
+        f"doc, renderer='{moteur_rendu}', template=_rdr_tpl)",
+        "    _rdr_proj.Label = 'Rendu PlacardCAD'",
+        "",
+    ])
+
+    for nom_obj in noms_objets:
+        lines.append(f"    _rdr_src = doc.getObject('{nom_obj}')")
+        lines.append("    if _rdr_src is not None:")
+        lines.append("        _rdr_proj.Proxy.add_view(_rdr_src)")
+
+    lines.extend([
+        "",
+        "    doc.recompute()",
+        f"    print('Projet de rendu cree ({moteur_rendu}) — {nb} vues.')",
+        "except ImportError:",
+        "    pass  # Render Workbench non installe",
+        "except Exception as _rdr_err:",
+        "    print('Erreur creation projet de rendu: ' + str(_rdr_err))",
+        "",
+    ])
+
+    return "\n".join(lines)
