@@ -867,6 +867,9 @@ class ParamsEditor(QWidget):
         for key, label in elements:
             self._creer_selecteur_materiau(key, label, layout)
 
+        # --- Chemin du moteur de rendu ---
+        layout.addWidget(self._creer_groupe_chemin_rendu())
+
         layout.addStretch()
         scroll.setWidget(container)
         return scroll
@@ -907,9 +910,143 @@ class ParamsEditor(QWidget):
         for key, label in elements:
             self._creer_selecteur_materiau(key, label, layout)
 
+        # --- Chemin du moteur de rendu ---
+        layout.addWidget(self._creer_groupe_chemin_rendu())
+
         layout.addStretch()
         scroll.setWidget(container)
         return scroll
+
+    def _creer_groupe_chemin_rendu(self) -> QGroupBox:
+        """Cree le groupe de widgets pour configurer le chemin du moteur de rendu.
+
+        Permet de selectionner le dossier d'installation Blender ou l'executable
+        du moteur de rendu. Verifie les permissions et cherche automatiquement
+        l'executable (cycles ou blender) dans l'arborescence.
+
+        Returns:
+            QGroupBox contenant le formulaire de configuration du rendu.
+        """
+        import os
+
+        group = QGroupBox("Moteur de rendu")
+        grp_layout = QVBoxLayout(group)
+
+        info_rdr = QLabel(
+            "Chemin vers le dossier d'installation Blender ou l'executable "
+            "du moteur de rendu. Le Render Workbench a besoin de l'executable "
+            "'cycles' (standalone) ou 'blender'. Si vous indiquez un dossier, "
+            "l'executable sera recherche automatiquement."
+        )
+        info_rdr.setWordWrap(True)
+        info_rdr.setStyleSheet("color: #555; font-style: italic; font-size: 11px;")
+        grp_layout.addWidget(info_rdr)
+
+        row = QHBoxLayout()
+        edit = self._creer_text("chemin_rendu")
+        edit.setPlaceholderText("/opt/blender/5.0  ou  /opt/blender/5.0/blender")
+        row.addWidget(edit)
+
+        btn_browse = QPushButton("Parcourir...")
+        self._chemin_rendu_edit = edit
+        self._chemin_rendu_status = QLabel("")
+        btn_browse.clicked.connect(self._parcourir_chemin_rendu)
+        row.addWidget(btn_browse)
+        grp_layout.addLayout(row)
+
+        grp_layout.addWidget(self._chemin_rendu_status)
+
+        # Verifier les permissions a chaque modification
+        edit.textChanged.connect(self._verifier_chemin_rendu)
+        # Verification initiale
+        self._verifier_chemin_rendu(edit.text())
+
+        return group
+
+    def _parcourir_chemin_rendu(self):
+        """Ouvre un selecteur de fichier/dossier pour le chemin du moteur de rendu."""
+        chemin = QFileDialog.getOpenFileName(
+            self, "Selectionner l'executable du moteur de rendu (cycles ou blender)",
+            self._chemin_rendu_edit.text() or "/opt",
+            "Executables (*);;Tous (*)"
+        )[0]
+        if not chemin:
+            # Essayer selection de dossier si pas de fichier selectionne
+            chemin = QFileDialog.getExistingDirectory(
+                self, "Selectionner le dossier d'installation Blender",
+                self._chemin_rendu_edit.text() or "/opt",
+            )
+        if chemin:
+            self._chemin_rendu_edit.setText(chemin)
+
+    def _verifier_chemin_rendu(self, chemin: str):
+        """Verifie le chemin du moteur de rendu et affiche un diagnostic."""
+        import os
+        import os.path as _osp
+
+        if not chemin or not chemin.strip():
+            self._chemin_rendu_status.setText("")
+            self._chemin_rendu_status.setStyleSheet("")
+            return
+
+        chemin = chemin.strip()
+        if not _osp.exists(chemin):
+            self._chemin_rendu_status.setText("Chemin introuvable")
+            self._chemin_rendu_status.setStyleSheet(
+                "color: #c00; font-weight: bold;")
+            return
+
+        # Chercher l'executable dans l'arborescence
+        noms_bin = ["cycles", "blender"]
+        exe_trouve = ""
+
+        if _osp.isfile(chemin) and os.access(chemin, os.X_OK):
+            exe_trouve = chemin
+        else:
+            candidat = chemin
+            for _ in range(6):
+                if _osp.isdir(candidat):
+                    for nom_bin in noms_bin:
+                        bin_path = _osp.join(candidat, nom_bin)
+                        if _osp.isfile(bin_path) and os.access(bin_path, os.X_OK):
+                            exe_trouve = bin_path
+                            break
+                if exe_trouve:
+                    break
+                parent = _osp.dirname(candidat)
+                if parent == candidat:
+                    break
+                candidat = parent
+
+        if exe_trouve:
+            nom_exe = _osp.basename(exe_trouve)
+            self._chemin_rendu_status.setText(
+                f"OK — executable trouve: {exe_trouve}")
+            self._chemin_rendu_status.setStyleSheet(
+                "color: #080; font-weight: bold;")
+        else:
+            # Diagnostiquer les permissions
+            diag_parts = []
+            cur = os.sep
+            for part in chemin.split(os.sep):
+                if not part:
+                    continue
+                cur = _osp.join(cur, part)
+                if not _osp.exists(cur):
+                    diag_parts.append(f"introuvable: {cur}")
+                    break
+                if _osp.isdir(cur) and not os.access(cur, os.R_OK | os.X_OK):
+                    diag_parts.append(f"permission r+x manquante: {cur}")
+
+            if diag_parts:
+                msg = "Permissions: " + "; ".join(diag_parts)
+            else:
+                msg = ("Executable 'cycles' ou 'blender' non trouve. "
+                       "Indiquez le dossier d'installation Blender "
+                       "(ex: /opt/blender/5.0)")
+            self._chemin_rendu_status.setText(msg)
+            self._chemin_rendu_status.setStyleSheet(
+                "color: #c00; font-weight: bold;")
 
     # =================================================================
     #  ONGLET PARTAGE : DEBIT

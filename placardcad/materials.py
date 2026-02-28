@@ -968,12 +968,18 @@ _RENDER_TEMPLATES: dict[str, str] = {
 def generer_script_render_projet(
     noms_objets: list[str],
     moteur_rendu: str = "Cycles",
+    chemin_rendu: str = "",
 ) -> str:
     """Genere un script Python FreeCAD pour creer un projet et des vues de rendu.
 
     Le script cree un projet Render Workbench avec le moteur de rendu specifie
     et ajoute une vue pour chaque objet. Cela permet a la commande
     Render > Render (Gui.runCommand('Render_Render', 0)) de fonctionner.
+
+    Avant de creer le projet, le script cherche l'executable du moteur de rendu
+    dans l'arborescence Blender (remonte les dossiers parents si besoin) et
+    configure les preferences FreeCAD. Diagnostique les permissions en detail
+    si le chemin n'est pas accessible.
 
     Le script est autonome : il importe lui-meme le module Render avec un
     try/except, donc il peut etre utilise sans generer_script_render_materiaux.
@@ -982,6 +988,9 @@ def generer_script_render_projet(
         noms_objets: Noms des objets FreeCAD a inclure dans le rendu.
         moteur_rendu: Nom du moteur de rendu ('Cycles', 'Povray',
             'Luxcore', 'Appleseed', 'Pbrt', 'OspRay'). Defaut: 'Cycles'.
+        chemin_rendu: Chemin vers l'installation Blender ou l'executable du
+            moteur (ex: '/opt/blender/5.0' ou '/opt/blender/5.0/blender').
+            Si vide, le script ne modifie pas les preferences existantes.
 
     Returns:
         Code source Python du script.
@@ -989,20 +998,92 @@ def generer_script_render_projet(
     template = _RENDER_TEMPLATES.get(moteur_rendu, "")
     nb = len(noms_objets)
 
+    # Noms de binaires a chercher selon le moteur
+    binaires_map = {
+        "Cycles": ["cycles", "blender"],
+        "Luxcore": ["luxcoreui", "luxcoreconsole"],
+        "Povray": ["povray"],
+        "Appleseed": ["appleseed.cli"],
+        "Pbrt": ["pbrt"],
+        "OspRay": ["ospray"],
+    }
+
     lines = [
         "",
         "# --- Projet de rendu (Render Workbench) ---",
         "try:",
         "    import Render",
+        "    import os as _os",
         "    import os.path as _osp",
         "",
+    ]
+
+    # --- Configuration du chemin du moteur de rendu ---
+    if chemin_rendu:
+        escaped_path = chemin_rendu.replace("\\", "\\\\")
+        noms_binaires = binaires_map.get(moteur_rendu, ["blender"])
+        noms_str = repr(noms_binaires)
+        lines.extend([
+            f"    # Configurer le chemin du moteur de rendu ({moteur_rendu})",
+            f"    _rdr_chemin_base = r'{escaped_path}'",
+            f"    _rdr_noms_bin = {noms_str}",
+            "    _rdr_exe = ''",
+            "",
+            "    # Si c'est deja un executable, le garder",
+            "    if _osp.isfile(_rdr_chemin_base) and _os.access(_rdr_chemin_base, _os.X_OK):",
+            "        _rdr_exe = _rdr_chemin_base",
+            "    else:",
+            "        # Remonter l'arborescence pour trouver l'executable",
+            "        _rdr_candidat = _rdr_chemin_base",
+            "        for _i in range(6):",
+            "            if _osp.isdir(_rdr_candidat):",
+            "                for _rdr_nom in _rdr_noms_bin:",
+            "                    _rdr_test = _osp.join(_rdr_candidat, _rdr_nom)",
+            "                    if _osp.isfile(_rdr_test) and _os.access(_rdr_test, _os.X_OK):",
+            "                        _rdr_exe = _rdr_test",
+            "                        break",
+            "            if _rdr_exe:",
+            "                break",
+            "            _rdr_parent = _osp.dirname(_rdr_candidat)",
+            "            if _rdr_parent == _rdr_candidat:",
+            "                break",
+            "            _rdr_candidat = _rdr_parent",
+            "",
+            "    if _rdr_exe:",
+            "        _prefs = FreeCAD.ParamGet("
+            "'User parameter:BaseApp/Preferences/Mod/Render')",
+            f"        _prefs.SetString('{moteur_rendu}Path', _rdr_exe)",
+            f"        print('Chemin {moteur_rendu} configure: ' + _rdr_exe)",
+            "    else:",
+            f"        print('ATTENTION: executable {moteur_rendu} non trouve depuis: "
+            f"' + _rdr_chemin_base)",
+            "        # Diagnostic: verifier les permissions de chaque composant",
+            "        _rdr_parts = _rdr_chemin_base.split(_os.sep)",
+            "        _rdr_cur = _os.sep",
+            "        for _rdr_p in _rdr_parts:",
+            "            if not _rdr_p:",
+            "                continue",
+            "            _rdr_cur = _osp.join(_rdr_cur, _rdr_p)",
+            "            if not _osp.exists(_rdr_cur):",
+            "                print('  Introuvable: ' + _rdr_cur)",
+            "                break",
+            "            if _osp.isdir(_rdr_cur) and not _os.access(_rdr_cur, _os.R_OK | _os.X_OK):",
+            "                print('  Pas de permission r+x sur: ' + _rdr_cur)",
+            "            elif _osp.isfile(_rdr_cur) and not _os.access(_rdr_cur, _os.X_OK):",
+            "                print('  Pas de permission x sur: ' + _rdr_cur)",
+            f"        print('Le Render WB attend un executable (cycles ou blender)')",
+            f"        print('Exemple: /opt/blender/5.0/blender')",
+            "",
+        ])
+
+    lines.extend([
         "    # Supprimer un ancien projet de rendu PlacardCAD s'il existe",
         "    for _old in list(doc.Objects):",
         "        if getattr(_old, 'Label', '') == 'Rendu PlacardCAD':",
         "            doc.removeObject(_old.Name)",
         "            break",
         "",
-    ]
+    ])
 
     if template:
         lines.extend([

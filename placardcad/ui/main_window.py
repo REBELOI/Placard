@@ -1033,7 +1033,10 @@ class MainWindow(QMainWindow):
 
             # Generer aussi le script Python compagnon
             script_path = filepath.rsplit(".", 1)[0] + ".py"
-            script = generer_script_freecad(config, is_meuble=is_meuble)
+            script = generer_script_freecad(
+                config, is_meuble=is_meuble,
+                chemin_rendu=config.get("chemin_rendu", ""),
+            )
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script)
 
@@ -1094,7 +1097,10 @@ class MainWindow(QMainWindow):
         config = meuble_schema_vers_config(schema_text, params)
 
         try:
-            script = generer_script_meuble_groupe(config, nom_groupe, nom_projet)
+            script = generer_script_meuble_groupe(
+                config, nom_groupe, nom_projet,
+                chemin_rendu=config.get("chemin_rendu", ""),
+            )
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(script)
 

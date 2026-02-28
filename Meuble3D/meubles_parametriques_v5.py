@@ -2844,16 +2844,116 @@ class Meuble:
     # RENDER WORKBENCH
     # -------------------------------------------------------------------------
 
-    def configurer_render(self, moteur: str = "Cycles") -> 'Meuble':
+    @staticmethod
+    def _trouver_executable_rendu(chemin: str, moteur: str = "Cycles") -> str:
+        """Cherche l'executable du moteur de rendu dans l'arborescence Blender.
+
+        Le Render Workbench attend le chemin vers un executable (cycles standalone
+        ou blender), pas le dossier addon Python. Cette methode remonte
+        l'arborescence depuis le chemin fourni pour trouver le bon binaire.
+
+        Args:
+            chemin: Chemin fourni par l'utilisateur (dossier addon, dossier
+                    Blender, ou executable direct).
+            moteur: Nom du moteur ('Cycles', etc.).
+
+        Returns:
+            Chemin vers l'executable trouve, ou le chemin original si rien
+            de mieux n'est trouve.
+        """
+        import os
+        import os.path as _osp
+
+        if not chemin:
+            return ""
+
+        # Si c'est deja un fichier executable, le garder
+        if _osp.isfile(chemin) and os.access(chemin, os.X_OK):
+            return chemin
+
+        # Noms de binaires a chercher selon le moteur
+        binaires = {
+            "Cycles": ["cycles", "blender"],
+            "Luxcore": ["luxcoreui", "luxcoreconsole"],
+            "Povray": ["povray"],
+            "Appleseed": ["appleseed.cli"],
+            "Pbrt": ["pbrt"],
+            "OspRay": ["ospray"],
+        }
+        noms = binaires.get(moteur, ["blender"])
+
+        # Chercher dans le repertoire fourni et ses parents
+        candidat = chemin
+        for _ in range(6):  # remonter jusqu'a 6 niveaux
+            if not _osp.isdir(candidat):
+                candidat = _osp.dirname(candidat)
+                continue
+            for nom_bin in noms:
+                bin_path = _osp.join(candidat, nom_bin)
+                if _osp.isfile(bin_path) and os.access(bin_path, os.X_OK):
+                    return bin_path
+            parent = _osp.dirname(candidat)
+            if parent == candidat:
+                break
+            candidat = parent
+
+        return chemin
+
+    @staticmethod
+    def _diagnostiquer_permissions(chemin: str) -> list[str]:
+        """Diagnostique les problemes de permissions sur un chemin complet.
+
+        Verifie chaque composant du chemin (du root jusqu'au fichier/dossier)
+        pour trouver ou les permissions bloquent.
+
+        Args:
+            chemin: Chemin absolu a diagnostiquer.
+
+        Returns:
+            Liste de messages de diagnostic.
+        """
+        import os
+        import os.path as _osp
+
+        messages = []
+        parties = chemin.split(os.sep)
+        chemin_courant = os.sep
+
+        for partie in parties:
+            if not partie:
+                continue
+            chemin_courant = _osp.join(chemin_courant, partie)
+            if not _osp.exists(chemin_courant):
+                messages.append(f"  Introuvable: {chemin_courant}")
+                break
+            if not os.access(chemin_courant, os.R_OK):
+                messages.append(f"  Pas de lecture: {chemin_courant}")
+            if _osp.isdir(chemin_courant) and not os.access(chemin_courant, os.X_OK):
+                messages.append(f"  Pas de traversee (x): {chemin_courant}")
+            if _osp.isfile(chemin_courant) and not os.access(chemin_courant, os.X_OK):
+                messages.append(f"  Pas d'execution (x): {chemin_courant}")
+
+        return messages
+
+    def configurer_render(self, moteur: str = "Cycles",
+                          chemin_rendu: str = "") -> 'Meuble':
         """Configure le Render Workbench : matériaux et projet de rendu.
 
         Crée les matériaux Render WB à partir des couleurs des objets existants,
         les assigne aux objets FreeCAD, puis crée un projet de rendu avec une
         vue pour chaque objet visible.
 
+        Si ``chemin_rendu`` est fourni, le code cherche l'executable du moteur
+        de rendu dans l'arborescence (remonte les dossiers parents si besoin)
+        et l'enregistre dans les preferences FreeCAD.
+
         Args:
             moteur: Moteur de rendu ('Cycles', 'Luxcore', 'Povray',
                     'Appleseed', 'Pbrt', 'OspRay'). Défaut: 'Cycles'.
+            chemin_rendu: Chemin vers l'installation Blender ou l'executable
+                    du moteur (ex: '/opt/blender/5.0' ou
+                    '/opt/blender/5.0/blender'). Si vide, les preferences
+                    existantes sont conservees.
 
         Returns:
             self (chaînable)
@@ -2867,6 +2967,34 @@ class Meuble:
         except ImportError:
             print("Render Workbench non installé — configuration rendu ignorée.")
             return self
+
+        # --- Configurer le chemin du moteur de rendu dans les préférences ---
+        if chemin_rendu:
+            import os
+            import os.path as _osp
+
+            executable = self._trouver_executable_rendu(chemin_rendu, moteur)
+
+            if _osp.isfile(executable) and os.access(executable, os.X_OK):
+                prefs = FreeCAD.ParamGet(
+                    "User parameter:BaseApp/Preferences/Mod/Render"
+                )
+                prefs.SetString(f"{moteur}Path", executable)
+                print(f"✓ Chemin {moteur} configuré: {executable}")
+            else:
+                print(f"ATTENTION: executable {moteur} non trouvé depuis: {chemin_rendu}")
+                if executable != chemin_rendu:
+                    print(f"  Meilleur candidat testé: {executable}")
+                diag = self._diagnostiquer_permissions(
+                    executable if _osp.exists(executable) else chemin_rendu
+                )
+                if diag:
+                    print("  Diagnostic permissions:")
+                    for msg in diag:
+                        print(msg)
+                print(f"  Le Render WB attend le chemin vers un executable")
+                print(f"  (ex: /opt/blender/5.0/blender ou /opt/blender/5.0/cycles)")
+                print(f"  Essayez: sudo chmod a+rx /opt/blender/5.0/cycles")
 
         # --- Collecter les objets visibles avec leur couleur ---
         objets_rendu = []
