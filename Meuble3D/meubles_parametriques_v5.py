@@ -2844,7 +2844,7 @@ class Meuble:
     # RENDER WORKBENCH
     # -------------------------------------------------------------------------
 
-    def configurer_render(self, moteur: str = "Cycles",
+    def configurer_render(self, moteur: str = "Povray",
                           chemin_rendu: str = "") -> 'Meuble':
         """Configure le Render Workbench : matériaux et projet de rendu.
 

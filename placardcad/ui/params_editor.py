@@ -931,18 +931,32 @@ class ParamsEditor(QWidget):
         group = QGroupBox("Moteur de rendu")
         grp_layout = QVBoxLayout(group)
 
+        # --- Selecteur du moteur de rendu ---
+        moteur_row = QHBoxLayout()
+        moteur_row.addWidget(QLabel("Moteur :"))
+        moteur_combo = self._creer_combo(
+            "moteur_rendu",
+            ["Povray", "Cycles", "Luxcore", "Appleseed", "Pbrt", "OspRay"],
+        )
+        self._moteur_rendu_combo = moteur_combo
+        moteur_combo.currentTextChanged.connect(self._on_moteur_rendu_change)
+        moteur_row.addWidget(moteur_combo)
+        moteur_row.addStretch()
+        grp_layout.addLayout(moteur_row)
+
         info_rdr = QLabel(
-            "Chemin vers le dossier ou l'executable du moteur de rendu "
-            "(ex: /opt/blender/5.0/scripts/addons_core/cycles). "
-            "Necessaire pour le rendu photoréaliste via Render Workbench."
+            "Chemin vers l'executable du moteur de rendu "
+            "(ex: /usr/bin/povray). Si vous indiquez un dossier, "
+            "l'executable sera recherche automatiquement."
         )
         info_rdr.setWordWrap(True)
         info_rdr.setStyleSheet("color: #555; font-style: italic; font-size: 11px;")
+        self._info_rdr = info_rdr
         grp_layout.addWidget(info_rdr)
 
         row = QHBoxLayout()
         edit = self._creer_text("chemin_rendu")
-        edit.setPlaceholderText("/opt/blender/5.0/scripts/addons_core/cycles")
+        edit.setPlaceholderText("/usr/bin/povray")
         row.addWidget(edit)
 
         btn_browse = QPushButton("Parcourir...")
@@ -961,18 +975,49 @@ class ParamsEditor(QWidget):
 
         return group
 
-    def _parcourir_chemin_rendu(self):
-        """Ouvre un selecteur de dossier pour le chemin du moteur de rendu."""
-        dossier = QFileDialog.getExistingDirectory(
-            self, "Selectionner le dossier du moteur de rendu",
-            self._chemin_rendu_edit.text() or "/opt",
+    # Mapping moteur → noms de binaires attendus
+    _BINAIRES_RENDU: dict[str, list[str]] = {
+        "Cycles": ["cycles"],
+        "Luxcore": ["luxcoreui", "luxcoreconsole"],
+        "Povray": ["povray"],
+        "Appleseed": ["appleseed.cli"],
+        "Pbrt": ["pbrt"],
+        "OspRay": ["ospray"],
+    }
+
+    def _on_moteur_rendu_change(self, moteur: str):
+        """Met a jour les indices visuels quand le moteur de rendu change."""
+        bins = self._BINAIRES_RENDU.get(moteur, [moteur.lower()])
+        self._info_rdr.setText(
+            f"Chemin vers l'executable du moteur de rendu "
+            f"(ex: /usr/bin/{bins[0]}). Si vous indiquez un dossier, "
+            f"l'executable sera recherche automatiquement."
         )
-        if dossier:
-            self._chemin_rendu_edit.setText(dossier)
+        self._chemin_rendu_edit.setPlaceholderText(
+            f"/usr/bin/{bins[0]}")
+        # Re-verifier le chemin avec le nouveau moteur
+        self._verifier_chemin_rendu(self._chemin_rendu_edit.text())
+
+    def _parcourir_chemin_rendu(self):
+        """Ouvre un selecteur de fichier/dossier pour le chemin du moteur de rendu."""
+        moteur = self._moteur_rendu_combo.currentText()
+        chemin = QFileDialog.getOpenFileName(
+            self, f"Selectionner l'executable du moteur de rendu ({moteur})",
+            self._chemin_rendu_edit.text() or "/usr/bin",
+            "Executables (*);;Tous (*)"
+        )[0]
+        if not chemin:
+            chemin = QFileDialog.getExistingDirectory(
+                self, f"Selectionner le dossier contenant {moteur}",
+                self._chemin_rendu_edit.text() or "/usr/bin",
+            )
+        if chemin:
+            self._chemin_rendu_edit.setText(chemin)
 
     def _verifier_chemin_rendu(self, chemin: str):
-        """Verifie les permissions du chemin et affiche un message de statut."""
+        """Verifie le chemin du moteur de rendu et affiche un diagnostic."""
         import os
+        import os.path as _osp
 
         if not chemin or not chemin.strip():
             self._chemin_rendu_status.setText("")
@@ -980,26 +1025,59 @@ class ParamsEditor(QWidget):
             return
 
         chemin = chemin.strip()
-        if not os.path.exists(chemin):
+        if not _osp.exists(chemin):
             self._chemin_rendu_status.setText("Chemin introuvable")
             self._chemin_rendu_status.setStyleSheet(
                 "color: #c00; font-weight: bold;")
+            return
+
+        moteur = self._moteur_rendu_combo.currentText()
+        noms_bin = self._BINAIRES_RENDU.get(moteur, [moteur.lower()])
+
+        # Chercher l'executable
+        exe_trouve = ""
+
+        if _osp.isfile(chemin) and os.access(chemin, os.X_OK):
+            # Pour Cycles : rejeter 'blender' (syntaxe standalone incompatible)
+            if (moteur == "Cycles"
+                    and _osp.basename(chemin).lower()
+                    in ("blender", "blender.exe")):
+                pass
+            else:
+                exe_trouve = chemin
+        elif _osp.isdir(chemin):
+            for nom_bin in noms_bin:
+                bin_path = _osp.join(chemin, nom_bin)
+                if _osp.isfile(bin_path) and os.access(bin_path, os.X_OK):
+                    exe_trouve = bin_path
+                    break
+
+        if exe_trouve:
+            nom_exe = _osp.basename(exe_trouve)
+            if (moteur == "Cycles"
+                    and nom_exe.lower() in ("blender", "blender.exe")):
+                self._chemin_rendu_status.setText(
+                    "ATTENTION: \"blender\" ne peut pas servir de renderer "
+                    "Cycles standalone — utilisez le binaire \"cycles\"")
+                self._chemin_rendu_status.setStyleSheet(
+                    "color: #c00; font-weight: bold;")
+            else:
+                self._chemin_rendu_status.setText(
+                    f"OK — executable trouve: {exe_trouve}")
+                self._chemin_rendu_status.setStyleSheet(
+                    "color: #080; font-weight: bold;")
         elif not os.access(chemin, os.R_OK | os.X_OK):
             self._chemin_rendu_status.setText(
                 f"Permissions insuffisantes — essayez: sudo chmod -R a+rX {chemin}")
             self._chemin_rendu_status.setStyleSheet(
                 "color: #c00; font-weight: bold;")
-        elif (os.path.isfile(chemin)
-              and os.path.basename(chemin).lower() in ("blender", "blender.exe")):
+        else:
+            noms = "' ou '".join(noms_bin)
             self._chemin_rendu_status.setText(
-                "ATTENTION: \"blender\" ne peut pas servir de renderer Cycles "
-                "standalone — utilisez le binaire \"cycles\"")
+                f"Executable '{noms}' non trouve. "
+                f"Indiquez le chemin vers l'executable {moteur}.")
             self._chemin_rendu_status.setStyleSheet(
                 "color: #c00; font-weight: bold;")
-        else:
-            self._chemin_rendu_status.setText("OK — accessible")
-            self._chemin_rendu_status.setStyleSheet(
-                "color: #080; font-weight: bold;")
 
     # =================================================================
     #  ONGLET PARTAGE : DEBIT

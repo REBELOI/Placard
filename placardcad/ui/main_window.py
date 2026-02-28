@@ -1036,6 +1036,7 @@ class MainWindow(QMainWindow):
             script = generer_script_freecad(
                 config, is_meuble=is_meuble,
                 chemin_rendu=config.get("chemin_rendu", ""),
+                moteur_rendu=config.get("moteur_rendu", "Povray"),
             )
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script)
@@ -1100,6 +1101,7 @@ class MainWindow(QMainWindow):
             script = generer_script_meuble_groupe(
                 config, nom_groupe, nom_projet,
                 chemin_rendu=config.get("chemin_rendu", ""),
+                moteur_rendu=config.get("moteur_rendu", "Povray"),
             )
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(script)
@@ -1186,10 +1188,12 @@ class MainWindow(QMainWindow):
         if not folder:
             return
 
-        # Recuperer le chemin du moteur de rendu depuis le 1er amenagement
+        # Recuperer le chemin et le moteur de rendu depuis le 1er amenagement
         chemin_rendu = ""
+        moteur_rendu = "Povray"
         for am_d in amenagements_data:
             chemin_rendu = am_d["config"].get("chemin_rendu", "")
+            moteur_rendu = am_d["config"].get("moteur_rendu", "Povray")
             if chemin_rendu:
                 break
 
@@ -1199,6 +1203,7 @@ class MainWindow(QMainWindow):
                 contour=contour,
                 amenagements=amenagements_data,
                 chemin_rendu=chemin_rendu,
+                moteur_rendu=moteur_rendu,
             )
 
             fichiers_ecrits = []
