@@ -1619,6 +1619,7 @@ def generer_scripts_projet(
     amenagements: list[dict],
     hauteur_piece: float = 2500,
     epaisseur_mur: float = 50,
+    chemin_rendu: str = "",
 ) -> dict[str, str]:
     """Genere un ensemble de scripts Python FreeCAD pour le projet complet.
 
