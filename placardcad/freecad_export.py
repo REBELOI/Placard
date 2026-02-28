@@ -1499,6 +1499,7 @@ def _generer_script_amenagement(
     grp_name: str,
     config: dict,
     is_meuble: bool,
+    chemin_rendu: str = "",
 ) -> str:
     """Genere le script FreeCAD pour un amenagement (meuble ou placard).
 
@@ -1510,6 +1511,9 @@ def _generer_script_amenagement(
         grp_name: Nom FreeCAD du groupe (sans caracteres speciaux).
         config: Configuration complete (schema parse + params).
         is_meuble: True si meuble, False si placard.
+        chemin_rendu: Chemin vers l'installation Blender ou l'executable du
+            moteur de rendu. Si vide, les preferences FreeCAD existantes
+            sont conservees.
 
     Returns:
         Code source Python du script.
@@ -1589,6 +1593,22 @@ def _generer_script_amenagement(
 
     lines.append(f"print('{nom} : {len(objets)} objets generes.')")
     lines.append("")
+
+    # Ajouter le script d'attribution des materiaux Render Workbench
+    objets_materiaux = [
+        (obj["nom"], obj.get("materiau", ""))
+        for obj in objets if obj.get("materiau")
+    ]
+    if objets_materiaux:
+        lines.append(generer_script_render_materiaux(objets_materiaux))
+
+    # Ajouter le projet et vues de rendu (Render Workbench)
+    noms_objets_rendu = [obj["nom"] for obj in objets]
+    if noms_objets_rendu:
+        lines.append(generer_script_render_projet(
+            noms_objets_rendu, chemin_rendu=chemin_rendu,
+        ))
+
     return "\n".join(lines)
 
 
@@ -1616,6 +1636,9 @@ def generer_scripts_projet(
         amenagements: Liste de dicts (nom, config, is_meuble).
         hauteur_piece: Hauteur sous plafond en mm.
         epaisseur_mur: Epaisseur des murs 3D en mm.
+        chemin_rendu: Chemin vers l'installation Blender ou l'executable du
+            moteur de rendu. Si vide, les preferences FreeCAD existantes
+            sont conservees.
 
     Returns:
         Dictionnaire {nom_fichier: contenu_script}.
@@ -1655,7 +1678,7 @@ def generer_scripts_projet(
         noms_fichiers.add(filename)
 
         scripts[filename] = _generer_script_amenagement(
-            nom, grp_name, config, is_meuble)
+            nom, grp_name, config, is_meuble, chemin_rendu=chemin_rendu)
         sub_scripts.append(filename)
 
     # --- Collecter tous les objets pour le projet de rendu ---
