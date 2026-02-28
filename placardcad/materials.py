@@ -1026,6 +1026,22 @@ def generer_script_render_projet(
             "        if not _os.access(_rdr_chemin, _os.R_OK | _os.X_OK):",
             f"            print('ATTENTION: permissions insuffisantes sur ' + _rdr_chemin)",
             f"            print('Essayez: sudo chmod a+rx ' + _rdr_chemin)",
+        ])
+        # Pour Cycles : le binaire 'blender' n'est pas compatible (le Render
+        # Workbench appelle CyclesPath avec --output/--width/--height, syntaxe
+        # du renderer Cycles standalone que Blender ne comprend pas).
+        if moteur_rendu == "Cycles":
+            lines.extend([
+                "        elif _osp.basename(_rdr_chemin).lower()"
+                " in ('blender', 'blender.exe'):",
+                "            print('ATTENTION: le binaire \"blender\" ne peut pas servir')",
+                "            print('de renderer Cycles standalone. Le Render Workbench')",
+                "            print('appelle CyclesPath avec --output/--width/--height')",
+                "            print('(syntaxe Cycles standalone) que Blender ne comprend pas.')",
+                "            print('Indiquez le chemin vers le binaire standalone \"cycles\"')",
+                "            print('ou le dossier qui le contient.')",
+            ])
+        lines.extend([
             "        else:",
             f"            _prefs = FreeCAD.ParamGet("
             f"'User parameter:BaseApp/Preferences/Mod/Render')",

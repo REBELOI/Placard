@@ -2887,6 +2887,17 @@ class Meuble:
                         print(f"Essayez: sudo chmod -R a+rX {chemin_rendu}")
                     else:
                         print(f"Essayez: sudo chmod a+rx {chemin_rendu}")
+                elif (moteur == "Cycles"
+                      and _osp.isfile(chemin_rendu)
+                      and _osp.basename(chemin_rendu).lower()
+                      in ("blender", "blender.exe")):
+                    print(f"ATTENTION: le binaire \"blender\" ne peut pas servir "
+                          f"de renderer Cycles standalone.")
+                    print("Le Render Workbench appelle CyclesPath avec "
+                          "--output/--width/--height")
+                    print("(syntaxe Cycles standalone) que Blender ne comprend pas.")
+                    print("Indiquez le chemin vers le binaire standalone \"cycles\" "
+                          "ou le dossier qui le contient.")
                 else:
                     prefs = FreeCAD.ParamGet(
                         "User parameter:BaseApp/Preferences/Mod/Render"

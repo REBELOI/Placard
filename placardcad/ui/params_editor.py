@@ -989,6 +989,13 @@ class ParamsEditor(QWidget):
                 f"Permissions insuffisantes — essayez: sudo chmod -R a+rX {chemin}")
             self._chemin_rendu_status.setStyleSheet(
                 "color: #c00; font-weight: bold;")
+        elif (os.path.isfile(chemin)
+              and os.path.basename(chemin).lower() in ("blender", "blender.exe")):
+            self._chemin_rendu_status.setText(
+                "ATTENTION: \"blender\" ne peut pas servir de renderer Cycles "
+                "standalone — utilisez le binaire \"cycles\"")
+            self._chemin_rendu_status.setStyleSheet(
+                "color: #c00; font-weight: bold;")
         else:
             self._chemin_rendu_status.setText("OK — accessible")
             self._chemin_rendu_status.setStyleSheet(
