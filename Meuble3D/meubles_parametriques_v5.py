@@ -2935,17 +2935,58 @@ class Meuble:
 
         return messages
 
+    def _nettoyer_objets_render(self):
+        """Supprime les anciens objets Render WB du document."""
+        prefixes = (
+            f"Rendu {self.nom}", "Camera_Render", "Lumiere_",
+            "RenderMat_", "View of ",
+        )
+        noms_a_supprimer = []
+        for obj in self.doc.Objects:
+            label = getattr(obj, 'Label', '')
+            if any(label.startswith(p) for p in prefixes):
+                noms_a_supprimer.append(obj.Name)
+        # Supprimer en ordre inverse (enfants avant parents)
+        for nom in reversed(noms_a_supprimer):
+            try:
+                self.doc.removeObject(nom)
+            except Exception:
+                pass
+
+    def _couleur_objet(self, obj) -> tuple:
+        """Retourne la couleur RGB d'un objet FreeCAD (arrondie)."""
+        try:
+            if hasattr(obj, "ViewObject") and obj.ViewObject:
+                sc = obj.ViewObject.ShapeColor
+                return (round(sc[0], 2), round(sc[1], 2), round(sc[2], 2))
+        except Exception:
+            pass
+        return (0.82, 0.71, 0.55)
+
+    def _type_pbr_depuis_couleur(self, couleur: tuple) -> dict:
+        """Retourne les propriétés PBR selon le type de matériau déduit de la couleur."""
+        r, g, b = couleur
+        # Métal (aluminium, gris foncé, métal tiroir)
+        if (abs(r - 0.75) < 0.08 and abs(g - 0.75) < 0.08 and abs(b - 0.78) < 0.08
+                or (r < 0.35 and g < 0.35 and b < 0.35)
+                or (abs(r - 0.7) < 0.1 and abs(g - 0.7) < 0.1 and abs(b - 0.72) < 0.1)):
+            return {"roughness": 0.15, "metallic": 0.9}
+        # Blanc (façade, mélaminé blanc)
+        if r > 0.88 and g > 0.88 and b > 0.88:
+            return {"roughness": 0.25, "metallic": 0.0}
+        # Bois / mélaminé (défaut)
+        return {"roughness": 0.45, "metallic": 0.0}
+
     def configurer_render(self, moteur: str = "Cycles",
                           chemin_rendu: str = "") -> 'Meuble':
-        """Configure le Render Workbench : matériaux et projet de rendu.
+        """Configure le Render Workbench pour un rendu réaliste.
 
-        Crée les matériaux Render WB à partir des couleurs des objets existants,
-        les assigne aux objets FreeCAD, puis crée un projet de rendu avec une
-        vue pour chaque objet visible.
+        Crée les matériaux PBR, positionne une caméra vue 3/4, ajoute
+        un éclairage studio 3 points, et prépare le projet de rendu.
 
-        Si ``chemin_rendu`` est fourni, le code cherche l'executable du moteur
-        de rendu dans l'arborescence (remonte les dossiers parents si besoin)
-        et l'enregistre dans les preferences FreeCAD.
+        Après configuration, lancer le rendu avec :
+        - ``meuble.lancer_rendu()`` en script
+        - Ou clic droit sur le projet → Render dans FreeCAD
 
         Args:
             moteur: Moteur de rendu ('Cycles', 'Luxcore', 'Povray',
@@ -2968,15 +3009,14 @@ class Meuble:
             print("Render Workbench non installé — configuration rendu ignorée.")
             return self
 
+        import os.path as _osp
+
         # --- Configurer le chemin du moteur de rendu dans les préférences ---
         if chemin_rendu:
             import os
-            import os.path as _osp
-
             executable = self._trouver_executable_rendu(chemin_rendu, moteur)
-
             if _osp.isfile(executable) and os.access(executable, os.X_OK):
-                prefs = FreeCAD.ParamGet(
+                prefs = App.ParamGet(
                     "User parameter:BaseApp/Preferences/Mod/Render"
                 )
                 prefs.SetString(f"{moteur}Path", executable)
@@ -2994,65 +3034,139 @@ class Meuble:
                         print(msg)
                 print(f"  Le Render WB attend le chemin vers un executable")
                 print(f"  (ex: /opt/blender/5.0/blender ou /opt/blender/5.0/cycles)")
-                print(f"  Essayez: sudo chmod a+rx /opt/blender/5.0/cycles")
+
+        # --- Nettoyer les anciens objets Render ---
+        self._nettoyer_objets_render()
 
         # --- Collecter les objets visibles avec leur couleur ---
         objets_rendu = []
-        couleurs_vues: dict[tuple, list] = {}  # couleur -> [objets]
+        couleurs_map: dict[tuple, list] = {}  # couleur -> [objets]
 
         for obj in self.doc.Objects:
-            # Ignorer les groupes (DocumentObjectGroup) et objets sans Shape
             if obj.TypeId == "App::DocumentObjectGroup":
                 continue
             if not hasattr(obj, "Shape") or obj.Shape.isNull():
                 continue
-
             objets_rendu.append(obj)
-
-            # Récupérer la couleur de l'objet
-            couleur = (0.82, 0.71, 0.55)  # défaut
-            try:
-                if hasattr(obj, "ViewObject") and obj.ViewObject:
-                    sc = obj.ViewObject.ShapeColor
-                    couleur = (round(sc[0], 2), round(sc[1], 2), round(sc[2], 2))
-            except:
-                pass
-
-            couleurs_vues.setdefault(couleur, []).append(obj)
+            couleur = self._couleur_objet(obj)
+            couleurs_map.setdefault(couleur, []).append(obj)
 
         if not objets_rendu:
             print("Aucun objet visible pour le rendu.")
             return self
 
-        # --- Créer les matériaux et les assigner ---
+        # --- Créer les matériaux via make_material ---
         nb_mat = 0
-        for couleur, objets in couleurs_vues.items():
-            nom_mat = self._nom_materiau_depuis_couleur(couleur)
+        materiaux: dict[tuple, Any] = {}  # couleur -> material fpo
+
+        for couleur in couleurs_map:
+            nom_mat = f"RenderMat_{self._nom_materiau_depuis_couleur(couleur)}"
             try:
-                mat = Render.Material()
-                mat.Label = nom_mat
-                mat.DiffuseColor = couleur
-                mat.Roughness = 0.4
-                mat.Metallic = 0.0
+                mat_fpo = Render.make_material(
+                    name=nom_mat, color=couleur, doc=self.doc
+                )
+                # make_material peut retourner un tuple (obj, fpo, vp) ou le fpo
+                if isinstance(mat_fpo, tuple):
+                    mat_fpo = mat_fpo[1] if len(mat_fpo) > 1 else mat_fpo[0]
 
-                for obj in objets:
-                    Render.assignMaterial(obj, mat)
+                # Tenter de configurer les propriétés PBR via le dictionnaire
+                pbr = self._type_pbr_depuis_couleur(couleur)
+                try:
+                    if hasattr(mat_fpo, 'Material'):
+                        mat_dict = dict(mat_fpo.Material)
+                        mat_dict["Render.Type"] = "Disney"
+                        r, g, b = couleur
+                        mat_dict["Render.Disney.BaseColor"] = f"{r};{g};{b}"
+                        mat_dict["Render.Disney.Roughness"] = str(pbr["roughness"])
+                        mat_dict["Render.Disney.Metallic"] = str(pbr["metallic"])
+                        mat_dict["Render.Disney.Specular"] = "0.5"
+                        mat_fpo.Material = mat_dict
+                except Exception:
+                    pass  # PBR optionnel, la couleur de base suffit
 
+                materiaux[couleur] = mat_fpo
                 nb_mat += 1
             except Exception as e:
-                print(f"Erreur matériau '{nom_mat}': {e}")
+                print(f"  Erreur matériau '{nom_mat}': {e}")
+
+        # --- Créer la caméra (vue 3/4 du meuble) ---
+        try:
+            import math
+            _, cam_fpo, _ = Render.Camera.create(document=self.doc)
+            cam_fpo.Label = "Camera_Render"
+
+            # Centre du meuble
+            cx = self.largeur / 2
+            cy = self.profondeur / 2
+            cz = self.hauteur / 2
+
+            # Distance de recul proportionnelle au meuble
+            diag = math.sqrt(self.largeur**2 + self.profondeur**2 + self.hauteur**2)
+            distance = diag * 1.6
+
+            # Position vue 3/4 : devant à droite, légèrement surélevée
+            cam_x = cx + self.largeur * 0.7
+            cam_y = -distance * 0.7
+            cam_z = cz + self.hauteur * 0.2
+
+            cam_pos = App.Vector(cam_x, cam_y, cam_z)
+            cible = App.Vector(cx, cy, cz)
+
+            # Orientation : la caméra regarde selon -Z local (convention Coin3D)
+            direction = cible - cam_pos
+            direction.normalize()
+            rot = App.Rotation(App.Vector(0, 0, -1), direction)
+
+            cam_fpo.Placement = App.Placement(cam_pos, rot)
+            cam_fpo.Projection = "Perspective"
+            cam_fpo.HeightAngle = 45
+
+            print(f"  Caméra positionnée (vue 3/4 avant-droite)")
+        except Exception as e:
+            print(f"  Caméra: {e}")
+
+        # --- Créer l'éclairage studio 3 points ---
+        try:
+            # Lumière principale (key) — au-dessus à droite, devant
+            _, lk, _ = Render.PointLight.create(document=self.doc)
+            lk.Label = "Lumiere_Key"
+            lk.Location = App.Vector(
+                self.largeur * 1.5,
+                -self.profondeur * 0.8,
+                self.hauteur * 2.0
+            )
+            lk.Color = (1.0, 0.95, 0.9)   # blanc chaud
+            lk.Power = 800.0
+
+            # Lumière d'appoint (fill) — à gauche, plus douce
+            _, lf, _ = Render.PointLight.create(document=self.doc)
+            lf.Label = "Lumiere_Fill"
+            lf.Location = App.Vector(
+                -self.largeur * 0.5,
+                -self.profondeur * 0.5,
+                self.hauteur * 1.2
+            )
+            lf.Color = (0.92, 0.95, 1.0)   # blanc froid
+            lf.Power = 400.0
+
+            # Contre-jour (back) — derrière en haut
+            _, lb, _ = Render.PointLight.create(document=self.doc)
+            lb.Label = "Lumiere_Back"
+            lb.Location = App.Vector(
+                self.largeur * 0.5,
+                self.profondeur * 2.0,
+                self.hauteur * 2.5
+            )
+            lb.Color = (1.0, 1.0, 1.0)
+            lb.Power = 300.0
+
+            print(f"  Éclairage studio 3 points créé")
+        except Exception as e:
+            print(f"  Éclairage: {e}")
 
         # --- Créer le projet de rendu ---
         try:
-            import os.path as _osp
-
-            # Supprimer un ancien projet s'il existe
-            for old in list(self.doc.Objects):
-                if getattr(old, 'Label', '') == f'Rendu {self.nom}':
-                    self.doc.removeObject(old.Name)
-                    break
-
-            # Chercher le template studio light
+            # Chercher le template studio
             templates = {
                 "Cycles": "cycles_studio_light.xml",
                 "Luxcore": "luxcore_studio_light.cfg",
@@ -3064,31 +3178,90 @@ class Meuble:
             tpl_name = templates.get(moteur, "")
             tpl_path = ""
             if tpl_name:
-                tpl_path = _osp.join(Render.WBDIR, "templates", tpl_name)
-                if not _osp.isfile(tpl_path):
-                    tpl_path = ""
+                # Essayer TEMPLATEDIR puis WBDIR/templates
+                for base in (
+                    getattr(Render, 'TEMPLATEDIR', ''),
+                    _osp.join(getattr(Render, 'WBDIR', ''), "templates"),
+                ):
+                    candidate = _osp.join(base, tpl_name) if base else ""
+                    if candidate and _osp.isfile(candidate):
+                        tpl_path = candidate
+                        break
 
-            _, rdr_proj, _ = Render.Project.create(
-                self.doc, renderer=moteur, template=tpl_path
+            _, proj_fpo, _ = Render.Project.create(
+                document=self.doc, renderer=moteur, template=tpl_path
             )
-            rdr_proj.Label = f"Rendu {self.nom}"
+            proj_fpo.Label = f"Rendu {self.nom}"
 
-            # Ajouter une vue pour chaque objet
+            # Ajouter une vue pour chaque objet, avec matériau associé
             nb_vues = 0
             for obj in objets_rendu:
                 try:
-                    rdr_proj.Proxy.add_view(obj)
+                    _, view_fpo, _ = Render.View.create(
+                        document=self.doc, source=obj, project=proj_fpo
+                    )
+                    # Assigner le matériau correspondant à la couleur
+                    couleur = self._couleur_objet(obj)
+                    if couleur in materiaux:
+                        try:
+                            view_fpo.Material = materiaux[couleur]
+                        except Exception:
+                            pass  # le lien matériau est optionnel
                     nb_vues += 1
-                except:
+                except Exception:
                     pass
 
             self.doc.recompute()
-            print(f"✓ Render WB configuré ({moteur}) — {nb_mat} matériaux, {nb_vues} vues.")
+            print(f"✓ Render WB configuré ({moteur}) — "
+                  f"{nb_mat} matériaux, {nb_vues} vues, caméra + 3 lumières.")
+            print(f"  → Clic droit sur '{proj_fpo.Label}' → Render, "
+                  f"ou meuble.lancer_rendu()")
 
         except Exception as e:
             print(f"Erreur création projet de rendu: {e}")
 
         return self
+
+    def lancer_rendu(self, attendre: bool = True) -> str | None:
+        """Lance le rendu réaliste via le Render Workbench.
+
+        Args:
+            attendre: Si True, attend la fin du rendu (mode console/batch).
+                      Si False, lance en arrière-plan.
+
+        Returns:
+            Chemin du fichier image produit, ou None en cas d'erreur.
+        """
+        if self.doc is None:
+            print("Erreur: appeler construire() puis configurer_render() d'abord.")
+            return None
+
+        # Chercher le projet de rendu dans le document
+        projet = None
+        for obj in self.doc.Objects:
+            if getattr(obj, 'Label', '') == f"Rendu {self.nom}":
+                projet = obj
+                break
+
+        if projet is None:
+            print("Aucun projet de rendu trouvé. Appeler configurer_render() d'abord.")
+            return None
+
+        if not hasattr(projet, 'Proxy') or not hasattr(projet.Proxy, 'render'):
+            print("L'objet trouvé n'est pas un projet Render valide.")
+            return None
+
+        print(f"Lancement du rendu '{projet.Label}' ({projet.Renderer})...")
+        try:
+            resultat = projet.Proxy.render(wait_for_completion=attendre)
+            if attendre:
+                print(f"✓ Rendu terminé : {resultat}")
+            else:
+                print("Rendu lancé en arrière-plan.")
+            return resultat
+        except Exception as e:
+            print(f"Erreur lors du rendu: {e}")
+            return None
 
     @staticmethod
     def _nom_materiau_depuis_couleur(couleur: tuple) -> str:
@@ -3679,6 +3852,7 @@ if __name__ == "__main__" or True:
     
     meuble.construire()
     meuble.configurer_render()
+    # meuble.lancer_rendu()  # Décommenter pour lancer le rendu automatiquement
     print(meuble.generer_nomenclature())
     
     # Export nomenclature
