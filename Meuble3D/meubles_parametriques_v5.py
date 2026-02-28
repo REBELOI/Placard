@@ -681,7 +681,7 @@ class GestionnaireObjets:
     def get_ou_creer_groupe(self, nom: str, parent=None) -> Any:
         obj = self.doc.getObject(nom)
         if obj is None:
-            obj = self.doc.addObject("App::Part", nom)
+            obj = self.doc.addObject("App::DocumentObjectGroup", nom)
             obj.Label = nom.replace("_", " ")
             if parent and obj not in parent.Group:
                 parent.addObject(obj)
@@ -2839,7 +2839,152 @@ class Meuble:
                 Gui.updateGui()
         except:
             pass
-    
+
+    # -------------------------------------------------------------------------
+    # RENDER WORKBENCH
+    # -------------------------------------------------------------------------
+
+    def configurer_render(self, moteur: str = "Cycles") -> 'Meuble':
+        """Configure le Render Workbench : matériaux et projet de rendu.
+
+        Crée les matériaux Render WB à partir des couleurs des objets existants,
+        les assigne aux objets FreeCAD, puis crée un projet de rendu avec une
+        vue pour chaque objet visible.
+
+        Args:
+            moteur: Moteur de rendu ('Cycles', 'Luxcore', 'Povray',
+                    'Appleseed', 'Pbrt', 'OspRay'). Défaut: 'Cycles'.
+
+        Returns:
+            self (chaînable)
+        """
+        if self.doc is None:
+            print("Erreur: le meuble n'a pas été construit (appeler construire() d'abord)")
+            return self
+
+        try:
+            import Render
+        except ImportError:
+            print("Render Workbench non installé — configuration rendu ignorée.")
+            return self
+
+        # --- Collecter les objets visibles avec leur couleur ---
+        objets_rendu = []
+        couleurs_vues: dict[tuple, list] = {}  # couleur -> [objets]
+
+        for obj in self.doc.Objects:
+            # Ignorer les groupes (DocumentObjectGroup) et objets sans Shape
+            if obj.TypeId == "App::DocumentObjectGroup":
+                continue
+            if not hasattr(obj, "Shape") or obj.Shape.isNull():
+                continue
+
+            objets_rendu.append(obj)
+
+            # Récupérer la couleur de l'objet
+            couleur = (0.82, 0.71, 0.55)  # défaut
+            try:
+                if hasattr(obj, "ViewObject") and obj.ViewObject:
+                    sc = obj.ViewObject.ShapeColor
+                    couleur = (round(sc[0], 2), round(sc[1], 2), round(sc[2], 2))
+            except:
+                pass
+
+            couleurs_vues.setdefault(couleur, []).append(obj)
+
+        if not objets_rendu:
+            print("Aucun objet visible pour le rendu.")
+            return self
+
+        # --- Créer les matériaux et les assigner ---
+        nb_mat = 0
+        for couleur, objets in couleurs_vues.items():
+            nom_mat = self._nom_materiau_depuis_couleur(couleur)
+            try:
+                mat = Render.Material()
+                mat.Label = nom_mat
+                mat.DiffuseColor = couleur
+                mat.Roughness = 0.4
+                mat.Metallic = 0.0
+
+                for obj in objets:
+                    Render.assignMaterial(obj, mat)
+
+                nb_mat += 1
+            except Exception as e:
+                print(f"Erreur matériau '{nom_mat}': {e}")
+
+        # --- Créer le projet de rendu ---
+        try:
+            import os.path as _osp
+
+            # Supprimer un ancien projet s'il existe
+            for old in list(self.doc.Objects):
+                if getattr(old, 'Label', '') == f'Rendu {self.nom}':
+                    self.doc.removeObject(old.Name)
+                    break
+
+            # Chercher le template studio light
+            templates = {
+                "Cycles": "cycles_studio_light.xml",
+                "Luxcore": "luxcore_studio_light.cfg",
+                "Povray": "povray_studio_light.pov",
+                "Appleseed": "appleseed_studio_light.appleseed",
+                "Pbrt": "pbrt_studio_light.pbrt",
+                "OspRay": "ospray_studio_light.ospray",
+            }
+            tpl_name = templates.get(moteur, "")
+            tpl_path = ""
+            if tpl_name:
+                tpl_path = _osp.join(Render.WBDIR, "templates", tpl_name)
+                if not _osp.isfile(tpl_path):
+                    tpl_path = ""
+
+            _, rdr_proj, _ = Render.Project.create(
+                self.doc, renderer=moteur, template=tpl_path
+            )
+            rdr_proj.Label = f"Rendu {self.nom}"
+
+            # Ajouter une vue pour chaque objet
+            nb_vues = 0
+            for obj in objets_rendu:
+                try:
+                    rdr_proj.Proxy.add_view(obj)
+                    nb_vues += 1
+                except:
+                    pass
+
+            self.doc.recompute()
+            print(f"✓ Render WB configuré ({moteur}) — {nb_mat} matériaux, {nb_vues} vues.")
+
+        except Exception as e:
+            print(f"Erreur création projet de rendu: {e}")
+
+        return self
+
+    @staticmethod
+    def _nom_materiau_depuis_couleur(couleur: tuple) -> str:
+        """Déduit un nom de matériau à partir de la couleur RGB."""
+        r, g, b = couleur
+        # Correspondances approximatives avec les couleurs du script
+        if r > 0.9 and g > 0.9 and b > 0.9:
+            return "Blanc"
+        if abs(r - 0.82) < 0.05 and abs(g - 0.71) < 0.05:
+            return "Mélaminé Chêne"
+        if abs(r - 0.85) < 0.05 and abs(g - 0.75) < 0.05 and abs(b - 0.60) < 0.05:
+            return "HDF Fond"
+        if abs(r - 0.75) < 0.05 and abs(g - 0.75) < 0.05 and abs(b - 0.78) < 0.05:
+            return "Aluminium"
+        if r < 0.35 and g < 0.35 and b < 0.35:
+            return "Gris foncé"
+        if abs(r - 0.7) < 0.1 and abs(g - 0.7) < 0.1 and abs(b - 0.72) < 0.1:
+            return "Métal tiroir"
+        if abs(r - 0.8) < 0.05 and abs(g - 0.6) < 0.05 and abs(b - 0.2) < 0.05:
+            return "Chant"
+        if r > 0.85 and g > 0.85 and b > 0.85:
+            return "Façade blanc"
+        return f"Materiau_{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+
     # -------------------------------------------------------------------------
     # NOMENCLATURE
     # -------------------------------------------------------------------------
@@ -3405,6 +3550,7 @@ if __name__ == "__main__" or True:
             meuble.ajouter_porte()
     
     meuble.construire()
+    meuble.configurer_render()
     print(meuble.generer_nomenclature())
     
     # Export nomenclature
