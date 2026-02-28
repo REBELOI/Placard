@@ -1598,6 +1598,7 @@ def generer_scripts_projet(
     amenagements: list[dict],
     hauteur_piece: float = 2500,
     epaisseur_mur: float = 50,
+    chemin_rendu: str = "",
 ) -> dict[str, str]:
     """Genere un ensemble de scripts Python FreeCAD pour le projet complet.
 
@@ -1657,6 +1658,17 @@ def generer_scripts_projet(
             nom, grp_name, config, is_meuble)
         sub_scripts.append(filename)
 
+    # --- Collecter tous les objets pour le projet de rendu ---
+    tous_objets = []
+    for am_data in amenagements:
+        config = am_data["config"]
+        is_meuble = am_data.get("is_meuble", False)
+        if is_meuble:
+            objets = _collecter_objets_3d_meuble(config)
+        else:
+            objets = _collecter_objets_3d(config)
+        tous_objets.extend(objets)
+
     # --- main.py ---
     doc_name = _nom_groupe_freecad(nom_projet)
     main_lines = [
@@ -1685,6 +1697,21 @@ def generer_scripts_projet(
         f"{len(amenagements)} amenagement(s) genere(s).')"
     )
     main_lines.append("")
+
+    # Attribution des materiaux Render Workbench
+    objets_materiaux = [
+        (obj["nom"], obj.get("materiau", ""))
+        for obj in tous_objets if obj.get("materiau")
+    ]
+    if objets_materiaux:
+        main_lines.append(generer_script_render_materiaux(objets_materiaux))
+
+    # Projet et vues de rendu (Render Workbench)
+    noms_objets_rendu = [obj["nom"] for obj in tous_objets]
+    if noms_objets_rendu:
+        main_lines.append(generer_script_render_projet(
+            noms_objets_rendu, chemin_rendu=chemin_rendu,
+        ))
 
     scripts["main.py"] = "\n".join(main_lines)
 
