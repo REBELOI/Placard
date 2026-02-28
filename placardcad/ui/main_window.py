@@ -1186,11 +1186,19 @@ class MainWindow(QMainWindow):
         if not folder:
             return
 
+        # Recuperer le chemin du moteur de rendu depuis le 1er amenagement
+        chemin_rendu = ""
+        for am_d in amenagements_data:
+            chemin_rendu = am_d["config"].get("chemin_rendu", "")
+            if chemin_rendu:
+                break
+
         try:
             scripts = generer_scripts_projet(
                 nom_projet=nom_projet,
                 contour=contour,
                 amenagements=amenagements_data,
+                chemin_rendu=chemin_rendu,
             )
 
             fichiers_ecrits = []
