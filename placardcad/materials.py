@@ -1045,6 +1045,25 @@ def generer_script_render_projet(
         "",
     ]
 
+    # --- Nettoyage : rejeter 'blender' deja enregistre comme CyclesPath ---
+    # Le Render Workbench appelle CyclesPath avec --output/--width/--height
+    # (syntaxe Cycles standalone) que Blender ne comprend pas.
+    if moteur_rendu == "Cycles":
+        lines.extend([
+            "    # Verifier si CyclesPath pointe vers 'blender' (incompatible)",
+            "    _rdr_prefs = FreeCAD.ParamGet("
+            "'User parameter:BaseApp/Preferences/Mod/Render')",
+            "    _rdr_cur_path = _rdr_prefs.GetString('CyclesPath', '')",
+            "    if (_rdr_cur_path",
+            "            and _osp.basename(_rdr_cur_path).lower()"
+            " in ('blender', 'blender.exe')):",
+            "        print('Nettoyage: CyclesPath pointait vers \"blender\"')",
+            "        print('(incompatible avec la syntaxe Cycles standalone).')",
+            "        print('Preference effacee. Configurez le binaire standalone \"cycles\".')",
+            "        _rdr_prefs.SetString('CyclesPath', '')",
+            "",
+        ])
+
     # --- Configuration du chemin du moteur de rendu ---
     if chemin_rendu:
         escaped_path = chemin_rendu.replace("\\", "\\\\")

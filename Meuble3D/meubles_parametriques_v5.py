@@ -3020,6 +3020,21 @@ class Meuble:
 
         import os.path as _osp
 
+        # --- Nettoyage : rejeter 'blender' deja enregistre comme CyclesPath ---
+        if moteur == "Cycles":
+            prefs = App.ParamGet(
+                "User parameter:BaseApp/Preferences/Mod/Render"
+            )
+            cur_path = prefs.GetString("CyclesPath", "")
+            if (cur_path
+                    and _osp.basename(cur_path).lower()
+                    in ("blender", "blender.exe")):
+                print("Nettoyage: CyclesPath pointait vers \"blender\"")
+                print("(incompatible avec la syntaxe Cycles standalone).")
+                print("Préférence effacée. Configurez le binaire standalone "
+                      "\"cycles\".")
+                prefs.SetString("CyclesPath", "")
+
         # --- Configurer le chemin du moteur de rendu dans les préférences ---
         if chemin_rendu:
             import os
