@@ -1012,8 +1012,10 @@ def generer_script_render_projet(
         moteur_rendu: Nom du moteur de rendu ('Cycles', 'Povray',
             'Luxcore', 'Appleseed', 'Pbrt', 'OspRay'). Defaut: 'Cycles'.
         chemin_rendu: Chemin vers l'installation Blender ou l'executable du
-            moteur (ex: '/opt/blender/5.0' ou '/opt/blender/5.0/blender').
-            Si vide, le script ne modifie pas les preferences existantes.
+            moteur (ex: '/opt/blender/5.0' ou '/opt/blender/5.0/cycles').
+            Pour Cycles, le binaire standalone 'cycles' est requis (pas
+            'blender'). Si vide, le script ne modifie pas les preferences
+            existantes.
 
     Returns:
         Code source Python du script.
@@ -1023,7 +1025,7 @@ def generer_script_render_projet(
 
     # Noms de binaires a chercher selon le moteur
     binaires_map = {
-        "Cycles": ["cycles", "blender"],
+        "Cycles": ["cycles"],
         "Luxcore": ["luxcoreui", "luxcoreconsole"],
         "Povray": ["povray"],
         "Appleseed": ["appleseed.cli"],
@@ -1074,6 +1076,26 @@ def generer_script_render_projet(
             "                break",
             "            _rdr_candidat = _rdr_parent",
             "",
+        ])
+        # Pour Cycles : le binaire 'blender' n'est pas compatible (le Render
+        # Workbench appelle CyclesPath avec --output/--width/--height, syntaxe
+        # du renderer Cycles standalone que Blender ne comprend pas).
+        if moteur_rendu == "Cycles":
+            lines.extend([
+                "",
+                "    # Cycles : rejeter 'blender' (syntaxe standalone incompatible)",
+                "    if _rdr_exe and _osp.basename(_rdr_exe).lower()"
+                " in ('blender', 'blender.exe'):",
+                "        print('ATTENTION: le binaire \"blender\" ne peut pas servir')",
+                "        print('de renderer Cycles standalone. Le Render Workbench')",
+                "        print('appelle CyclesPath avec --output/--width/--height')",
+                "        print('(syntaxe Cycles standalone) que Blender ne comprend pas.')",
+                "        print('Indiquez le chemin vers le binaire standalone \"cycles\"')",
+                "        print('ou le dossier qui le contient.')",
+                "        _rdr_exe = ''",
+            ])
+        lines.extend([
+            "",
             "    if _rdr_exe:",
             "        _prefs = FreeCAD.ParamGet("
             "'User parameter:BaseApp/Preferences/Mod/Render')",
@@ -1096,8 +1118,8 @@ def generer_script_render_projet(
             "                print('  Pas de permission r+x sur: ' + _rdr_cur)",
             "            elif _osp.isfile(_rdr_cur) and not _os.access(_rdr_cur, _os.X_OK):",
             "                print('  Pas de permission x sur: ' + _rdr_cur)",
-            f"        print('Le Render WB attend un executable (cycles ou blender)')",
-            f"        print('Exemple: /opt/blender/5.0/blender')",
+            f"        print('Le Render WB attend le binaire standalone \"cycles\"')",
+            f"        print('Exemple: /opt/blender/5.0/cycles')",
             "",
         ])
 

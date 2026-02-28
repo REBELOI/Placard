@@ -934,8 +934,8 @@ class ParamsEditor(QWidget):
 
         info_rdr = QLabel(
             "Chemin vers le dossier d'installation Blender ou l'executable "
-            "du moteur de rendu. Le Render Workbench a besoin de l'executable "
-            "'cycles' (standalone) ou 'blender'. Si vous indiquez un dossier, "
+            "du moteur de rendu. Le Render Workbench a besoin du binaire "
+            "standalone 'cycles' (pas 'blender'). Si vous indiquez un dossier, "
             "l'executable sera recherche automatiquement."
         )
         info_rdr.setWordWrap(True)
@@ -944,7 +944,7 @@ class ParamsEditor(QWidget):
 
         row = QHBoxLayout()
         edit = self._creer_text("chemin_rendu")
-        edit.setPlaceholderText("/opt/blender/5.0  ou  /opt/blender/5.0/blender")
+        edit.setPlaceholderText("/opt/blender/5.0  ou  /opt/blender/5.0/cycles")
         row.addWidget(edit)
 
         btn_browse = QPushButton("Parcourir...")
@@ -966,7 +966,7 @@ class ParamsEditor(QWidget):
     def _parcourir_chemin_rendu(self):
         """Ouvre un selecteur de fichier/dossier pour le chemin du moteur de rendu."""
         chemin = QFileDialog.getOpenFileName(
-            self, "Selectionner l'executable du moteur de rendu (cycles ou blender)",
+            self, "Selectionner l'executable du moteur de rendu (cycles)",
             self._chemin_rendu_edit.text() or "/opt",
             "Executables (*);;Tous (*)"
         )[0]
@@ -997,7 +997,7 @@ class ParamsEditor(QWidget):
             return
 
         # Chercher l'executable dans l'arborescence
-        noms_bin = ["cycles", "blender"]
+        noms_bin = ["cycles"]
         exe_trouve = ""
 
         if _osp.isfile(chemin) and os.access(chemin, os.X_OK):
@@ -1020,10 +1020,18 @@ class ParamsEditor(QWidget):
 
         if exe_trouve:
             nom_exe = _osp.basename(exe_trouve)
-            self._chemin_rendu_status.setText(
-                f"OK — executable trouve: {exe_trouve}")
-            self._chemin_rendu_status.setStyleSheet(
-                "color: #080; font-weight: bold;")
+            # Avertir si le chemin pointe vers 'blender' (incompatible Cycles)
+            if nom_exe.lower() in ("blender", "blender.exe"):
+                self._chemin_rendu_status.setText(
+                    "ATTENTION: \"blender\" ne peut pas servir de renderer "
+                    "Cycles standalone — utilisez le binaire \"cycles\"")
+                self._chemin_rendu_status.setStyleSheet(
+                    "color: #c00; font-weight: bold;")
+            else:
+                self._chemin_rendu_status.setText(
+                    f"OK — executable trouve: {exe_trouve}")
+                self._chemin_rendu_status.setStyleSheet(
+                    "color: #080; font-weight: bold;")
         else:
             # Diagnostiquer les permissions
             diag_parts = []
@@ -1041,8 +1049,9 @@ class ParamsEditor(QWidget):
             if diag_parts:
                 msg = "Permissions: " + "; ".join(diag_parts)
             else:
-                msg = ("Executable 'cycles' ou 'blender' non trouve. "
+                msg = ("Executable 'cycles' non trouve. "
                        "Indiquez le dossier d'installation Blender "
+                       "contenant le binaire standalone 'cycles' "
                        "(ex: /opt/blender/5.0)")
             self._chemin_rendu_status.setText(msg)
             self._chemin_rendu_status.setStyleSheet(

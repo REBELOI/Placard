@@ -2848,9 +2848,12 @@ class Meuble:
     def _trouver_executable_rendu(chemin: str, moteur: str = "Cycles") -> str:
         """Cherche l'executable du moteur de rendu dans l'arborescence Blender.
 
-        Le Render Workbench attend le chemin vers un executable (cycles standalone
-        ou blender), pas le dossier addon Python. Cette methode remonte
-        l'arborescence depuis le chemin fourni pour trouver le bon binaire.
+        Le Render Workbench attend le chemin vers un executable (standalone
+        'cycles' pour Cycles), pas le dossier addon Python. Cette methode
+        remonte l'arborescence depuis le chemin fourni pour trouver le bon
+        binaire. Pour Cycles, 'blender' est rejete car le Render Workbench
+        l'appelle avec la syntaxe Cycles standalone (--output/--width/--height)
+        que Blender ne comprend pas.
 
         Args:
             chemin: Chemin fourni par l'utilisateur (dossier addon, dossier
@@ -2868,12 +2871,17 @@ class Meuble:
             return ""
 
         # Si c'est deja un fichier executable, le garder
+        # (pour Cycles, rejeter 'blender' : syntaxe standalone incompatible)
         if _osp.isfile(chemin) and os.access(chemin, os.X_OK):
-            return chemin
+            if (moteur == "Cycles"
+                    and _osp.basename(chemin).lower() in ("blender", "blender.exe")):
+                pass  # continuer la recherche du standalone 'cycles'
+            else:
+                return chemin
 
         # Noms de binaires a chercher selon le moteur
         binaires = {
-            "Cycles": ["cycles", "blender"],
+            "Cycles": ["cycles"],
             "Luxcore": ["luxcoreui", "luxcoreconsole"],
             "Povray": ["povray"],
             "Appleseed": ["appleseed.cli"],
@@ -2993,8 +3001,9 @@ class Meuble:
                     'Appleseed', 'Pbrt', 'OspRay'). Défaut: 'Cycles'.
             chemin_rendu: Chemin vers l'installation Blender ou l'executable
                     du moteur (ex: '/opt/blender/5.0' ou
-                    '/opt/blender/5.0/blender'). Si vide, les preferences
-                    existantes sont conservees.
+                    '/opt/blender/5.0/cycles'). Pour Cycles, le binaire
+                    standalone 'cycles' est requis (pas 'blender').
+                    Si vide, les preferences existantes sont conservees.
 
         Returns:
             self (chaînable)
@@ -3015,7 +3024,19 @@ class Meuble:
         if chemin_rendu:
             import os
             executable = self._trouver_executable_rendu(chemin_rendu, moteur)
-            if _osp.isfile(executable) and os.access(executable, os.X_OK):
+            # Pour Cycles : rejeter 'blender' (syntaxe standalone incompatible)
+            if (moteur == "Cycles"
+                    and _osp.isfile(executable)
+                    and _osp.basename(executable).lower()
+                    in ("blender", "blender.exe")):
+                print("ATTENTION: le binaire \"blender\" ne peut pas servir "
+                      "de renderer Cycles standalone.")
+                print("Le Render Workbench appelle CyclesPath avec "
+                      "--output/--width/--height")
+                print("(syntaxe Cycles standalone) que Blender ne comprend pas.")
+                print("Indiquez le chemin vers le binaire standalone \"cycles\" "
+                      "ou le dossier qui le contient.")
+            elif _osp.isfile(executable) and os.access(executable, os.X_OK):
                 prefs = App.ParamGet(
                     "User parameter:BaseApp/Preferences/Mod/Render"
                 )
@@ -3033,7 +3054,7 @@ class Meuble:
                     for msg in diag:
                         print(msg)
                 print(f"  Le Render WB attend le chemin vers un executable")
-                print(f"  (ex: /opt/blender/5.0/blender ou /opt/blender/5.0/cycles)")
+                print(f"  (ex: /opt/blender/5.0/cycles)")
 
         # --- Nettoyer les anciens objets Render ---
         self._nettoyer_objets_render()
