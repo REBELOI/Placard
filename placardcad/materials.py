@@ -968,12 +968,17 @@ _RENDER_TEMPLATES: dict[str, str] = {
 def generer_script_render_projet(
     noms_objets: list[str],
     moteur_rendu: str = "Cycles",
+    chemin_rendu: str = "",
 ) -> str:
     """Genere un script Python FreeCAD pour creer un projet et des vues de rendu.
 
     Le script cree un projet Render Workbench avec le moteur de rendu specifie
     et ajoute une vue pour chaque objet. Cela permet a la commande
     Render > Render (Gui.runCommand('Render_Render', 0)) de fonctionner.
+
+    Avant de creer le projet, le script configure le chemin de l'executable
+    du moteur de rendu dans les preferences FreeCAD et verifie que le chemin
+    est accessible (permissions de lecture et d'execution).
 
     Le script est autonome : il importe lui-meme le module Render avec un
     try/except, donc il peut etre utilise sans generer_script_render_materiaux.
@@ -982,6 +987,9 @@ def generer_script_render_projet(
         noms_objets: Noms des objets FreeCAD a inclure dans le rendu.
         moteur_rendu: Nom du moteur de rendu ('Cycles', 'Povray',
             'Luxcore', 'Appleseed', 'Pbrt', 'OspRay'). Defaut: 'Cycles'.
+        chemin_rendu: Chemin vers le dossier ou l'executable du moteur de
+            rendu (ex: '/opt/blender/5.0/scripts/addons_core/cycles').
+            Si vide, le script ne modifie pas les preferences existantes.
 
     Returns:
         Code source Python du script.
@@ -994,15 +1002,48 @@ def generer_script_render_projet(
         "# --- Projet de rendu (Render Workbench) ---",
         "try:",
         "    import Render",
+        "    import os as _os",
         "    import os.path as _osp",
         "",
+    ]
+
+    # --- Configuration du chemin du moteur de rendu ---
+    if chemin_rendu:
+        escaped_path = chemin_rendu.replace("\\", "\\\\")
+        lines.extend([
+            f"    # Configurer le chemin du moteur de rendu ({moteur_rendu})",
+            f"    _rdr_chemin = r'{escaped_path}'",
+            "    if _osp.isdir(_rdr_chemin):",
+            "        if not _os.access(_rdr_chemin, _os.R_OK | _os.X_OK):",
+            f"            print('ATTENTION: permissions insuffisantes sur ' + _rdr_chemin)",
+            f"            print('Essayez: sudo chmod -R a+rX ' + _rdr_chemin)",
+            "        else:",
+            f"            _prefs = FreeCAD.ParamGet("
+            f"'User parameter:BaseApp/Preferences/Mod/Render')",
+            f"            _prefs.SetString('{moteur_rendu}Path', _rdr_chemin)",
+            f"            print('Chemin {moteur_rendu} configure: ' + _rdr_chemin)",
+            "    elif _osp.isfile(_rdr_chemin):",
+            "        if not _os.access(_rdr_chemin, _os.R_OK | _os.X_OK):",
+            f"            print('ATTENTION: permissions insuffisantes sur ' + _rdr_chemin)",
+            f"            print('Essayez: sudo chmod a+rx ' + _rdr_chemin)",
+            "        else:",
+            f"            _prefs = FreeCAD.ParamGet("
+            f"'User parameter:BaseApp/Preferences/Mod/Render')",
+            f"            _prefs.SetString('{moteur_rendu}Path', _rdr_chemin)",
+            f"            print('Chemin {moteur_rendu} configure: ' + _rdr_chemin)",
+            "    else:",
+            f"        print('ATTENTION: chemin {moteur_rendu} introuvable: ' + _rdr_chemin)",
+            "",
+        ])
+
+    lines.extend([
         "    # Supprimer un ancien projet de rendu PlacardCAD s'il existe",
         "    for _old in list(doc.Objects):",
         "        if getattr(_old, 'Label', '') == 'Rendu PlacardCAD':",
         "            doc.removeObject(_old.Name)",
         "            break",
         "",
-    ]
+    ])
 
     if template:
         lines.extend([

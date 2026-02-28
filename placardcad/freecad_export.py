@@ -534,7 +534,8 @@ def exporter_freecad(filepath: str, config: dict) -> str:
     return filepath
 
 
-def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
+def generer_script_freecad(config: dict, is_meuble: bool = False,
+                           chemin_rendu: str = "") -> str:
     """Genere un script Python executable dans la console FreeCAD.
 
     Ce script recree tous les objets Part::Box avec les bonnes dimensions,
@@ -544,6 +545,9 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
     Args:
         config: Configuration complete du placard ou meuble.
         is_meuble: True pour un meuble, False pour un placard.
+        chemin_rendu: Chemin vers l'executable ou le dossier du moteur de
+            rendu (ex: '/opt/blender/5.0/scripts/addons_core/cycles').
+            Si vide, les preferences FreeCAD existantes sont conservees.
 
     Returns:
         Code source Python du script FreeCAD.
@@ -599,7 +603,9 @@ def generer_script_freecad(config: dict, is_meuble: bool = False) -> str:
     # Ajouter le projet et vues de rendu (Render Workbench)
     noms_objets_rendu = [obj["nom"] for obj in objets]
     if noms_objets_rendu:
-        lines.append(generer_script_render_projet(noms_objets_rendu))
+        lines.append(generer_script_render_projet(
+            noms_objets_rendu, chemin_rendu=chemin_rendu,
+        ))
 
     return "\n".join(lines)
 
@@ -645,6 +651,7 @@ def generer_script_meuble_groupe(
     config: dict,
     nom_groupe: str,
     nom_projet: str = "Projet",
+    chemin_rendu: str = "",
 ) -> str:
     """Genere un script Python FreeCAD qui cree/met a jour un meuble dans un groupe.
 
@@ -658,6 +665,8 @@ def generer_script_meuble_groupe(
         config: Configuration complete du meuble.
         nom_groupe: Nom du conteneur FreeCAD (issu du nom d'amenagement).
         nom_projet: Nom du projet (utilise pour creer le document si aucun n'est ouvert).
+        chemin_rendu: Chemin vers l'executable ou le dossier du moteur de
+            rendu (ex: '/opt/blender/5.0/scripts/addons_core/cycles').
 
     Returns:
         Code source Python du script FreeCAD.
@@ -769,7 +778,9 @@ def generer_script_meuble_groupe(
     # Ajouter le projet et vues de rendu (Render Workbench)
     noms_objets_rendu = [obj["nom"] for obj in objets]
     if noms_objets_rendu:
-        lines.append(generer_script_render_projet(noms_objets_rendu))
+        lines.append(generer_script_render_projet(
+            noms_objets_rendu, chemin_rendu=chemin_rendu,
+        ))
 
     return "\n".join(lines)
 
