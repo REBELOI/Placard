@@ -885,10 +885,11 @@ def generer_fcmat(materiau: dict) -> str:
 def generer_script_render_materiaux(
     objets_materiaux: list[tuple[str, str]],
 ) -> str:
-    """Genere un script Python FreeCAD pour appliquer les materiaux Render WB.
+    """Genere un script Python FreeCAD pour creer les materiaux Render WB.
 
-    Le script cree les materiaux dans FreeCAD et les assigne aux objets.
-    Il est concu pour etre concatene au script de generation 3D existant.
+    Le script cree les materiaux via Render.make_material() et les stocke
+    dans un dict ``_render_obj_mats`` (nom_objet -> mat_fpo) pour que
+    ``generer_script_render_projet`` puisse les assigner aux vues.
 
     Args:
         objets_materiaux: Liste de tuples (nom_objet_freecad, nom_materiau).
@@ -911,6 +912,8 @@ def generer_script_render_materiaux(
         "    _RENDER_OK = False",
         "    print('Render Workbench non installe — materiaux ignores.')",
         "",
+        "_render_obj_mats = {}",
+        "",
         "if _RENDER_OK:",
     ]
 
@@ -923,26 +926,46 @@ def generer_script_render_materiaux(
         mat_var = nom_mat.replace(" ", "_").replace("'", "")
 
         lines.append(f"    # Materiau: {nom_mat}")
-        lines.append(f"    mat_{mat_var} = Render.Material()")
-        lines.append(f"    mat_{mat_var}.Label = '{nom_mat}'")
+        lines.append(f"    try:")
+        lines.append(f"        _mat_result = Render.make_material(")
+        lines.append(f"            name='RenderMat_{mat_var}',")
+        lines.append(f"            color=({r:.4f}, {g:.4f}, {b:.4f}),")
+        lines.append(f"            doc=doc)")
+        lines.append(f"        mat_{mat_var} = (_mat_result[1]"
+                      f" if isinstance(_mat_result, tuple)"
+                      f" and len(_mat_result) > 1"
+                      f" else (_mat_result[0]"
+                      f" if isinstance(_mat_result, tuple)"
+                      f" else _mat_result))")
+        # Configurer les proprietes PBR via le dictionnaire Material
+        lines.append(f"        try:")
+        lines.append(f"            if hasattr(mat_{mat_var}, 'Material'):")
+        lines.append(f"                _mat_dict = dict(mat_{mat_var}.Material)")
+        lines.append(f"                _mat_dict['Render.Type'] = 'Disney'")
         lines.append(
-            f"    mat_{mat_var}.DiffuseColor = ({r:.4f}, {g:.4f}, {b:.4f})"
+            f"                _mat_dict['Render.Disney.BaseColor'] = "
+            f"'{r:.4f};{g:.4f};{b:.4f}'"
         )
-        lines.append(f"    mat_{mat_var}.Roughness = {mat['rugosite']:.4f}")
-        lines.append(f"    mat_{mat_var}.Metallic = {mat['metallic']:.4f}")
-
+        lines.append(
+            f"                _mat_dict['Render.Disney.Roughness'] = "
+            f"'{mat['rugosite']:.4f}'"
+        )
+        lines.append(
+            f"                _mat_dict['Render.Disney.Metallic'] = "
+            f"'{mat['metallic']:.4f}'"
+        )
+        lines.append(f"                _mat_dict['Render.Disney.Specular'] = '0.5'")
         if mat.get("texture_diffuse"):
             chemin = get_chemin_texture_absolu(mat["texture_diffuse"])
-            lines.append(f"    mat_{mat_var}.DiffuseTexture = r'{chemin}'")
-        if mat.get("texture_bump"):
-            chemin = get_chemin_texture_absolu(mat["texture_bump"])
-            lines.append(f"    mat_{mat_var}.BumpTexture = r'{chemin}'")
+            lines.append(f"                _mat_dict['TexturePath'] = r'{chemin}'")
+        lines.append(f"                mat_{mat_var}.Material = _mat_dict")
+        lines.append(f"        except Exception:")
+        lines.append(f"            pass")
 
         for nom_obj in noms_objs:
-            lines.append(
-                f"    Render.assignMaterial(doc.getObject('{nom_obj}'), "
-                f"mat_{mat_var})"
-            )
+            lines.append(f"        _render_obj_mats['{nom_obj}'] = mat_{mat_var}")
+        lines.append(f"    except Exception as _e:")
+        lines.append(f"        print('Erreur materiau {nom_mat}: ' + str(_e))")
         lines.append("")
 
     lines.append("    doc.recompute()")
@@ -1011,6 +1034,8 @@ def generer_script_render_projet(
     lines = [
         "",
         "# --- Projet de rendu (Render Workbench) ---",
+        "if '_render_obj_mats' not in dir():",
+        "    _render_obj_mats = {}",
         "try:",
         "    import Render",
         "    import os as _os",
@@ -1104,7 +1129,14 @@ def generer_script_render_projet(
     for nom_obj in noms_objets:
         lines.append(f"    _rdr_src = doc.getObject('{nom_obj}')")
         lines.append("    if _rdr_src is not None:")
-        lines.append("        _rdr_proj.Proxy.add_view(_rdr_src)")
+        lines.append("        _, _rdr_view, _ = Render.View.create("
+                      "document=doc, source=_rdr_src, project=_rdr_proj)")
+        lines.append(f"        if '{nom_obj}' in _render_obj_mats:")
+        lines.append("            try:")
+        lines.append(f"                _rdr_view.Material = "
+                      f"_render_obj_mats['{nom_obj}']")
+        lines.append("            except Exception:")
+        lines.append("                pass")
 
     lines.extend([
         "",
