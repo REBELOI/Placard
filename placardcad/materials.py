@@ -990,7 +990,7 @@ _RENDER_TEMPLATES: dict[str, str] = {
 
 def generer_script_render_projet(
     noms_objets: list[str],
-    moteur_rendu: str = "Cycles",
+    moteur_rendu: str = "Povray",
     chemin_rendu: str = "",
 ) -> str:
     """Genere un script Python FreeCAD pour creer un projet et des vues de rendu.

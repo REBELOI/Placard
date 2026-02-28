@@ -2985,7 +2985,7 @@ class Meuble:
         # Bois / mélaminé (défaut)
         return {"roughness": 0.45, "metallic": 0.0}
 
-    def configurer_render(self, moteur: str = "Cycles",
+    def configurer_render(self, moteur: str = "Povray",
                           chemin_rendu: str = "") -> 'Meuble':
         """Configure le Render Workbench pour un rendu réaliste.
 
