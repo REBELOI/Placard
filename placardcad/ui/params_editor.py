@@ -544,6 +544,10 @@ class ParamsEditor(QWidget):
             "poignee.distance_haut", 10, 200))
         layout.addWidget(group_poignee)
 
+        layout.addStretch()
+        scroll.setWidget(container)
+        return scroll
+
     def _creer_onglet_interieur_meuble(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
