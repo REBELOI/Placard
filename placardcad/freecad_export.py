@@ -884,8 +884,12 @@ def _profondeur_element_meuble(type_elem: str, config: dict) -> tuple[float, flo
     fond_cfg = config.get("fond", {})
     ep_fond = fond_cfg.get("epaisseur", 3)
 
-    if type_elem in ("flanc", "dessus"):
+    if type_elem == "flanc":
         return P, 0
+
+    if type_elem == "dessus":
+        retrait_ar = config.get("dessus", {}).get("retrait_arriere", 0)
+        return P - retrait_ar, 0
 
     elif type_elem == "separation":
         sep_cfg = config.get("separation", {})
@@ -1045,6 +1049,8 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
 
     dessus_cfg = config.get("dessus", {})
     dessus_type_cfg = dessus_cfg.get("type", "traverses")
+    retrait_ar_dessus = dessus_cfg.get("retrait_arriere", 0)
+    prof_dessus = P - retrait_ar_dessus
     if dessus_type_cfg == "traverses":
         larg_trav = dessus_cfg.get("largeur_traverse", 100)
         if assemblage == "dessus_sur":
@@ -1067,7 +1073,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             "couleur": couleur_trav,
             "transparence": 0,
         })
-        # Traverse arriere (Y=P-larg_trav, vers le fond)
+        # Traverse arriere (Y=prof_dessus-larg_trav, vers le fond)
         objets.append({
             "nom": _nom_unique("Traverse_Arriere", noms_utilises),
             "label": "Traverse arriere",
@@ -1075,7 +1081,7 @@ def _collecter_objets_3d_meuble(config: dict) -> list[dict]:
             "width": larg_trav,
             "height": ep,
             "px": trav_x,
-            "py": P - larg_trav,
+            "py": prof_dessus - larg_trav,
             "pz": z_trav,
             "couleur": couleur_trav,
             "transparence": 0,
