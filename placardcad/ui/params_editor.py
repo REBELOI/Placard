@@ -148,6 +148,8 @@ class ParamsEditor(QWidget):
         "poignee.modele": "Modele de poignee : baton inox ou aucune",
         "poignee.entraxe": "Distance entre les deux vis de fixation de la poignee, en mm",
         "poignee.distance_haut": "Distance entre le haut de la facade et l'axe de la poignee, en mm",
+        "poignee.position_porte": "Position de la poignee sur les portes : centree ou du cote de l'ouverture",
+        "poignee.marge_bord": "Distance entre le bord de la porte et la poignee en mode cote, en mm",
 
         # Meuble — interieur
         "etagere.jeu_lateral": "Jeu lateral entre l'etagere et les cotes du meuble, en mm",
@@ -557,7 +559,11 @@ class ParamsEditor(QWidget):
         form_poignee.addRow("Entraxe (mm):", self._creer_combo(
             "poignee.entraxe", entraxes))
         form_poignee.addRow("Distance haut:", self._creer_spin(
-            "poignee.distance_haut", 10, 200))
+            "poignee.distance_haut", 10, 200, default=50))
+        form_poignee.addRow("Position porte:", self._creer_combo(
+            "poignee.position_porte", ["centree", "cote"]))
+        form_poignee.addRow("Marge bord (cote):", self._creer_spin(
+            "poignee.marge_bord", 10, 200, default=40))
         layout.addWidget(group_poignee)
 
         layout.addStretch()

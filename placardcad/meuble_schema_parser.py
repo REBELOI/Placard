@@ -443,6 +443,8 @@ def meuble_schema_vers_config(schema_text: str,
             "diametre": 12,            # mm - diametre du baton
             "saillie": 36,             # mm - saillie depuis la facade
             "distance_haut": 50,       # mm - distance du haut de la facade
+            "position_porte": "centree",  # centree ou cote (cote ouverture)
+            "marge_bord": 40,          # mm - marge du bord en mode cote
         },
 
         # Cremailleres

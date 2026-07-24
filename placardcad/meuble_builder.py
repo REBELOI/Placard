@@ -88,10 +88,9 @@ def _ajouter_poignee(
     w_facade: float,
     h_facade: float,
     label: str,
+    ouverture: str | None = None,
 ) -> None:
     """Ajoute un rectangle de poignee sur une facade (vue de face).
-
-    La poignee est centree en largeur et placee a distance_haut du haut.
 
     Args:
         rects: Liste de Rect a completer.
@@ -101,6 +100,8 @@ def _ajouter_poignee(
         w_facade: Largeur de la facade.
         h_facade: Hauteur de la facade.
         label: Libelle de la poignee.
+        ouverture: Sens d'ouverture ('gauche'/'droite') pour placement
+            cote sur les portes. None = tiroir (toujours centre).
     """
     poignee_cfg = config.get("poignee", {})
     if poignee_cfg.get("modele", "baton_inox") == "aucune":
@@ -110,8 +111,16 @@ def _ajouter_poignee(
     dist_haut = poignee_cfg.get("distance_haut", 50)
     cat = POIGNEE_BATON_CATALOGUE.get(entraxe)
     longueur = cat["longueur"] if cat else entraxe + 58
+    position_porte = poignee_cfg.get("position_porte", "centree")
+    marge_bord = poignee_cfg.get("marge_bord", 40)
 
-    x_poignee = x_facade + (w_facade - longueur) / 2
+    if ouverture and position_porte == "cote":
+        if ouverture == "gauche":
+            x_poignee = x_facade + w_facade - marge_bord - longueur
+        else:
+            x_poignee = x_facade + marge_bord
+    else:
+        x_poignee = x_facade + (w_facade - longueur) / 2
     z_poignee = z_facade + h_facade - dist_haut - diametre / 2
     rects.append(Rect(
         x_poignee, z_poignee, longueur, diametre,
@@ -542,12 +551,14 @@ def _render_facade_groupes(
                 _ajouter_poignee(
                     rects, config, x_facade, z_current,
                     w_porte, h_zone_porte,
-                    f"Poignee porte G C{comp_idx+1}")
+                    f"Poignee porte G C{comp_idx+1}",
+                    ouverture="gauche")
                 _ajouter_poignee(
                     rects, config,
                     x_facade + w_porte + jeu_e, z_current,
                     w_porte, h_zone_porte,
-                    f"Poignee porte D C{comp_idx+1}")
+                    f"Poignee porte D C{comp_idx+1}",
+                    ouverture="droite")
                 _ajouter_porte_details(
                     rects, x_facade, z_current,
                     w_porte, h_zone_porte, "gauche")
@@ -590,7 +601,8 @@ def _render_facade_groupes(
                 _ajouter_poignee(
                     rects, config, x_facade, z_current,
                     w_facade, h_zone_porte,
-                    f"Poignee porte C{comp_idx+1}")
+                    f"Poignee porte C{comp_idx+1}",
+                    ouverture=ouverture)
                 _ajouter_porte_details(
                     rects, x_facade, z_current,
                     w_facade, h_zone_porte, ouverture)
@@ -988,7 +1000,8 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                 _ajouter_poignee(
                     rects, config, x_facade, z_facade_bas,
                     w_facade, h_facade_zone,
-                    f"Poignee porte C{comp_idx+1}")
+                    f"Poignee porte C{comp_idx+1}",
+                    ouverture=ouverture)
                 _ajouter_porte_details(
                     rects, x_facade, z_facade_bas,
                     w_facade, h_facade_zone, ouverture)
@@ -1027,12 +1040,14 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
                 _ajouter_poignee(
                     rects, config, x_facade, z_facade_bas,
                     w_porte, h_facade_zone,
-                    f"Poignee porte G C{comp_idx+1}")
+                    f"Poignee porte G C{comp_idx+1}",
+                    ouverture="gauche")
                 _ajouter_poignee(
                     rects, config,
                     x_facade + w_porte + jeu_e, z_facade_bas,
                     w_porte, h_facade_zone,
-                    f"Poignee porte D C{comp_idx+1}")
+                    f"Poignee porte D C{comp_idx+1}",
+                    ouverture="droite")
                 # Ouverture et percages : gauche > | < droite
                 _ajouter_porte_details(
                     rects, x_facade, z_facade_bas,
