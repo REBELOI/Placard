@@ -23,10 +23,19 @@ from .placard_builder import Rect, PieceInfo, FicheFabrication
 # =====================================================================
 
 LEGRABOX_HAUTEURS = {
+    "N": 66.5,
     "M": 90.5,
     "K": 128.5,
     "C": 193.0,
     "F": 257.0,
+}
+
+LEGRABOX_HAUTEURS_DOS = {
+    "N": 39.0,
+    "M": 63.0,
+    "K": 101.0,
+    "C": 148.0,
+    "F": 212.0,
 }
 
 LEGRABOX_JEU_LATERAL = 12.75  # mm par cote
@@ -498,12 +507,13 @@ def _render_facade_groupes(
                     quantite=nb,
                 )
 
-            # BOM: fond tiroir (memes dimensions pour tous)
+            # BOM: fond tiroir
+            larg_int = cg["largeur"]
             ep_fond_tiroir = config["tiroir"].get("epaisseur_fond", LEGRABOX_EP_FOND)
             ep_dos_tiroir = config["tiroir"].get("epaisseur_dos", LEGRABOX_EP_PAROI)
             fiche.ajouter_piece(PieceInfo(
                 f"Fond tiroir {h_code} C{comp_idx+1}",
-                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
+                larg_int - 35, lg_coulisse - 10,
                 ep_fond_tiroir,
                 materiau="Panneau fond",
                 couleur_fab=config["panneau"]["couleur_fab"],
@@ -511,10 +521,10 @@ def _render_facade_groupes(
             ))
 
             # BOM: arriere tiroir
+            h_dos = LEGRABOX_HAUTEURS_DOS.get(h_code, 63.0)
             fiche.ajouter_piece(PieceInfo(
                 f"Arriere tiroir {h_code} C{comp_idx+1}",
-                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
-                h_cote - ep_fond_tiroir,
+                larg_int - 38, h_dos,
                 ep_dos_tiroir,
                 materiau="Panneau fond",
                 couleur_fab=config["panneau"]["couleur_fab"],
@@ -1127,15 +1137,14 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
             ))
 
             # Fond tiroir
-            larg_tiroir = cg["largeur"] - 2 * LEGRABOX_JEU_LATERAL
+            larg_int = cg["largeur"]
             lg_coulisse = _longueur_coulisse(P, ep_f)
-            h_cote = LEGRABOX_HAUTEURS.get(hauteur_legrabox, 90.5)
             ep_fond_tiroir = config["tiroir"].get("epaisseur_fond", LEGRABOX_EP_FOND)
             ep_dos_tiroir = config["tiroir"].get("epaisseur_dos", LEGRABOX_EP_PAROI)
 
             fiche.ajouter_piece(PieceInfo(
                 f"Fond tiroir C{comp_idx+1}",
-                larg_tiroir, lg_coulisse - 2 * LEGRABOX_EP_PAROI,
+                larg_int - 35, lg_coulisse - 10,
                 ep_fond_tiroir,
                 materiau="Panneau fond",
                 couleur_fab=config["panneau"]["couleur_fab"],
@@ -1143,10 +1152,10 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
             ))
 
             # Arriere tiroir
+            h_dos = LEGRABOX_HAUTEURS_DOS.get(hauteur_legrabox, 63.0)
             fiche.ajouter_piece(PieceInfo(
                 f"Arriere tiroir C{comp_idx+1}",
-                larg_tiroir - 2 * LEGRABOX_EP_PAROI,
-                h_cote - ep_fond_tiroir,
+                larg_int - 38, h_dos,
                 ep_dos_tiroir,
                 materiau="Panneau fond",
                 couleur_fab=config["panneau"]["couleur_fab"],

@@ -535,7 +535,7 @@ class ParamsEditor(QWidget):
         group_tiroir = QGroupBox("Tiroirs (LEGRABOX Blum)")
         form_tiroir = QFormLayout(group_tiroir)
         form_tiroir.addRow("Hauteur coulisse:", self._creer_combo(
-            "tiroir.hauteur", ["M", "K", "C", "F"]))
+            "tiroir.hauteur", ["N", "M", "K", "C", "F"]))
         form_tiroir.addRow("Jeu haut:", self._creer_spin("tiroir.jeu_haut", 0, 20, default=4))
         form_tiroir.addRow("Jeu bas:", self._creer_spin("tiroir.jeu_bas", 0, 20, default=4))
         form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20, default=2))
@@ -547,7 +547,7 @@ class ParamsEditor(QWidget):
             "tiroir.epaisseur_dos", 3, 22, default=12.5))
 
         # Info hauteurs LEGRABOX
-        info = QLabel("M=90.5  K=128.5  C=193  F=257 mm")
+        info = QLabel("N=66.5  M=90.5  K=128.5  C=193  F=257 mm")
         info.setStyleSheet("color: #666; font-size: 10px; padding: 4px;")
         form_tiroir.addRow("", info)
         layout.addWidget(group_tiroir)
