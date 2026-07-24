@@ -139,6 +139,8 @@ class ParamsEditor(QWidget):
         "porte.jeu_lateral": "Jeu lateral entre la porte et le cote du meuble, en mm",
         "porte.jeu_entre": "Jeu entre deux portes adjacentes, en mm",
         "tiroir.hauteur": "Hauteur de coulisse LEGRABOX : M=90.5, K=128.5, C=193, F=257 mm",
+        "tiroir.jeu_haut": "Jeu entre le haut du tiroir du haut et le dessus du meuble, en mm",
+        "tiroir.jeu_bas": "Jeu entre le bas du tiroir du bas et le dessous du meuble, en mm",
         "tiroir.jeu_lateral": "Jeu lateral entre le tiroir et le cote du meuble, en mm",
         "tiroir.jeu_entre": "Jeu vertical entre deux tiroirs, en mm",
         "tiroir.epaisseur_fond": "Epaisseur du panneau de fond du tiroir, en mm",
@@ -517,6 +519,8 @@ class ParamsEditor(QWidget):
         form_tiroir = QFormLayout(group_tiroir)
         form_tiroir.addRow("Hauteur coulisse:", self._creer_combo(
             "tiroir.hauteur", ["M", "K", "C", "F"]))
+        form_tiroir.addRow("Jeu haut:", self._creer_spin("tiroir.jeu_haut", 0, 20))
+        form_tiroir.addRow("Jeu bas:", self._creer_spin("tiroir.jeu_bas", 0, 20))
         form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20))
         form_tiroir.addRow("Jeu entre tiroirs:", self._creer_spin(
             "tiroir.jeu_entre", 0, 20))

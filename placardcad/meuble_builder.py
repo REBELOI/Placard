@@ -318,7 +318,18 @@ def _render_facade_groupes(
         ep_f: Epaisseur facade.
         jeu_p: Parametres porte (jeux).
     """
-    h_facade_zone = z_facade_haut - z_facade_bas
+    jeu_haut_t = config["tiroir"].get("jeu_haut", jeu_p["jeu_haut"])
+    jeu_bas_t = config["tiroir"].get("jeu_bas", jeu_p["jeu_bas"])
+
+    # Ajuster la zone si le premier/dernier groupe est un tiroir
+    z_bas_adj = z_facade_bas
+    z_haut_adj = z_facade_haut
+    if groupes and groupes[0]["type"] == "tiroir":
+        z_bas_adj = z_facade_bas - jeu_p["jeu_bas"] + jeu_bas_t
+    if groupes and groupes[-1]["type"] == "tiroir":
+        z_haut_adj = z_facade_haut + jeu_p["jeu_haut"] - jeu_haut_t
+
+    h_facade_zone = z_haut_adj - z_bas_adj
     jeu_entre_t = config["tiroir"]["jeu_entre"]
     jeu_entre_g = jeu_p["jeu_entre"]
     P = config["profondeur"]
@@ -420,7 +431,7 @@ def _render_facade_groupes(
                     gi["nb_bas"] = gi["nombre"]
 
     # --- Positionner et dessiner chaque groupe (bas -> haut) ---
-    z_current = z_facade_bas
+    z_current = z_bas_adj
 
     for gi_idx, gi in enumerate(group_infos):
         if gi_idx > 0:
@@ -1067,12 +1078,18 @@ def generer_geometrie_meuble(config: dict) -> tuple[list[Rect], FicheFabrication
             nb_tiroirs = facade["nb_tiroirs"]
             hauteur_legrabox = config["tiroir"]["hauteur"]
             jeu_entre_t = config["tiroir"]["jeu_entre"]
+            jeu_haut_t = config["tiroir"].get("jeu_haut", jeu_p["jeu_haut"])
+            jeu_bas_t = config["tiroir"].get("jeu_bas", jeu_p["jeu_bas"])
 
-            h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
+            z_tiroir_bas = z_facade_bas - jeu_p["jeu_bas"] + jeu_bas_t
+            z_tiroir_haut = z_facade_haut + jeu_p["jeu_haut"] - jeu_haut_t
+            h_tiroir_zone = z_tiroir_haut - z_tiroir_bas
+
+            h_facade_tiroir = ((h_tiroir_zone - (nb_tiroirs - 1)
                                 * jeu_entre_t) / nb_tiroirs)
 
             for t_idx in range(nb_tiroirs):
-                z_t = z_facade_bas + t_idx * (h_facade_tiroir + jeu_entre_t)
+                z_t = z_tiroir_bas + t_idx * (h_facade_tiroir + jeu_entre_t)
                 rects.append(Rect(
                     x_facade, z_t, w_facade, h_facade_tiroir,
                     couleur_facade,
@@ -1621,6 +1638,17 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
             jeu_entre_g = jeu_p["jeu_entre"]
             jeu_entre_t = config["tiroir"]["jeu_entre"]
             hauteur_defaut = config["tiroir"]["hauteur"]
+            jeu_haut_t = config["tiroir"].get("jeu_haut", jeu_p["jeu_haut"])
+            jeu_bas_t = config["tiroir"].get("jeu_bas", jeu_p["jeu_bas"])
+
+            # Ajuster la zone si premier/dernier groupe est tiroir
+            z_grp_bas = z_facade_bas
+            z_grp_haut = z_facade_haut
+            if groupes and groupes[0]["type"] == "tiroir":
+                z_grp_bas = z_facade_bas - jeu_p["jeu_bas"] + jeu_bas_t
+            if groupes and groupes[-1]["type"] == "tiroir":
+                z_grp_haut = z_facade_haut + jeu_p["jeu_haut"] - jeu_haut_t
+            h_facade_zone = z_grp_haut - z_grp_bas
 
             # Calculer les hauteurs minimales
             has_porte = any(g["type"] == "porte" for g in groupes)
@@ -1680,7 +1708,7 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
                         gi["h_haut"] = gi["h_min"]
 
             # Dessiner
-            z_cur = z_facade_bas
+            z_cur = z_grp_bas
             for gi_idx, (g, gi) in enumerate(zip(groupes, gi_list)):
                 if gi_idx > 0:
                     z_cur += jeu_entre_g
@@ -1727,10 +1755,15 @@ def generer_vue_cote_meuble(config: dict) -> list[Rect]:
             nb_tiroirs = facade_repr.get("nb_tiroirs", 0)
             if nb_tiroirs > 0:
                 jeu_entre_t = config["tiroir"]["jeu_entre"]
-                h_facade_tiroir = ((h_facade_zone - (nb_tiroirs - 1)
+                jeu_haut_t = config["tiroir"].get("jeu_haut", jeu_p["jeu_haut"])
+                jeu_bas_t = config["tiroir"].get("jeu_bas", jeu_p["jeu_bas"])
+                z_tiroir_bas = z_facade_bas - jeu_p["jeu_bas"] + jeu_bas_t
+                z_tiroir_haut = z_facade_haut + jeu_p["jeu_haut"] - jeu_haut_t
+                h_tiroir_zone = z_tiroir_haut - z_tiroir_bas
+                h_facade_tiroir = ((h_tiroir_zone - (nb_tiroirs - 1)
                                     * jeu_entre_t) / nb_tiroirs)
                 for t_idx in range(nb_tiroirs):
-                    z_t = z_facade_bas + t_idx * (h_facade_tiroir
+                    z_t = z_tiroir_bas + t_idx * (h_facade_tiroir
                                                   + jeu_entre_t)
                     rects.append(Rect(
                         -ep_f, z_t, ep_f, h_facade_tiroir,

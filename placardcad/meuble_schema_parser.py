@@ -393,6 +393,8 @@ def meuble_schema_vers_config(schema_text: str,
         # Tiroirs LEGRABOX
         "tiroir": {
             "hauteur": "M",
+            "jeu_haut": 4,
+            "jeu_bas": 4,
             "jeu_lateral": 2,
             "jeu_entre": 4,
             "epaisseur_fond": 8,

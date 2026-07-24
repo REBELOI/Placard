@@ -555,6 +555,8 @@ class ReglesAssemblage:
     jeu_porte_bas: float = 4
     jeu_porte_lateral: float = 2
     jeu_entre_portes: float = 3
+    jeu_tiroir_haut: float = 4
+    jeu_tiroir_bas: float = 4
     jeu_tiroir_lateral: float = 2
     jeu_entre_tiroirs: float = 4
     
@@ -2424,8 +2426,8 @@ class Meuble:
         
         return self
     
-    def _calculer_porte_compartiment(self, index_comp: int) -> Tuple[float, float, float, float]:
-        """Calcule largeur, hauteur, pos_y, pos_z d'une porte pour un compartiment donné."""
+    def _calculer_porte_compartiment(self, index_comp: int, pour_tiroir: bool = False) -> Tuple[float, float, float, float]:
+        """Calcule largeur, hauteur, pos_y, pos_z d'une facade pour un compartiment donné."""
         if not self.compartiments:
             self._creer_compartiment_unique()
         
@@ -2435,10 +2437,13 @@ class Meuble:
         nb_comp = len(self.compartiments)
         ep_sep = r.config_separations.epaisseur
         comp = self.compartiments[index_comp]
-        
+
+        jeu_h = r.jeu_tiroir_haut if pour_tiroir else r.jeu_porte_haut
+        jeu_b = r.jeu_tiroir_bas if pour_tiroir else r.jeu_porte_bas
+
         is_premier = (index_comp == 0)
         is_dernier = (index_comp == nb_comp - 1)
-        
+
         if r.type_pose == TypePose.EN_APPLIQUE:
             rec = spec.recouvrement_applique
             
@@ -2458,9 +2463,9 @@ class Meuble:
             
             largeur = comp.largeur + rec_g + rec_d - jeu_g - jeu_d
             pos_y = comp.position_y - rec_g + jeu_g
-            hauteur = self.hauteur_corps - r.jeu_porte_haut - r.jeu_porte_bas
-            pos_z = self.hauteur_plinthe + r.jeu_porte_bas
-            
+            hauteur = self.hauteur_corps - jeu_h - jeu_b
+            pos_z = self.hauteur_plinthe + jeu_b
+
         elif r.type_pose == TypePose.SEMI_APPLIQUE:
             rec = spec.recouvrement_semi_applique
             
@@ -2480,9 +2485,9 @@ class Meuble:
             
             largeur = comp.largeur + rec_g + rec_d - jeu_g - jeu_d
             pos_y = comp.position_y - rec_g + jeu_g
-            hauteur = self.hauteur_corps - r.jeu_porte_haut - r.jeu_porte_bas
-            pos_z = self.hauteur_plinthe + r.jeu_porte_bas
-            
+            hauteur = self.hauteur_corps - jeu_h - jeu_b
+            pos_z = self.hauteur_plinthe + jeu_b
+
         else:  # ENCLOISONNEE
             jeu_encl = spec.jeu_encloisonnee
             jeu_g = jeu_encl if is_premier else r.jeu_entre_portes / 2
@@ -2490,8 +2495,8 @@ class Meuble:
             
             largeur = comp.largeur - jeu_g - jeu_d
             pos_y = comp.position_y + jeu_g
-            hauteur = self.hauteur_corps - 2 * ep - r.jeu_porte_haut - r.jeu_porte_bas
-            pos_z = self.hauteur_plinthe + ep + r.jeu_porte_bas
+            hauteur = self.hauteur_corps - 2 * ep - jeu_h - jeu_b
+            pos_z = self.hauteur_plinthe + ep + jeu_b
         
         return largeur, hauteur, pos_y, pos_z
     
@@ -2570,14 +2575,14 @@ class Meuble:
         r = self.regles
         h_cote = hauteur_cote or r.legrabox_hauteur
         
-        largeur_facade_calc, hauteur_dispo, pos_y, pos_z_base = self._calculer_porte_compartiment(index_compartiment)
-        
+        largeur_facade_calc, hauteur_dispo, pos_y, pos_z_base = self._calculer_porte_compartiment(index_compartiment, pour_tiroir=True)
+
         # Position X : identique aux portes
         if r.type_pose == TypePose.ENCLOISONNEE:
             pos_x = self.profondeur_corps - self.epaisseur_facade
         else:
             pos_x = self.profondeur_corps
-        
+
         jeu_entre = r.jeu_entre_tiroirs
         h_facade = hauteur_facade or (hauteur_dispo - (nombre - 1) * jeu_entre) / nombre
         
