@@ -383,6 +383,7 @@ def meuble_schema_vers_config(schema_text: str,
         "dessus": {
             "type": "traverses",       # "plein" ou "traverses"
             "largeur_traverse": 100,   # mm (profondeur de chaque traverse)
+            "retrait_arriere": 0,      # mm - retrait depuis le dos du meuble
         },
 
         # Dessous

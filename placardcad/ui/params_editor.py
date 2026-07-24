@@ -121,6 +121,7 @@ class ParamsEditor(QWidget):
         "facade.couleur_fab": "Reference couleur/decor des facades (portes et tiroirs)",
         "dessus.type": "Type de dessus : traverses (2 bandes avant/arriere) ou plein (panneau complet)",
         "dessus.largeur_traverse": "Largeur des traverses du dessus, en mm",
+        "dessus.retrait_arriere": "Retrait du dessus par rapport au dos du meuble, en mm",
         "dessous.retrait_arriere": "Recul du panneau du dessous par rapport a l'arriere, en mm",
         "fond.type": "Mode de fixation du fond : rainure, vissage ou applique",
         "fond.epaisseur": "Epaisseur du panneau de fond, en mm",
@@ -474,7 +475,9 @@ class ParamsEditor(QWidget):
         form_dessus.addRow("Type:", self._creer_combo(
             "dessus.type", ["traverses", "plein"]))
         form_dessus.addRow("Largeur traverse:", self._creer_spin(
-            "dessus.largeur_traverse", 50, 300))
+            "dessus.largeur_traverse", 50, 300, default=100))
+        form_dessus.addRow("Retrait arriere:", self._creer_spin(
+            "dessus.retrait_arriere", 0, 200, default=0))
         layout.addWidget(group_dessus)
 
         # Dessous
