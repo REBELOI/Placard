@@ -395,6 +395,8 @@ def meuble_schema_vers_config(schema_text: str,
             "hauteur": "M",
             "jeu_lateral": 2,
             "jeu_entre": 4,
+            "epaisseur_fond": 8,
+            "epaisseur_dos": 12.5,
         },
 
         # Portes

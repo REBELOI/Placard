@@ -1393,7 +1393,9 @@ class TiroirLegrabox:
     couleur_facade: Tuple[float, float, float] = (0.9, 0.9, 0.9)
     couleur_legrabox: Tuple[float, float, float] = (0.7, 0.7, 0.72)
     couleur_fond: Tuple[float, float, float] = (0.85, 0.85, 0.85)
-    
+    ep_fond: float = 8.0
+    ep_dos: float = 12.5
+
     @property
     def largeur_tiroir(self) -> float:
         return self.largeur_interieure - LegraboxSpec.jeu_total_lateral - 2 * LegraboxSpec.epaisseur_paroi
@@ -1448,7 +1450,7 @@ class TiroirLegrabox:
         objets.append(obj_pd)
         
         # Fond
-        fond = Part.makeBox(longueur - 10, self.largeur_tiroir, LegraboxSpec.epaisseur_fond_standard)
+        fond = Part.makeBox(longueur - 10, self.largeur_tiroir, self.ep_fond)
         fond.translate(App.Vector(pos_tiroir_x + 5, pos_tiroir_y + LegraboxSpec.epaisseur_paroi, pos_tiroir_z))
         obj_fond = gestionnaire.get_ou_creer_objet(f"{nom_base}_fond")
         gestionnaire.mettre_a_jour_shape(obj_fond, fond)
@@ -1456,7 +1458,7 @@ class TiroirLegrabox:
         objets.append(obj_fond)
         
         # Arrière
-        arriere = Part.makeBox(LegraboxSpec.epaisseur_paroi, self.largeur_tiroir, hauteur_paroi)
+        arriere = Part.makeBox(self.ep_dos, self.largeur_tiroir, hauteur_paroi)
         arriere.translate(App.Vector(
             pos_tiroir_x + longueur - LegraboxSpec.epaisseur_paroi - 5,
             pos_tiroir_y + LegraboxSpec.epaisseur_paroi,

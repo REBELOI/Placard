@@ -141,6 +141,8 @@ class ParamsEditor(QWidget):
         "tiroir.hauteur": "Hauteur de coulisse LEGRABOX : M=90.5, K=128.5, C=193, F=257 mm",
         "tiroir.jeu_lateral": "Jeu lateral entre le tiroir et le cote du meuble, en mm",
         "tiroir.jeu_entre": "Jeu vertical entre deux tiroirs, en mm",
+        "tiroir.epaisseur_fond": "Epaisseur du panneau de fond du tiroir, en mm",
+        "tiroir.epaisseur_dos": "Epaisseur du panneau arriere (dos) du tiroir, en mm",
         "poignee.modele": "Modele de poignee : baton inox ou aucune",
         "poignee.entraxe": "Distance entre les deux vis de fixation de la poignee, en mm",
         "poignee.distance_haut": "Distance entre le haut de la facade et l'axe de la poignee, en mm",
@@ -518,6 +520,10 @@ class ParamsEditor(QWidget):
         form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20))
         form_tiroir.addRow("Jeu entre tiroirs:", self._creer_spin(
             "tiroir.jeu_entre", 0, 20))
+        form_tiroir.addRow("Epaisseur fond:", self._creer_spin(
+            "tiroir.epaisseur_fond", 3, 22))
+        form_tiroir.addRow("Epaisseur dos:", self._creer_dspin(
+            "tiroir.epaisseur_dos", 3, 22))
 
         # Info hauteurs LEGRABOX
         info = QLabel("M=90.5  K=128.5  C=193  F=257 mm")
