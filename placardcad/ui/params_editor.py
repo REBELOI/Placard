@@ -174,6 +174,7 @@ class ParamsEditor(QWidget):
         self.db = db
         self._params = {}
         self._widgets = {}
+        self._defaults = {}
         self._blocked = False
         self._mode = "Placard"
         self._init_ui()
@@ -233,6 +234,7 @@ class ParamsEditor(QWidget):
             self.tabs.removeTab(0)
             w.deleteLater()
         self._widgets.clear()
+        self._defaults.clear()
         # Bloquer les signaux pendant la reconstruction
         self._blocked = True
         try:
@@ -262,21 +264,28 @@ class ParamsEditor(QWidget):
             widget.setToolTip(tip)
 
     def _creer_spin(self, key: str, minimum: int = 0, maximum: int = 10000,
-                    suffix: str = " mm") -> QSpinBox:
+                    suffix: str = " mm", default: int = None) -> QSpinBox:
         spin = QSpinBox()
         spin.setRange(minimum, maximum)
         spin.setSuffix(suffix)
+        if default is not None:
+            spin.setValue(default)
+        self._defaults[key] = default if default is not None else minimum
         spin.valueChanged.connect(self._on_value_changed)
         self._widgets[key] = spin
         self._appliquer_tooltip(spin, key)
         return spin
 
     def _creer_dspin(self, key: str, minimum: float = 0, maximum: float = 100,
-                     suffix: str = " mm", decimals: int = 1) -> QDoubleSpinBox:
+                     suffix: str = " mm", decimals: int = 1,
+                     default: float = None) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
         spin.setRange(minimum, maximum)
         spin.setSuffix(suffix)
         spin.setDecimals(decimals)
+        if default is not None:
+            spin.setValue(default)
+        self._defaults[key] = default if default is not None else minimum
         spin.valueChanged.connect(self._on_value_changed)
         self._widgets[key] = spin
         self._appliquer_tooltip(spin, key)
@@ -286,6 +295,7 @@ class ParamsEditor(QWidget):
         chk = QCheckBox(label)
         chk.stateChanged.connect(self._on_value_changed)
         self._widgets[key] = chk
+        self._defaults[key] = False
         self._appliquer_tooltip(chk, key)
         return chk
 
@@ -293,6 +303,7 @@ class ParamsEditor(QWidget):
         edit = QLineEdit()
         edit.textChanged.connect(self._on_value_changed)
         self._widgets[key] = edit
+        self._defaults[key] = ""
         self._appliquer_tooltip(edit, key)
         return edit
 
@@ -301,6 +312,7 @@ class ParamsEditor(QWidget):
         combo.addItems(options)
         combo.currentTextChanged.connect(self._on_value_changed)
         self._widgets[key] = combo
+        self._defaults[key] = options[0] if options else ""
         self._appliquer_tooltip(combo, key)
         return combo
 
@@ -508,10 +520,10 @@ class ParamsEditor(QWidget):
         # Portes
         group_porte = QGroupBox("Portes (charnieres CLIP top)")
         form_porte = QFormLayout(group_porte)
-        form_porte.addRow("Jeu haut:", self._creer_spin("porte.jeu_haut", 0, 20))
-        form_porte.addRow("Jeu bas:", self._creer_spin("porte.jeu_bas", 0, 20))
-        form_porte.addRow("Jeu lateral:", self._creer_spin("porte.jeu_lateral", 0, 20))
-        form_porte.addRow("Jeu entre portes:", self._creer_spin("porte.jeu_entre", 0, 20))
+        form_porte.addRow("Jeu haut:", self._creer_spin("porte.jeu_haut", 0, 20, default=4))
+        form_porte.addRow("Jeu bas:", self._creer_spin("porte.jeu_bas", 0, 20, default=4))
+        form_porte.addRow("Jeu lateral:", self._creer_spin("porte.jeu_lateral", 0, 20, default=2))
+        form_porte.addRow("Jeu entre portes:", self._creer_spin("porte.jeu_entre", 0, 20, default=3))
         layout.addWidget(group_porte)
 
         # Tiroirs
@@ -519,15 +531,15 @@ class ParamsEditor(QWidget):
         form_tiroir = QFormLayout(group_tiroir)
         form_tiroir.addRow("Hauteur coulisse:", self._creer_combo(
             "tiroir.hauteur", ["M", "K", "C", "F"]))
-        form_tiroir.addRow("Jeu haut:", self._creer_spin("tiroir.jeu_haut", 0, 20))
-        form_tiroir.addRow("Jeu bas:", self._creer_spin("tiroir.jeu_bas", 0, 20))
-        form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20))
+        form_tiroir.addRow("Jeu haut:", self._creer_spin("tiroir.jeu_haut", 0, 20, default=4))
+        form_tiroir.addRow("Jeu bas:", self._creer_spin("tiroir.jeu_bas", 0, 20, default=4))
+        form_tiroir.addRow("Jeu lateral:", self._creer_spin("tiroir.jeu_lateral", 0, 20, default=2))
         form_tiroir.addRow("Jeu entre tiroirs:", self._creer_spin(
-            "tiroir.jeu_entre", 0, 20))
+            "tiroir.jeu_entre", 0, 20, default=4))
         form_tiroir.addRow("Epaisseur fond:", self._creer_spin(
-            "tiroir.epaisseur_fond", 3, 22))
+            "tiroir.epaisseur_fond", 3, 22, default=8))
         form_tiroir.addRow("Epaisseur dos:", self._creer_dspin(
-            "tiroir.epaisseur_dos", 3, 22))
+            "tiroir.epaisseur_dos", 3, 22, default=12.5))
 
         # Info hauteurs LEGRABOX
         info = QLabel("M=90.5  K=128.5  C=193  F=257 mm")
@@ -673,6 +685,7 @@ class ParamsEditor(QWidget):
         combo.currentTextChanged.connect(
             lambda text, k=key, g=group: self._on_materiau_change(k, text, g))
         self._widgets[key] = combo
+        self._defaults[key] = noms_materiaux[0] if noms_materiaux else ""
         self._appliquer_tooltip(combo, key)
         row1.addWidget(QLabel("Materiau:"))
         row1.addWidget(combo, 1)
@@ -1280,13 +1293,20 @@ class ParamsEditor(QWidget):
         return dict(self._params)
 
     def _ecrire_params_vers_widgets(self):
-        """Ecrit les valeurs des params dans les widgets."""
+        """Ecrit les valeurs des params dans les widgets.
+
+        Si une cle est absente des params, le widget est remis a sa
+        valeur par defaut pour eviter de conserver les valeurs de
+        l'amenagement precedent.
+        """
         for key, widget in self._widgets.items():
             if sip.isdeleted(widget):
                 continue
             value = self._get_nested(self._params, key)
             if value is None:
-                continue
+                value = self._defaults.get(key)
+                if value is None:
+                    continue
             if isinstance(widget, QComboBox):
                 idx = widget.findText(str(value))
                 if idx >= 0:
